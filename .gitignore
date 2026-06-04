@@ -1,0 +1,49 @@
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# Next.js
+/.next/
+/out/
+next-env.d.ts
+
+# Production build
+/build
+
+# Misc
+.DS_Store
+*.pem
+Thumbs.db
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local env files (NUNCA versionar segredos)
+.env
+.env*.local
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Prisma - banco de desenvolvimento (recriado via migrate + seed)
+/prisma/dev.db
+/prisma/dev.db-journal
+*.db
+*.db-journal
+
+# Logs internos / temporarios
+/scripts/.start.log
+/scripts/.start.err.log
+
+# Dados de importacao (planilhas locais) - manter apenas a estrutura de pastas
+/imports/**/*.xlsx
+/imports/**/*.xls
+/imports/**/*.csv
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea

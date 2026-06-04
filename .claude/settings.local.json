@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell(Get-Command npx -ErrorAction SilentlyContinue)",
+      "PowerShell($env:PATH; Write-Host \"---\"; Get-ChildItem \"C:\\\\Program Files\\\\nodejs\" -ErrorAction SilentlyContinue; Get-ChildItem \"C:\\\\Program Files \\(x86\\)\\\\nodejs\" -ErrorAction SilentlyContinue; Get-ChildItem \"$env:APPDATA\\\\npm\" -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\" -Directory | Select-Object Name; Test-Path \"$env:USERPROFILE\\\\.nvm\"; Test-Path \"$env:USERPROFILE\\\\scoop\"; Test-Path \"C:\\\\nvm\")",
+      "PowerShell(npx prisma generate; Write-Host \"=== MIGRATE STATUS ===\"; npx prisma migrate status)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Get-CimInstance *)",
+      "PowerShell(foreach \\($port in 3000,3001\\) { try { $r = Invoke-WebRequest \"http://localhost:$port/login\" -UseBasicParsing -TimeoutSec 8; Write-Host \"Porta $port -> HTTP $\\($r.StatusCode\\), $\\($r.RawContentLength\\) bytes\" } catch { Write-Host \"Porta $port -> ERRO: $\\($_.Exception.Message\\)\" } })",
+      "PowerShell(npx prisma db seed)",
+      "PowerShell(npm run *)",
+      "PowerShell(Start-Process -FilePath \"npm\" -ArgumentList \"run\",\"start\" -NoNewWindow -RedirectStandardOutput \"scripts\\\\.start.log\" -RedirectStandardError \"scripts\\\\.start.err.log\"; Write-Host \"Servidor iniciando em background...\")",
+      "Bash(npm run *)",
+      "Bash(echo \"started bg, pid $!\")"
+    ]
+  }
+}

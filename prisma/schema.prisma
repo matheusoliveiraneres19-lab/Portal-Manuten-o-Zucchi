@@ -1,0 +1,422 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  GESTOR
+  TECNICO
+  COMPRAS
+  VISUALIZADOR
+}
+
+enum UserStatus {
+  ATIVO
+  INATIVO
+}
+
+enum Criticality {
+  BAIXA
+  MEDIA
+  ALTA
+  CRITICA
+}
+
+enum EquipmentStatus {
+  OPERANDO
+  EM_MANUTENCAO
+  PARADO
+  INATIVO
+}
+
+enum MaintenanceType {
+  CORRETIVA
+  PREVENTIVA
+  PREDITIVA
+  MELHORIA
+  INSPECAO
+}
+
+enum MaintenanceArea {
+  MECANICA
+  ELETRICA
+  LUBRIFICACAO
+  PCM
+  OPERACIONAL
+}
+
+enum ServiceOrderStatus {
+  ABERTA
+  LIBERADA
+  EM_ANDAMENTO
+  AGUARDANDO_MATERIAL
+  FECHADA
+  CANCELADA
+}
+
+enum Priority {
+  BAIXA
+  MEDIA
+  ALTA
+  CRITICA
+}
+
+enum PurchaseStatus {
+  SOLICITADA
+  EM_COTACAO
+  APROVADA
+  COMPRADA
+  ENTREGUE
+  ATRASADA
+  CANCELADA
+}
+
+enum MaterialMovementType {
+  ENTRADA
+  SAIDA
+  AJUSTE
+}
+
+enum LubricantMovementType {
+  COMPRA
+  CONSUMO
+  AJUSTE
+}
+
+enum AlertType {
+  QUEBRA_RECORRENTE
+  COMPRA_ATRASADA
+  ESTOQUE_BAIXO
+  OS_ATRASADA
+  HORAS_ABAIXO_META
+  LUBRIFICANTE_BAIXO
+  TEMPERATURA
+  VIBRACAO
+  PRESSAO
+  EQUIPAMENTO_PARADO
+}
+
+enum AlertStatus {
+  ABERTO
+  EM_ANALISE
+  RESOLVIDO
+  CANCELADO
+}
+
+enum ProcedureCategory {
+  MECANICA
+  ELETRICA
+  LUBRIFICACAO
+  SEGURANCA
+  PCM
+  OPERACIONAL
+  OUTROS
+}
+
+enum ImportType {
+  ORDENS_SERVICO
+  COMPRAS
+  MATERIAIS
+  LUBRIFICANTES
+  HORAS_APONTADAS
+  EQUIPAMENTOS
+  PROCEDIMENTOS
+}
+
+enum ImportStatus {
+  SUCESSO
+  PARCIAL
+  ERRO
+  EM_PROCESSAMENTO
+}
+
+enum DataSource {
+  MANUAL
+  SAP
+  EXCEL
+  SISTEMA
+}
+
+model User {
+  id           String      @id @default(cuid())
+  name         String
+  login        String      @unique
+  email        String?     @unique
+  /// Use bcrypt ou algoritmo equivalente antes de gravar senhas em producao.
+  passwordHash String?
+  role         Role        @default(VISUALIZADOR)
+  status       UserStatus  @default(ATIVO)
+  position     String?
+  sector       String?
+  lastAccess   DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  timeEntries  TimeEntry[]
+
+  @@index([name])
+  @@index([login])
+  @@index([role])
+  @@index([status])
+}
+
+model Equipment {
+  id                 String              @id @default(cuid())
+  name               String
+  code               String              @unique
+  sector             String?
+  location           String?
+  manufacturer       String?
+  model              String?
+  status             EquipmentStatus     @default(OPERANDO)
+  criticality        Criticality         @default(MEDIA)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  serviceOrders      ServiceOrder[]
+  alerts             Alert[]
+  purchases          Purchase[]
+  materialMovements  MaterialMovement[]
+  lubricantMovements LubricantMovement[]
+
+  @@index([code])
+  @@index([name])
+  @@index([status])
+  @@index([criticality])
+}
+
+model ServiceOrder {
+  id                 String             @id @default(cuid())
+  osNumber           String             @unique
+  title              String
+  description        String?
+  status             ServiceOrderStatus @default(ABERTA)
+  statusSapRaw       String?
+  type               MaintenanceType?
+  area               MaintenanceArea?
+  priority           Priority?          @default(MEDIA)
+  responsible        String?
+  responsibleName    String?
+  responsibleId      String?
+  equipmentId        String?
+  equipment          Equipment?         @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  equipmentCode      String?
+  equipmentName      String?
+  technicalObjectRaw String?
+  planningGroup      String?
+  planningGroupCode  String?
+  openedAt           DateTime?
+  closedAt           DateTime?
+  workedHours        Float?
+  downtimeHours      Float?
+  operation          String?
+  operationCode      String?
+  failureCause       String?
+  solution           String?
+  source             DataSource         @default(MANUAL)
+  importBatch        String?
+  dataQualityIssue   String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  timeEntries        TimeEntry[]
+
+  @@index([osNumber])
+  @@index([status])
+  @@index([type])
+  @@index([area])
+  @@index([openedAt])
+  @@index([responsibleName])
+  @@index([equipmentId])
+  @@index([equipmentCode])
+  @@index([planningGroup])
+}
+
+model Purchase {
+  id           String         @id @default(cuid())
+  item         String
+  materialCode String?
+  supplier     String?
+  status       PurchaseStatus @default(SOLICITADA)
+  priority     Priority       @default(MEDIA)
+  quantity     Float?
+  unitValue    Float?
+  totalValue   Float?
+  requestDate  DateTime?
+  purchaseDate DateTime?
+  expectedDate DateTime?
+  requester    String?
+  equipmentId  String?
+  equipment    Equipment?     @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([status])
+  @@index([materialCode])
+  @@index([supplier])
+  @@index([expectedDate])
+  @@index([equipmentId])
+}
+
+model Material {
+  id           String             @id @default(cuid())
+  name         String
+  code         String             @unique
+  category     String?
+  unit         String
+  currentStock Float              @default(0)
+  minimumStock Float              @default(0)
+  averageValue Float?
+  criticality  Criticality        @default(MEDIA)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  movements    MaterialMovement[]
+
+  @@index([code])
+  @@index([name])
+  @@index([category])
+  @@index([criticality])
+}
+
+model MaterialMovement {
+  id           String               @id @default(cuid())
+  materialId   String
+  material     Material             @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  equipmentId  String?
+  equipment    Equipment?           @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  type         MaterialMovementType
+  quantity     Float
+  unitValue    Float?
+  totalValue   Float?
+  movementDate DateTime
+  responsible  String?
+  observation  String?
+  createdAt    DateTime             @default(now())
+
+  @@index([materialId])
+  @@index([equipmentId])
+  @@index([type])
+  @@index([movementDate])
+}
+
+model Lubricant {
+  id           String              @id @default(cuid())
+  name         String
+  code         String              @unique
+  type         String?
+  unit         String
+  currentStock Float               @default(0)
+  minimumStock Float               @default(0)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  movements    LubricantMovement[]
+
+  @@index([code])
+  @@index([name])
+}
+
+model LubricantMovement {
+  id           String                @id @default(cuid())
+  lubricantId  String
+  lubricant    Lubricant             @relation(fields: [lubricantId], references: [id], onDelete: Restrict)
+  equipmentId  String?
+  equipment    Equipment?            @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  type         LubricantMovementType
+  quantity     Float
+  movementDate DateTime
+  responsible  String?
+  observation  String?
+  createdAt    DateTime              @default(now())
+
+  @@index([lubricantId])
+  @@index([equipmentId])
+  @@index([type])
+  @@index([movementDate])
+}
+
+model Alert {
+  id          String      @id @default(cuid())
+  title       String
+  description String
+  type        AlertType
+  severity    Priority    @default(MEDIA)
+  status      AlertStatus @default(ABERTO)
+  equipmentId String?
+  equipment   Equipment?  @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([type])
+  @@index([severity])
+  @@index([status])
+  @@index([equipmentId])
+}
+
+model TimeEntry {
+  id             String        @id @default(cuid())
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userName       String
+  serviceOrderId String?
+  serviceOrder   ServiceOrder? @relation(fields: [serviceOrderId], references: [id], onDelete: SetNull)
+  osNumber       String?
+  workDate       DateTime
+  hours          Float
+  weeklyGoal     Float?
+  monthlyGoal    Float?
+  observation    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([userName])
+  @@index([osNumber])
+  @@index([workDate])
+  @@index([serviceOrderId])
+}
+
+model Procedure {
+  id          String            @id @default(cuid())
+  title       String
+  description String?
+  category    ProcedureCategory
+  version     String            @default("1.0")
+  fileUrl     String?
+  active      Boolean           @default(true)
+  responsible String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([category])
+  @@index([active])
+  @@index([title])
+}
+
+model ImportHistory {
+  id           String       @id @default(cuid())
+  type         ImportType
+  fileName     String
+  importedBy   String?
+  totalRows    Int          @default(0)
+  createdRows  Int          @default(0)
+  updatedRows  Int          @default(0)
+  errorRows    Int          @default(0)
+  status       ImportStatus
+  errorMessage String?
+  createdAt    DateTime     @default(now())
+
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model SystemConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
