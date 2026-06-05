@@ -5,7 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { CalendarRange, ShieldAlert } from "lucide-react";
 import { formatPeriodRange } from "@/utils/period";
 import { CriticalEquipmentDetailsDrawer } from "@/components/critical-equipments/CriticalEquipmentDetailsDrawer";
-import type { CriticalEquipmentDetails } from "@/types/critical-equipments";
+import { EquipmentHoursByResponsibleModal } from "@/components/critical-equipments/EquipmentHoursByResponsibleModal";
+import type { CriticalEquipmentDetails, EquipmentHoursByResponsible } from "@/types/critical-equipments";
 import {
   ActiveFilterChips,
   type ActiveFilterChip
@@ -50,6 +51,13 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const requestRef = useRef(0);
+
+  // Mini-modal de horas por responsável (gráfico "Esforço de manutenção").
+  const [hoursOpen, setHoursOpen] = useState(false);
+  const [hoursData, setHoursData] = useState<EquipmentHoursByResponsible | null>(null);
+  const [hoursLoading, setHoursLoading] = useState(false);
+  const [hoursError, setHoursError] = useState<string | null>(null);
+  const hoursRequestRef = useRef(0);
 
   const appliedSignature = JSON.stringify(appliedFilters);
 
@@ -119,6 +127,46 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
     setSelectedId(null);
   }
 
+  function openHoursByResponsible(id: string) {
+    const requestId = hoursRequestRef.current + 1;
+    hoursRequestRef.current = requestId;
+    setHoursOpen(true);
+    setHoursData(null);
+    setHoursError(null);
+    setHoursLoading(true);
+
+    const params = filtersToParams(appliedFilters);
+    params.set("id", id);
+
+    fetch(`/api/critical-equipments/hours-by-responsible?${params.toString()}`)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("request failed");
+        }
+        return (await response.json()) as EquipmentHoursByResponsible;
+      })
+      .then((data) => {
+        if (hoursRequestRef.current === requestId) {
+          setHoursData(data);
+        }
+      })
+      .catch(() => {
+        if (hoursRequestRef.current === requestId) {
+          setHoursError("Não foi possível carregar as horas deste equipamento no momento.");
+        }
+      })
+      .finally(() => {
+        if (hoursRequestRef.current === requestId) {
+          setHoursLoading(false);
+        }
+      });
+  }
+
+  function closeHours() {
+    hoursRequestRef.current += 1;
+    setHoursOpen(false);
+  }
+
   const chips = useMemo(
     () => buildChips(appliedFilters, (next) => navigate(next)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -178,9 +226,14 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
         <>
           <CriticalEquipmentKpiCards summary={data.summary} />
 
+          <p className="text-[11px] text-zinc-500">
+            <span className="font-semibold text-gold">Dica:</span> clique em um equipamento nos gráficos ou na tabela
+            para visualizar as ordens vinculadas.
+          </p>
+
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-            <CriticalEquipmentRankingChart items={data.ranking} />
-            <CriticalEquipmentHoursChart items={data.hours} />
+            <CriticalEquipmentRankingChart items={data.ranking} selectedId={selectedId} onSelect={openDetails} />
+            <CriticalEquipmentHoursChart items={data.hours} onSelect={openHoursByResponsible} />
             <CriticalEquipmentTrendChart points={data.trend} />
             <CriticalEquipmentStatusChart slices={data.statusDistribution} />
           </section>
@@ -195,6 +248,14 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
         error={detailsError}
         details={details}
         onClose={closeDetails}
+      />
+
+      <EquipmentHoursByResponsibleModal
+        open={hoursOpen}
+        loading={hoursLoading}
+        error={hoursError}
+        data={hoursData}
+        onClose={closeHours}
       />
     </section>
   );

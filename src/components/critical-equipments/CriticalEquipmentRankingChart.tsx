@@ -7,10 +7,13 @@ import type { CriticalEquipmentItem } from "@/types/critical-equipments";
 
 type CriticalEquipmentRankingChartProps = {
   items: CriticalEquipmentItem[];
+  selectedId?: string | null;
+  onSelect?: (id: string) => void;
 };
 
-export function CriticalEquipmentRankingChart({ items }: CriticalEquipmentRankingChartProps) {
+export function CriticalEquipmentRankingChart({ items, selectedId, onSelect }: CriticalEquipmentRankingChartProps) {
   const data = items.map((item) => ({
+    id: item.id,
     name: item.equipmentName,
     value: item.totalOrders,
     score: item.criticalityScore,
@@ -20,6 +23,12 @@ export function CriticalEquipmentRankingChart({ items }: CriticalEquipmentRankin
 
   const height = Math.max(220, data.length * 40 + 24);
 
+  function handleSelect(payload: { id?: string } | undefined) {
+    if (onSelect && payload?.id) {
+      onSelect(payload.id);
+    }
+  }
+
   return (
     <article className="panel rounded-lg p-4 xl:col-span-7">
       <div className="mb-1 flex items-center justify-between gap-3">
@@ -28,7 +37,9 @@ export function CriticalEquipmentRankingChart({ items }: CriticalEquipmentRankin
         </h3>
         <Legend />
       </div>
-      <p className="mb-3 text-[11px] text-zinc-500">Quantidade de ordens de manutenção no período (cor = criticidade).</p>
+      <p className="mb-3 text-[11px] text-zinc-500">
+        Quantidade de ordens no período (cor = criticidade). Clique para ver as ordens deste equipamento.
+      </p>
 
       {data.length === 0 ? (
         <EmptyState
@@ -54,9 +65,21 @@ export function CriticalEquipmentRankingChart({ items }: CriticalEquipmentRankin
                   "Ordens"
                 ]}
               />
-              <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={20}>
+              <Bar
+                dataKey="value"
+                radius={[0, 4, 4, 0]}
+                barSize={20}
+                onClick={(entry: { id?: string }) => handleSelect(entry)}
+                className={onSelect ? "cursor-pointer" : undefined}
+              >
                 {data.map((entry) => (
-                  <Cell key={entry.name} fill={entry.color} />
+                  <Cell
+                    key={entry.name}
+                    fill={entry.color}
+                    stroke={selectedId === entry.id ? "#0a0b0b" : undefined}
+                    strokeWidth={selectedId === entry.id ? 2 : 0}
+                    fillOpacity={selectedId && selectedId !== entry.id ? 0.55 : 1}
+                  />
                 ))}
                 <LabelList dataKey="value" position="right" className="fill-zinc-700" style={{ fontSize: 11 }} />
               </Bar>

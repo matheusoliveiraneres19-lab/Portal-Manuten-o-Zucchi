@@ -65,24 +65,61 @@ export type CriticalEquipmentStatusSlice = {
 };
 
 export type CriticalEquipmentHoursPoint = {
+  id: string;
   equipmentName: string;
   equipmentCode: string;
   totalWorkedHours: number;
 };
 
+/** Ordem de manutenção com todos os campos exibíveis no detalhe. */
+export type CriticalEquipmentServiceOrder = {
+  id: string;
+  osNumber: string;
+  title: string;
+  description: string | null;
+  status: ServiceOrderStatusLabel;
+  openedAt: string | null;
+  closedAt: string | null;
+  workedHours: number | null;
+  responsibleName: string | null;
+  planningGroup: string | null;
+  operation: string | null;
+  equipmentName: string | null;
+  equipmentCode: string | null;
+  technicalObjectRaw: string | null;
+  failureCause: string | null;
+  solution: string | null;
+  source: string | null;
+  importBatch: string | null;
+};
+
+export type CriticalEquipmentResponsibleStat = {
+  name: string;
+  count: number;
+  hours: number;
+};
+
 export type CriticalEquipmentDetails = {
   item: CriticalEquipmentItem;
-  lastOrders: Array<{
-    osNumber: string;
-    title: string;
-    status: ServiceOrderStatusLabel;
-    openedAt: string | null;
-    workedHours: number | null;
-    operation: string | null;
-  }>;
-  responsibleBreakdown: Array<{ name: string; count: number }>;
-  planningGroupBreakdown: Array<{ name: string; count: number }>;
   statusDistribution: CriticalEquipmentStatusSlice[];
+  frequentResponsibles: CriticalEquipmentResponsibleStat[];
+  planningGroupBreakdown: Array<{ name: string; count: number }>;
+  /** Todas as ordens vinculadas ao equipamento no período. */
+  serviceOrders: CriticalEquipmentServiceOrder[];
+};
+
+export type EquipmentHoursResponsible = {
+  name: string;
+  totalHours: number;
+  totalOrders: number;
+  participationPercent: number;
+};
+
+export type EquipmentHoursByResponsible = {
+  equipmentName: string;
+  equipmentCode: string;
+  totalWorkedHours: number;
+  responsibles: EquipmentHoursResponsible[];
 };
 
 /** Opções para os multiselects de filtro. */

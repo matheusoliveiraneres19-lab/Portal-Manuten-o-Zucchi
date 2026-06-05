@@ -7,12 +7,14 @@ import type {
   CriticalEquipmentFilters,
   CriticalEquipmentHoursPoint,
   CriticalEquipmentItem,
+  CriticalEquipmentServiceOrder,
   CriticalEquipmentStatusSlice,
   CriticalEquipmentSummary,
   CriticalEquipmentTrendPoint,
   CriticalEquipmentsPageData,
   CriticalityLabel,
-  CriticalityScoreInput
+  CriticalityScoreInput,
+  EquipmentHoursByResponsible
 } from "@/types/critical-equipments";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
 
@@ -60,6 +62,17 @@ type ServiceOrderRow = {
   title: string;
   osNumber: string;
   operation: string | null;
+};
+
+type ServiceOrderFullRow = ServiceOrderRow & {
+  id: string;
+  description: string | null;
+  closedAt: Date | null;
+  technicalObjectRaw: string | null;
+  failureCause: string | null;
+  solution: string | null;
+  source: string | null;
+  importBatch: string | null;
 };
 
 /* ------------------------------------------------------------------ */
@@ -123,7 +136,7 @@ export async function getCriticalEquipmentDetails(
   equipmentId: string,
   params: Partial<CriticalEquipmentFilters> = {}
 ): Promise<CriticalEquipmentDetails | null> {
-  const rows = await fetchRows(params);
+  const rows = await fetchRowsFull(params);
   const groupRows = rows.filter((row) => resolveCode(row) === equipmentId);
 
   if (!groupRows.length) {
@@ -137,25 +150,139 @@ export async function getCriticalEquipmentDetails(
     return null;
   }
 
-  const lastOrders = [...groupRows]
+  const serviceOrders: CriticalEquipmentServiceOrder[] = [...groupRows]
     .sort((a, b) => (b.openedAt?.getTime() ?? 0) - (a.openedAt?.getTime() ?? 0))
-    .slice(0, 10)
     .map((row) => ({
+      id: row.id,
       osNumber: row.osNumber,
       title: row.title,
+      description: row.description,
       status: row.status as ServiceOrderStatusLabel,
       openedAt: row.openedAt?.toISOString() ?? null,
+      closedAt: row.closedAt?.toISOString() ?? null,
       workedHours: row.workedHours,
-      operation: row.operation
+      responsibleName: row.responsibleName,
+      planningGroup: row.planningGroup,
+      operation: row.operation,
+      equipmentName: row.equipmentName,
+      equipmentCode: row.equipmentCode,
+      technicalObjectRaw: row.technicalObjectRaw,
+      failureCause: row.failureCause,
+      solution: row.solution,
+      source: row.source,
+      importBatch: row.importBatch
     }));
 
   return {
     item,
-    lastOrders,
-    responsibleBreakdown: topBreakdown(groupRows.map((row) => cleanName(row.responsibleName))),
+    statusDistribution: buildStatusDistribution(groupRows),
+    frequentResponsibles: buildResponsibleStats(groupRows),
     planningGroupBreakdown: topBreakdown(groupRows.map((row) => cleanName(row.planningGroup))),
-    statusDistribution: buildStatusDistribution(groupRows)
+    serviceOrders
   };
+}
+
+/**
+ * Ranking de horas apontadas por responsável para um equipamento.
+ * Fonte: ServiceOrder.workedHours agregado por responsibleName (fallback confiável,
+ * pois TimeEntry não está vinculada às ordens importadas do SAP/Fiori).
+ */
+export async function getEquipmentHoursByResponsible(
+  equipmentId: string,
+  params: Partial<CriticalEquipmentFilters> = {}
+): Promise<EquipmentHoursByResponsible | null> {
+  const rows = await fetchRows(params);
+  const groupRows = rows.filter((row) => resolveCode(row) === equipmentId);
+
+  if (!groupRows.length) {
+    return null;
+  }
+
+  const byResponsible = new Map<string, { hours: number; orders: number }>();
+  let totalWorkedHours = 0;
+
+  for (const row of groupRows) {
+    const name = cleanResponsible(row.responsibleName);
+    const hours = row.workedHours ?? 0;
+    totalWorkedHours += hours;
+    const current = byResponsible.get(name) ?? { hours: 0, orders: 0 };
+    current.hours += hours;
+    current.orders += 1;
+    byResponsible.set(name, current);
+  }
+
+  const responsibles = Array.from(byResponsible.entries())
+    .map(([name, value]) => ({
+      name,
+      totalHours: Number(value.hours.toFixed(3)),
+      totalOrders: value.orders,
+      participationPercent: totalWorkedHours > 0 ? Math.round((value.hours / totalWorkedHours) * 100) : 0
+    }))
+    .sort((a, b) => b.totalHours - a.totalHours || b.totalOrders - a.totalOrders);
+
+  return {
+    equipmentName: cleanText(groupRows[0].equipmentName) || NO_NAME,
+    equipmentCode: cleanText(groupRows[0].equipmentCode) || NO_CODE,
+    totalWorkedHours: Number(totalWorkedHours.toFixed(3)),
+    responsibles
+  };
+}
+
+/** Detalhe completo de uma ordem (por número da OS). */
+export async function getServiceOrderDetails(osNumber: string): Promise<CriticalEquipmentServiceOrder | null> {
+  try {
+    const order = await prisma.serviceOrder.findFirst({
+      where: { osNumber },
+      select: {
+        id: true,
+        osNumber: true,
+        title: true,
+        description: true,
+        status: true,
+        openedAt: true,
+        closedAt: true,
+        workedHours: true,
+        responsibleName: true,
+        planningGroup: true,
+        operation: true,
+        equipmentName: true,
+        equipmentCode: true,
+        technicalObjectRaw: true,
+        failureCause: true,
+        solution: true,
+        source: true,
+        importBatch: true
+      }
+    });
+
+    if (!order) {
+      return null;
+    }
+
+    return {
+      id: order.id,
+      osNumber: order.osNumber,
+      title: order.title,
+      description: order.description,
+      status: order.status as ServiceOrderStatusLabel,
+      openedAt: order.openedAt?.toISOString() ?? null,
+      closedAt: order.closedAt?.toISOString() ?? null,
+      workedHours: order.workedHours,
+      responsibleName: order.responsibleName,
+      planningGroup: order.planningGroup,
+      operation: order.operation,
+      equipmentName: order.equipmentName,
+      equipmentCode: order.equipmentCode,
+      technicalObjectRaw: order.technicalObjectRaw,
+      failureCause: order.failureCause,
+      solution: order.solution,
+      source: order.source,
+      importBatch: order.importBatch
+    };
+  } catch (error) {
+    console.error("Falha ao carregar detalhe da ordem.", error);
+    return null;
+  }
 }
 
 /**
@@ -183,6 +310,7 @@ export async function getCriticalEquipmentsPageData(
       .sort((a, b) => b.totalWorkedHours - a.totalWorkedHours)
       .slice(0, limit)
       .map((item) => ({
+        id: item.id,
         equipmentName: item.equipmentName,
         equipmentCode: item.equipmentCode,
         totalWorkedHours: item.totalWorkedHours
@@ -408,6 +536,37 @@ async function fetchRows(params: Partial<CriticalEquipmentFilters>): Promise<Ser
   });
 }
 
+/** Versão com todos os campos exibíveis no detalhe (usada sob demanda no drill-down). */
+async function fetchRowsFull(params: Partial<CriticalEquipmentFilters>): Promise<ServiceOrderFullRow[]> {
+  const where = buildWhere(params);
+
+  return prisma.serviceOrder.findMany({
+    where,
+    select: {
+      id: true,
+      equipmentName: true,
+      equipmentCode: true,
+      status: true,
+      workedHours: true,
+      openedAt: true,
+      closedAt: true,
+      responsibleName: true,
+      planningGroup: true,
+      planningGroupCode: true,
+      area: true,
+      title: true,
+      osNumber: true,
+      operation: true,
+      description: true,
+      technicalObjectRaw: true,
+      failureCause: true,
+      solution: true,
+      source: true,
+      importBatch: true
+    }
+  }) as Promise<ServiceOrderFullRow[]>;
+}
+
 function buildWhere(params: Partial<CriticalEquipmentFilters>): Prisma.ServiceOrderWhereInput {
   const and: Prisma.ServiceOrderWhereInput[] = [];
 
@@ -558,6 +717,26 @@ function pickTop(counts: Map<string, number>): string {
     }
   }
   return topName;
+}
+
+function buildResponsibleStats(rows: ServiceOrderRow[]): Array<{ name: string; count: number; hours: number }> {
+  const map = new Map<string, { count: number; hours: number }>();
+  for (const row of rows) {
+    const name = cleanResponsible(row.responsibleName);
+    const current = map.get(name) ?? { count: 0, hours: 0 };
+    current.count += 1;
+    current.hours += row.workedHours ?? 0;
+    map.set(name, current);
+  }
+
+  return Array.from(map.entries())
+    .map(([name, value]) => ({ name, count: value.count, hours: Number(value.hours.toFixed(3)) }))
+    .sort((a, b) => b.count - a.count || b.hours - a.hours)
+    .slice(0, 6);
+}
+
+function cleanResponsible(value: string | null | undefined): string {
+  return cleanText(value) || "SEM RESPONSÁVEL";
 }
 
 function topBreakdown(values: string[]): Array<{ name: string; count: number }> {
