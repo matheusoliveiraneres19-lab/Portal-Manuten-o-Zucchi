@@ -1,6 +1,6 @@
 import { CalendarRange } from "lucide-react";
 import { AlertList } from "@/components/AlertList";
-import { ChartCard } from "@/components/ChartCard";
+import { ChartCardLazy as ChartCard } from "@/components/ChartCardLazy";
 import { HeroBanner } from "@/components/HeroBanner";
 import { KPICard } from "@/components/KPICard";
 import { RankingList } from "@/components/RankingList";

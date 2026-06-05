@@ -12,13 +12,29 @@ import {
   ActiveFilterChips,
   type ActiveFilterChip
 } from "@/components/service-orders/filters/ActiveFilterChips";
+import dynamic from "next/dynamic";
 import { CriticalEquipmentKpiCards } from "@/components/critical-equipments/CriticalEquipmentKpiCards";
 import { CriticalEquipmentFilters, AREA_LABELS } from "@/components/critical-equipments/CriticalEquipmentFilters";
-import { CriticalEquipmentRankingChart } from "@/components/critical-equipments/CriticalEquipmentRankingChart";
-import { CriticalEquipmentHoursChart } from "@/components/critical-equipments/CriticalEquipmentHoursChart";
-import { CriticalEquipmentStatusChart } from "@/components/critical-equipments/CriticalEquipmentStatusChart";
-import { CriticalEquipmentTrendChart } from "@/components/critical-equipments/CriticalEquipmentTrendChart";
 import { CriticalEquipmentTable } from "@/components/critical-equipments/CriticalEquipmentTable";
+import { ChartSkeleton } from "@/components/ChartSkeleton";
+
+// Gráficos Recharts carregados sob demanda (mantém o JS inicial leve).
+const CriticalEquipmentRankingChart = dynamic(
+  () => import("@/components/critical-equipments/CriticalEquipmentRankingChart").then((m) => m.CriticalEquipmentRankingChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-7" /> }
+);
+const CriticalEquipmentHoursChart = dynamic(
+  () => import("@/components/critical-equipments/CriticalEquipmentHoursChart").then((m) => m.CriticalEquipmentHoursChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-5" /> }
+);
+const CriticalEquipmentStatusChart = dynamic(
+  () => import("@/components/critical-equipments/CriticalEquipmentStatusChart").then((m) => m.CriticalEquipmentStatusChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-4" /> }
+);
+const CriticalEquipmentTrendChart = dynamic(
+  () => import("@/components/critical-equipments/CriticalEquipmentTrendChart").then((m) => m.CriticalEquipmentTrendChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-8" /> }
+);
 import { CriticalEquipmentEmptyState } from "@/components/critical-equipments/CriticalEquipmentEmptyState";
 import type { CriticalEquipmentsPageData } from "@/types/critical-equipments";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";

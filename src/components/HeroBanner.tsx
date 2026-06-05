@@ -9,7 +9,7 @@ const values = [
 
 export function HeroBanner() {
   return (
-    <section className="relative min-h-[300px] overflow-hidden border border-black/10 bg-[url('/images/login-background.png')] bg-cover bg-center bg-no-repeat shadow-premium lg:min-h-[340px]">
+    <section className="relative min-h-[300px] overflow-hidden border border-black/10 bg-[url('/images/login-background.webp')] bg-cover bg-center bg-no-repeat shadow-premium lg:min-h-[340px]">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.76)_0%,rgba(0,0,0,0.68)_38%,rgba(0,0,0,0.38)_68%,rgba(0,0,0,0.16)_100%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(196,154,69,0.16),transparent_24rem),linear-gradient(180deg,rgba(0,0,0,0.08),rgba(0,0,0,0.42))]" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/62 to-transparent" />
