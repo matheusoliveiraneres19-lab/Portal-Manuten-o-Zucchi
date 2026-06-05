@@ -11,13 +11,17 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "db:seed": "prisma db seed",
-    "import:service-orders": "tsx scripts/import-service-orders.ts"
+    "import:service-orders": "tsx scripts/import-service-orders.ts",
+    "capture": "node scripts/capture-portal.mjs",
+    "video": "remotion studio remotion/index.ts",
+    "video:render": "remotion render remotion/index.ts PortalDemo out/portal-demo.mp4"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
+    "@remotion/cli": "^4.0.473",
     "clsx": "^2.1.1",
     "framer-motion": "^12.40.0",
     "lucide-react": "^0.468.0",
@@ -25,6 +29,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.15.0",
+    "remotion": "^4.0.473",
     "sharp": "^0.34.5",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
@@ -37,6 +42,7 @@
     "autoprefixer": "^10.4.20",
     "eslint": "^8.57.1",
     "eslint-config-next": "14.2.25",
+    "playwright": "^1.60.0",
     "postcss": "^8.4.49",
     "prisma": "^6.19.3",
     "tailwindcss": "^3.4.17",

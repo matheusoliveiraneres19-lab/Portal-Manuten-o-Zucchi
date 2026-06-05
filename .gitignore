@@ -50,3 +50,6 @@ yarn-error.log*
 
 # Configuracoes locais do Claude Code (por usuario)
 .claude/settings.local.json
+
+# Capturas do portal para o video Remotion (regeneraveis: npm run capture)
+/public/captures
