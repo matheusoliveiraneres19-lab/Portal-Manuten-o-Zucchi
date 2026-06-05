@@ -46,7 +46,7 @@ type NormalizedServiceOrder = {
   openedAt: Date | null;
   workedHours: number | null;
   operation: string | null;
-  operationCode: string | null;
+  operationCode: string;
   importBatch: string | null;
   dataQualityIssue: string | null;
 };
@@ -69,13 +69,17 @@ export async function importServiceOrdersFromNormalizedRows(
     try {
       const normalized = normalizeServiceOrderRow(rows[index], line);
       const equipmentId = await upsertEquipment(normalized);
+      const orderKey = {
+        osNumber: normalized.osNumber,
+        operationCode: normalized.operationCode
+      };
       const existingOrder = await prisma.serviceOrder.findUnique({
-        where: { osNumber: normalized.osNumber },
+        where: { osNumber_operationCode: orderKey },
         select: { id: true }
       });
 
       await prisma.serviceOrder.upsert({
-        where: { osNumber: normalized.osNumber },
+        where: { osNumber_operationCode: orderKey },
         update: {
           title: normalized.title,
           description: normalized.description,
@@ -156,6 +160,16 @@ function normalizeServiceOrderRow(row: LinhaOrdemServicoNormalizada, line: numbe
     throw createRowError(line, "statusPortal", row.statusPortal, "statusPortal inválido ou vazio.");
   }
 
+  const operationCode = limparTexto(row.operationCode);
+  if (!operationCode) {
+    throw createRowError(
+      line,
+      "operationCode",
+      row.operationCode,
+      "operationCode é obrigatório (compõe a chave única osNumber + operationCode)."
+    );
+  }
+
   const openedAt = converterDataExcel(row.openedAt);
   const workedHours = converterHorasParaDecimal(row.workedHours);
   const responsibleName = limparTexto(row.responsibleName) || "SEM RESPONSÁVEL";
@@ -180,7 +194,7 @@ function normalizeServiceOrderRow(row: LinhaOrdemServicoNormalizada, line: numbe
     openedAt,
     workedHours,
     operation: optionalText(row.operation),
-    operationCode: optionalText(row.operationCode),
+    operationCode,
     importBatch: optionalText(row.importBatch),
     dataQualityIssue: optionalText(row.dataQualityIssue)
   };

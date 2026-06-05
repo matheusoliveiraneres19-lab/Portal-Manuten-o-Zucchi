@@ -40,15 +40,33 @@ export type ServiceOrdersPageData = {
 export type ServiceOrdersQueryParams = {
   search?: string;
   osNumber?: string;
-  status?: ServiceOrderStatusLabel | "TODOS" | "";
+  /** Multi-seleção de status (OR dentro do grupo). */
+  statuses?: ServiceOrderStatusLabel[];
+  /** Busca textual de objeto técnico (equipmentName/Code/technicalObjectRaw). */
   equipment?: string;
-  area?: string;
+  /** Multi-seleção de área de manutenção (OR dentro do grupo). */
+  areas?: string[];
+  /** Multi-seleção de grupo de planejamento (OR dentro do grupo). */
+  planningGroups?: string[];
+  /** Multi-seleção de responsável, incluindo "SEM RESPONSÁVEL" (OR dentro do grupo). */
+  responsibles?: string[];
   startDate?: string;
   endDate?: string;
-  planningGroup?: string;
-  responsibleName?: string;
   page?: number;
   pageSize?: number;
+};
+
+/** Estado de filtros aplicados (lido da URL) repassado ao componente cliente. */
+export type AppliedServiceOrderFilters = {
+  search: string;
+  osNumber: string;
+  statuses: ServiceOrderStatusLabel[];
+  equipment: string;
+  areas: string[];
+  planningGroups: string[];
+  responsibles: string[];
+  startDate: string;
+  endDate: string;
 };
 
 export type ServiceOrdersResult = {

@@ -12,7 +12,7 @@ import type {
 } from "@/types/service-orders";
 
 const DEFAULT_PAGE = 1;
-const DEFAULT_PAGE_SIZE = 1500;
+const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 2000;
 
 export async function getServiceOrders(params: ServiceOrdersQueryParams = {}): Promise<ServiceOrdersResult> {
@@ -180,6 +180,11 @@ const serviceOrderSelect = {
   equipment: { select: { name: true, code: true } }
 } satisfies Prisma.ServiceOrderSelect;
 
+/**
+ * Monta o filtro Prisma com lógica acumulativa:
+ * - AND entre grupos de filtros distintos (status E responsável E grupo ...);
+ * - OR dentro de cada grupo (status ABERTA ou LIBERADA; responsável Cleiton ou Leonardo).
+ */
 function buildServiceOrderWhere(params: ServiceOrdersQueryParams): Prisma.ServiceOrderWhereInput {
   const and: Prisma.ServiceOrderWhereInput[] = [];
 
@@ -191,6 +196,7 @@ function buildServiceOrderWhere(params: ServiceOrdersQueryParams): Prisma.Servic
         { title: search },
         { equipmentName: search },
         { equipmentCode: search },
+        { technicalObjectRaw: search },
         { operation: search },
         { responsibleName: search }
       ]
@@ -202,10 +208,13 @@ function buildServiceOrderWhere(params: ServiceOrdersQueryParams): Prisma.Servic
     and.push({ OR: [{ osNumber: order }, { title: order }] });
   }
 
-  if (params.status && params.status !== "TODOS") {
-    and.push({ status: params.status as ServiceOrderStatus });
+  // Status — OR dentro do grupo via `in`.
+  const statuses = (params.statuses ?? []).filter(Boolean) as ServiceOrderStatus[];
+  if (statuses.length) {
+    and.push({ status: { in: statuses } });
   }
 
+  // Objeto técnico — busca textual em nome/código/objeto técnico bruto.
   if (params.equipment) {
     const equipment = contains(params.equipment);
     and.push({
@@ -213,18 +222,29 @@ function buildServiceOrderWhere(params: ServiceOrdersQueryParams): Prisma.Servic
     });
   }
 
-  if (params.area) {
-    const area = normalizeArea(params.area);
-    const planningGroup = contains(params.area);
+  // Área de manutenção — multi-seleção (OR via `in`).
+  const areas = (params.areas ?? [])
+    .map((value) => normalizeArea(value))
+    .filter((value): value is MaintenanceArea => Boolean(value));
+  if (areas.length) {
+    and.push({ area: { in: areas } });
+  }
+
+  // Grupo de planejamento — multi-seleção (OR via `in`, nome ou código).
+  const planningGroups = (params.planningGroups ?? []).filter(Boolean);
+  if (planningGroups.length) {
     and.push({
-      OR: [
-        ...(area ? [{ area }] : []),
-        { planningGroup },
-        { planningGroupCode: planningGroup }
-      ]
+      OR: [{ planningGroup: { in: planningGroups } }, { planningGroupCode: { in: planningGroups } }]
     });
   }
 
+  // Responsável — multi-seleção (OR), tratando "SEM RESPONSÁVEL".
+  const responsibleCondition = buildResponsiblesCondition(params.responsibles ?? []);
+  if (responsibleCondition) {
+    and.push(responsibleCondition);
+  }
+
+  // Período (data-base do início) — intervalo.
   if (params.startDate || params.endDate) {
     and.push({
       openedAt: {
@@ -234,14 +254,19 @@ function buildServiceOrderWhere(params: ServiceOrdersQueryParams): Prisma.Servic
     });
   }
 
-  if (params.planningGroup) {
-    const planningGroup = contains(params.planningGroup);
-    and.push({ OR: [{ planningGroup }, { planningGroupCode: planningGroup }] });
+  return and.length ? { AND: and } : {};
+}
+
+function buildResponsiblesCondition(responsibles: string[]): Prisma.ServiceOrderWhereInput | null {
+  const cleaned = responsibles.filter(Boolean);
+  if (!cleaned.length) {
+    return null;
   }
 
-  if (params.responsibleName && params.responsibleName !== "TODOS") {
-    if (params.responsibleName === "SEM RESPONSÁVEL") {
-      and.push({
+  const or: Prisma.ServiceOrderWhereInput[] = [];
+  for (const responsible of cleaned) {
+    if (responsible === "SEM RESPONSÁVEL") {
+      or.push({
         OR: [
           { responsibleName: null },
           { responsibleName: "" },
@@ -251,14 +276,12 @@ function buildServiceOrderWhere(params: ServiceOrdersQueryParams): Prisma.Servic
         ]
       });
     } else {
-      const responsible = stripResponsibleId(params.responsibleName);
-      and.push({
-        OR: [{ responsibleName: contains(responsible) }, { responsible: contains(responsible) }]
-      });
+      const name = stripResponsibleId(responsible);
+      or.push({ OR: [{ responsibleName: name }, { responsible: name }] });
     }
   }
 
-  return and.length ? { AND: and } : {};
+  return { OR: or };
 }
 
 function mapServiceOrder(order: Prisma.ServiceOrderGetPayload<{ select: typeof serviceOrderSelect }>): ServiceOrderListItem {
@@ -330,6 +353,7 @@ function matchesMockFilters(order: ServiceOrderListItem, params: ServiceOrdersQu
     order.title,
     order.equipmentName,
     order.equipmentCode,
+    order.technicalObject,
     order.operation,
     order.responsibleName
   ]
@@ -337,19 +361,24 @@ function matchesMockFilters(order: ServiceOrderListItem, params: ServiceOrdersQu
     .join(" ")
     .toLowerCase();
   const openedDate = order.openedAt ? order.openedAt.slice(0, 10) : "";
+  const statuses = params.statuses ?? [];
+  const areas = params.areas ?? [];
+  const planningGroups = params.planningGroups ?? [];
+  const responsibles = params.responsibles ?? [];
+  const responsibleGroup = getResponsibleGroup(order);
+  const groupHaystack = `${order.planningGroup ?? ""} ${order.planningGroupCode ?? ""} ${order.workCenter ?? ""}`.toLowerCase();
 
   return (
     includes(haystack, params.search) &&
     includes(`${order.osNumber} ${order.title}`, params.osNumber) &&
-    (!params.status || params.status === "TODOS" || order.status === params.status) &&
+    (!statuses.length || statuses.includes(order.status)) &&
     includes(`${order.equipmentName ?? ""} ${order.equipmentCode ?? ""} ${order.technicalObject}`, params.equipment) &&
-    includes(`${order.workCenter ?? ""} ${order.planningGroup ?? ""}`, params.area) &&
+    (!areas.length || areas.some((area) => groupHaystack.includes(area.toLowerCase()))) &&
+    (!planningGroups.length ||
+      planningGroups.some((group) => order.planningGroup === group || order.planningGroupCode === group)) &&
+    (!responsibles.length || responsibles.includes(responsibleGroup)) &&
     (!params.startDate || (openedDate && openedDate >= params.startDate)) &&
-    (!params.endDate || (openedDate && openedDate <= params.endDate)) &&
-    includes(`${order.planningGroup ?? ""} ${order.planningGroupCode ?? ""}`, params.planningGroup) &&
-    (!params.responsibleName ||
-      params.responsibleName === "TODOS" ||
-      getResponsibleGroup(order) === params.responsibleName)
+    (!params.endDate || (openedDate && openedDate <= params.endDate))
   );
 }
 

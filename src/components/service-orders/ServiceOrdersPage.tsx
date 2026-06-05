@@ -1,8 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
   Download,
   FileSpreadsheet,
   FilterX,
@@ -12,38 +16,23 @@ import {
   X
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { ServiceOrderListItem, ServiceOrdersPageData, ServiceOrderStatusLabel } from "@/types/service-orders";
+import type {
+  AppliedServiceOrderFilters,
+  ServiceOrderListItem,
+  ServiceOrdersPageData,
+  ServiceOrderStatusLabel
+} from "@/types/service-orders";
+import { formatPeriodRange } from "@/utils/period";
+import { MultiSelectFilter } from "@/components/service-orders/filters/MultiSelectFilter";
+import { DateRangeFilter } from "@/components/service-orders/filters/DateRangeFilter";
+import { ActiveFilterChips, type ActiveFilterChip } from "@/components/service-orders/filters/ActiveFilterChips";
 
 type ServiceOrdersPageProps = {
   data: ServiceOrdersPageData;
+  appliedFilters: AppliedServiceOrderFilters;
 };
 
-type FiltersState = {
-  search: string;
-  order: string;
-  status: "TODOS" | ServiceOrderStatusLabel;
-  technicalObject: string;
-  workCenter: string;
-  startDate: string;
-  endDate: string;
-  planningGroup: string;
-  responsible: string;
-};
-
-const emptyFilters: FiltersState = {
-  search: "",
-  order: "",
-  status: "TODOS",
-  technicalObject: "",
-  workCenter: "",
-  startDate: "",
-  endDate: "",
-  planningGroup: "",
-  responsible: "TODOS"
-};
-
-const defaultStatusOptions: Array<"TODOS" | ServiceOrderStatusLabel> = [
-  "TODOS",
+const STATUS_OPTIONS: ServiceOrderStatusLabel[] = [
   "ABERTA",
   "LIBERADA",
   "EM_ANDAMENTO",
@@ -52,34 +41,90 @@ const defaultStatusOptions: Array<"TODOS" | ServiceOrderStatusLabel> = [
   "CANCELADA"
 ];
 
-export function ServiceOrdersPage({ data }: ServiceOrdersPageProps) {
-  const [filters, setFilters] = useState<FiltersState>(emptyFilters);
+const AREA_LABELS: Record<string, string> = {
+  MECANICA: "Mecânica",
+  ELETRICA: "Elétrica",
+  LUBRIFICACAO: "Lubrificação",
+  PCM: "PCM",
+  OPERACIONAL: "Operacional"
+};
+
+const AREA_OPTIONS = Object.entries(AREA_LABELS).map(([value, label]) => ({ value, label }));
+
+function emptyFilters(): AppliedServiceOrderFilters {
+  return {
+    search: "",
+    osNumber: "",
+    statuses: [],
+    equipment: "",
+    areas: [],
+    planningGroups: [],
+    responsibles: [],
+    startDate: "",
+    endDate: ""
+  };
+}
+
+export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPageProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [isPending, startTransition] = useTransition();
+
+  // Rascunho do painel: editado livremente; só vai para a URL ao "Aplicar filtros".
+  const [draft, setDraft] = useState<AppliedServiceOrderFilters>(appliedFilters);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showImportPanel, setShowImportPanel] = useState(false);
 
-  const statusOptions = useMemo<Array<"TODOS" | ServiceOrderStatusLabel>>(
-    () => ["TODOS", ...(data.filterOptions.statuses.length ? data.filterOptions.statuses : defaultStatusOptions.slice(1))],
-    [data.filterOptions.statuses]
+  const appliedSignature = JSON.stringify(appliedFilters);
+
+  // Sincroniza o rascunho quando os filtros aplicados mudam (aplicar, remover chip, limpar).
+  useEffect(() => {
+    setDraft(appliedFilters);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedSignature]);
+
+  const planningGroupOptions = useMemo(
+    () => data.filterOptions.planningGroups.map((value) => ({ value, label: value })),
+    [data.filterOptions.planningGroups]
   );
 
-  const responsibleOptions = useMemo(() => {
-    const values = new Set(
-      data.filterOptions.responsibles.length
-        ? data.filterOptions.responsibles
-        : data.orders.map((order) => getResponsibleGroup(order))
-    );
-    return ["TODOS", ...Array.from(values).sort((a, b) => a.localeCompare(b, "pt-BR"))];
-  }, [data.filterOptions.responsibles, data.orders]);
-
-  const filteredOrders = useMemo(
-    () => data.orders.filter((order) => matchesFilters(order, filters)),
-    [data.orders, filters]
+  const responsibleOptions = useMemo(
+    () => data.filterOptions.responsibles.map((value) => ({ value, label: value })),
+    [data.filterOptions.responsibles]
   );
 
-  const groupedOrders = useMemo(() => groupOrdersByResponsible(filteredOrders), [filteredOrders]);
+  const groupedOrders = useMemo(() => groupOrdersByResponsible(data.orders), [data.orders]);
 
-  function updateFilter<Key extends keyof FiltersState>(key: Key, value: FiltersState[Key]) {
-    setFilters((current) => ({ ...current, [key]: value }));
+  function navigate(filters: AppliedServiceOrderFilters, page = 1) {
+    const params = filtersToSearchParams(filters, page);
+    const query = params.toString();
+    startTransition(() => router.push(query ? `${pathname}?${query}` : pathname));
+  }
+
+  function applyFilters() {
+    navigate(draft, 1);
+  }
+
+  function clearFilters() {
+    setDraft(emptyFilters());
+    startTransition(() => router.push(pathname));
+  }
+
+  function goToPage(page: number) {
+    navigate(appliedFilters, page);
+  }
+
+  const chips = useMemo(
+    () => buildChips(appliedFilters, (next) => navigate(next, 1)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [appliedSignature]
+  );
+
+  function updateDraft<Key extends keyof AppliedServiceOrderFilters>(
+    key: Key,
+    value: AppliedServiceOrderFilters[Key]
+  ) {
+    setDraft((current) => ({ ...current, [key]: value }));
   }
 
   function toggleOrder(id: string) {
@@ -96,16 +141,16 @@ export function ServiceOrdersPage({ data }: ServiceOrdersPageProps) {
 
   function toggleAllVisible() {
     setSelected((current) => {
-      const allVisibleSelected = filteredOrders.length > 0 && filteredOrders.every((order) => current.has(order.id));
+      const allVisibleSelected = data.orders.length > 0 && data.orders.every((order) => current.has(order.id));
       if (allVisibleSelected) {
-        return new Set(Array.from(current).filter((id) => !filteredOrders.some((order) => order.id === id)));
+        return new Set(Array.from(current).filter((id) => !data.orders.some((order) => order.id === id)));
       }
-      return new Set(Array.from(current).concat(filteredOrders.map((order) => order.id)));
+      return new Set(Array.from(current).concat(data.orders.map((order) => order.id)));
     });
   }
 
   return (
-    <section className="space-y-4 text-champagne">
+    <section className={`space-y-4 text-champagne transition ${isPending ? "opacity-70" : ""}`}>
       <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-6">
         <div className="login-marble-bg absolute inset-0 opacity-80" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78),rgba(0,0,0,0.44)),radial-gradient(circle_at_88%_8%,rgba(196,154,69,0.15),transparent_22rem)]" />
@@ -126,9 +171,7 @@ export function ServiceOrdersPage({ data }: ServiceOrdersPageProps) {
           <div className="rounded-lg border border-gold/25 bg-black/40 px-4 py-3 text-sm backdrop-blur">
             <p className="text-xs uppercase tracking-[0.22em] text-zinc-400">Ordens de manutenção e operações</p>
             <p className="mt-1 font-serif text-2xl text-gold">({data.total.toLocaleString("pt-BR")})</p>
-            <p className="mt-1 text-xs text-zinc-500">
-              Exibindo {filteredOrders.length.toLocaleString("pt-BR")} registros
-            </p>
+            <p className="mt-1 text-xs text-zinc-500">{buildTotalsLabel(data)}</p>
           </div>
         </div>
       </header>
@@ -138,38 +181,177 @@ export function ServiceOrdersPage({ data }: ServiceOrdersPageProps) {
         source={data.source}
         showImportPanel={showImportPanel}
         onToggleImport={() => setShowImportPanel((current) => !current)}
-        onClear={() => {
-          setFilters(emptyFilters);
-          setSelected(new Set());
-        }}
+        onRefresh={() => startTransition(() => router.refresh())}
+        onClear={clearFilters}
       />
 
       {showImportPanel ? <ImportPreviewPanel onClose={() => setShowImportPanel(false)} /> : null}
 
       <ServiceOrderFilters
-        filters={filters}
-        statusOptions={statusOptions}
+        draft={draft}
+        statusOptions={STATUS_OPTIONS}
+        areaOptions={AREA_OPTIONS}
+        planningGroupOptions={planningGroupOptions}
         responsibleOptions={responsibleOptions}
-        onChange={updateFilter}
+        isPending={isPending}
+        onChange={updateDraft}
+        onApply={applyFilters}
+        onClear={clearFilters}
       />
+
+      <ActiveFilterChips chips={chips} onClearAll={clearFilters} />
 
       <ServiceOrdersTable
         groups={groupedOrders}
         selected={selected}
-        visibleCount={filteredOrders.length}
-        allVisibleSelected={filteredOrders.length > 0 && filteredOrders.every((order) => selected.has(order.id))}
+        displayedCount={data.orders.length}
+        filteredTotal={data.total}
+        allVisibleSelected={data.orders.length > 0 && data.orders.every((order) => selected.has(order.id))}
         onToggleAll={toggleAllVisible}
         onToggleOrder={toggleOrder}
+      />
+
+      <Pagination
+        page={data.page}
+        pageSize={data.pageSize}
+        total={data.total}
+        totalPages={data.totalPages}
+        displayed={data.orders.length}
+        disabled={isPending}
+        onChange={goToPage}
       />
     </section>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* URL <-> filtros                                                    */
+/* ------------------------------------------------------------------ */
+
+function filtersToSearchParams(filters: AppliedServiceOrderFilters, page: number): URLSearchParams {
+  const params = new URLSearchParams();
+
+  if (filters.search.trim()) params.set("search", filters.search.trim());
+  if (filters.osNumber.trim()) params.set("ordem", filters.osNumber.trim());
+  filters.statuses.forEach((status) => params.append("status", status));
+  if (filters.equipment.trim()) params.set("objetoTecnico", filters.equipment.trim());
+  filters.areas.forEach((area) => params.append("area", area));
+  filters.planningGroups.forEach((group) => params.append("grupo", group));
+  filters.responsibles.forEach((responsible) => params.append("responsavel", responsible));
+  if (filters.startDate) params.set("startDate", filters.startDate);
+  if (filters.endDate) params.set("endDate", filters.endDate);
+  if (page > 1) params.set("page", String(page));
+
+  return params;
+}
+
+function buildChips(
+  filters: AppliedServiceOrderFilters,
+  apply: (next: AppliedServiceOrderFilters) => void
+): ActiveFilterChip[] {
+  const chips: ActiveFilterChip[] = [];
+
+  if (filters.search.trim()) {
+    chips.push({
+      id: "search",
+      groupLabel: "Busca",
+      valueLabel: filters.search.trim(),
+      onRemove: () => apply({ ...filters, search: "" })
+    });
+  }
+
+  if (filters.osNumber.trim()) {
+    chips.push({
+      id: "ordem",
+      groupLabel: "Ordem",
+      valueLabel: filters.osNumber.trim(),
+      onRemove: () => apply({ ...filters, osNumber: "" })
+    });
+  }
+
+  for (const status of filters.statuses) {
+    chips.push({
+      id: `status:${status}`,
+      groupLabel: "Status",
+      valueLabel: status,
+      onRemove: () => apply({ ...filters, statuses: filters.statuses.filter((value) => value !== status) })
+    });
+  }
+
+  if (filters.equipment.trim()) {
+    chips.push({
+      id: "objetoTecnico",
+      groupLabel: "Objeto técnico",
+      valueLabel: filters.equipment.trim(),
+      onRemove: () => apply({ ...filters, equipment: "" })
+    });
+  }
+
+  for (const area of filters.areas) {
+    chips.push({
+      id: `area:${area}`,
+      groupLabel: "Área",
+      valueLabel: AREA_LABELS[area] ?? area,
+      onRemove: () => apply({ ...filters, areas: filters.areas.filter((value) => value !== area) })
+    });
+  }
+
+  for (const group of filters.planningGroups) {
+    chips.push({
+      id: `grupo:${group}`,
+      groupLabel: "Grupo",
+      valueLabel: group,
+      onRemove: () => apply({ ...filters, planningGroups: filters.planningGroups.filter((value) => value !== group) })
+    });
+  }
+
+  for (const responsible of filters.responsibles) {
+    chips.push({
+      id: `responsavel:${responsible}`,
+      groupLabel: "Responsável",
+      valueLabel: responsible,
+      onRemove: () =>
+        apply({ ...filters, responsibles: filters.responsibles.filter((value) => value !== responsible) })
+    });
+  }
+
+  if (filters.startDate || filters.endDate) {
+    chips.push({
+      id: "periodo",
+      groupLabel: "Período",
+      valueLabel:
+        filters.startDate && filters.endDate
+          ? formatPeriodRange(filters.startDate, filters.endDate)
+          : filters.startDate || filters.endDate,
+      onRemove: () => apply({ ...filters, startDate: "", endDate: "" })
+    });
+  }
+
+  return chips;
+}
+
+function buildTotalsLabel(data: ServiceOrdersPageData): string {
+  const general = data.summary.total.toLocaleString("pt-BR");
+  const filtered = data.total.toLocaleString("pt-BR");
+  const displayed = data.orders.length.toLocaleString("pt-BR");
+
+  if (data.total === data.summary.total) {
+    return `Exibindo ${displayed} de ${general} ordens`;
+  }
+
+  return `Exibindo ${displayed} de ${filtered} filtradas (${general} no total)`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Ações                                                              */
+/* ------------------------------------------------------------------ */
 
 type ServiceOrderActionsProps = {
   selectedCount: number;
   source: ServiceOrdersPageData["source"];
   showImportPanel: boolean;
   onToggleImport: () => void;
+  onRefresh: () => void;
   onClear: () => void;
 };
 
@@ -178,13 +360,14 @@ function ServiceOrderActions({
   source,
   showImportPanel,
   onToggleImport,
+  onRefresh,
   onClear
 }: ServiceOrderActionsProps) {
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-gold/15 bg-[#090a0a] p-3 shadow-premium sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-wrap items-center gap-2">
         <ActionButton icon={Upload} label="Importar Excel" active={showImportPanel} onClick={onToggleImport} />
-        <ActionButton icon={RefreshCw} label="Atualizar dados" />
+        <ActionButton icon={RefreshCw} label="Atualizar dados" onClick={onRefresh} />
         <ActionButton icon={Download} label="Exportar" />
         <ActionButton icon={FilterX} label="Limpar filtros" onClick={onClear} />
       </div>
@@ -245,111 +428,140 @@ function ImportPreviewPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Painel de filtros                                                  */
+/* ------------------------------------------------------------------ */
+
 type ServiceOrderFiltersProps = {
-  filters: FiltersState;
-  statusOptions: Array<"TODOS" | ServiceOrderStatusLabel>;
-  responsibleOptions: string[];
-  onChange: <Key extends keyof FiltersState>(key: Key, value: FiltersState[Key]) => void;
+  draft: AppliedServiceOrderFilters;
+  statusOptions: ServiceOrderStatusLabel[];
+  areaOptions: Array<{ value: string; label: string }>;
+  planningGroupOptions: Array<{ value: string; label: string }>;
+  responsibleOptions: Array<{ value: string; label: string }>;
+  isPending: boolean;
+  onChange: <Key extends keyof AppliedServiceOrderFilters>(key: Key, value: AppliedServiceOrderFilters[Key]) => void;
+  onApply: () => void;
+  onClear: () => void;
 };
 
-function ServiceOrderFilters({ filters, statusOptions, responsibleOptions, onChange }: ServiceOrderFiltersProps) {
+function ServiceOrderFilters({
+  draft,
+  statusOptions,
+  areaOptions,
+  planningGroupOptions,
+  responsibleOptions,
+  isPending,
+  onChange,
+  onApply,
+  onClear
+}: ServiceOrderFiltersProps) {
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT") {
+      onApply();
+    }
+  }
+
   return (
-    <div className="rounded-lg border border-gold/15 bg-[#080909] p-4 shadow-premium">
-      <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-gold">
+    <div
+      onKeyDown={handleKeyDown}
+      className="rounded-lg border border-gold/20 bg-[#080909] p-4 shadow-premium sm:p-5"
+    >
+      <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-gold">
         <Search className="h-4 w-4" />
-        Filtros
+        Filtros avançados
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-x-4 gap-y-4 md:grid-cols-2 xl:grid-cols-4">
         <FilterField label="Procurar">
           <input
-            value={filters.search}
+            value={draft.search}
             onChange={(event) => onChange("search", event.target.value)}
-            placeholder="Título, OS, equipamento, operação..."
+            placeholder="OS, título, operação, equipamento, responsável..."
             className={inputClassName}
           />
         </FilterField>
 
         <FilterField label="Ordem">
           <input
-            value={filters.order}
-            onChange={(event) => onChange("order", event.target.value)}
-            placeholder="Ex.: 4005060"
+            value={draft.osNumber}
+            onChange={(event) => onChange("osNumber", event.target.value)}
+            placeholder="Nº da OS ou título"
             className={inputClassName}
           />
         </FilterField>
 
-        <FilterField label="Status da ordem">
-          <select
-            value={filters.status}
-            onChange={(event) => onChange("status", event.target.value as FiltersState["status"])}
-            className={inputClassName}
-          >
-            {statusOptions.map((status) => (
-              <option key={status} value={status}>
-                {status === "TODOS" ? "Todos os status" : status}
-              </option>
-            ))}
-          </select>
-        </FilterField>
+        <MultiSelectFilter
+          label="Status da ordem"
+          options={statusOptions.map((status) => ({ value: status, label: status }))}
+          selected={draft.statuses}
+          onChange={(next) => onChange("statuses", next as ServiceOrderStatusLabel[])}
+          placeholder="Todos os status"
+          searchable={false}
+        />
 
         <FilterField label="Objeto técnico">
           <input
-            value={filters.technicalObject}
-            onChange={(event) => onChange("technicalObject", event.target.value)}
-            placeholder="Equipamento ou código técnico"
+            value={draft.equipment}
+            onChange={(event) => onChange("equipment", event.target.value)}
+            placeholder="Equipamento, código ou objeto técnico"
             className={inputClassName}
           />
         </FilterField>
 
-        <FilterField label="Centro para centro de trabalho">
-          <input
-            value={filters.workCenter}
-            onChange={(event) => onChange("workCenter", event.target.value)}
-            placeholder="Centro, área ou planejamento"
-            className={inputClassName}
-          />
-        </FilterField>
+        <MultiSelectFilter
+          label="Centro / área de trabalho"
+          options={areaOptions}
+          selected={draft.areas}
+          onChange={(next) => onChange("areas", next)}
+          placeholder="Todas as áreas"
+          searchable={false}
+        />
 
-        <FilterField label="Data-base do início">
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              type="date"
-              value={filters.startDate}
-              onChange={(event) => onChange("startDate", event.target.value)}
-              className={inputClassName}
-            />
-            <input
-              type="date"
-              value={filters.endDate}
-              onChange={(event) => onChange("endDate", event.target.value)}
-              className={inputClassName}
-            />
-          </div>
-        </FilterField>
+        <MultiSelectFilter
+          label="Grupo de planejamento"
+          options={planningGroupOptions}
+          selected={draft.planningGroups}
+          onChange={(next) => onChange("planningGroups", next)}
+          placeholder="Todos os grupos"
+        />
 
-        <FilterField label="Grupo de planejamento">
-          <input
-            value={filters.planningGroup}
-            onChange={(event) => onChange("planningGroup", event.target.value)}
-            placeholder="Ex.: Manut. Mecanica"
-            className={inputClassName}
-          />
-        </FilterField>
+        <MultiSelectFilter
+          label="Responsável (ordem)"
+          options={responsibleOptions}
+          selected={draft.responsibles}
+          onChange={(next) => onChange("responsibles", next)}
+          placeholder="Todos os responsáveis"
+        />
 
-        <FilterField label="Responsável (ordem)">
-          <select
-            value={filters.responsible}
-            onChange={(event) => onChange("responsible", event.target.value)}
-            className={inputClassName}
-          >
-            {responsibleOptions.map((responsible) => (
-              <option key={responsible} value={responsible}>
-                {responsible === "TODOS" ? "Todos os responsáveis" : responsible}
-              </option>
-            ))}
-          </select>
-        </FilterField>
+        <DateRangeFilter
+          label="Data-base do início"
+          startDate={draft.startDate}
+          endDate={draft.endDate}
+          onChange={({ startDate, endDate }) => {
+            onChange("startDate", startDate);
+            onChange("endDate", endDate);
+          }}
+        />
+      </div>
+
+      <div className="mt-5 flex flex-col gap-2 border-t border-gold/10 pt-4 sm:flex-row sm:items-center sm:justify-end">
+        <button
+          type="button"
+          onClick={onClear}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gold/20 px-4 text-sm font-semibold text-zinc-300 transition hover:border-gold/40 hover:text-white"
+        >
+          <FilterX className="h-4 w-4" />
+          Limpar filtros
+        </button>
+        <button
+          type="button"
+          onClick={onApply}
+          disabled={isPending}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-5 text-sm font-bold text-gold transition hover:bg-gold/25 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Check className="h-4 w-4" />
+          {isPending ? "Aplicando..." : "Aplicar filtros"}
+        </button>
       </div>
     </div>
   );
@@ -367,10 +579,74 @@ function FilterField({ label, children }: { label: string; children: ReactNode }
 const inputClassName =
   "h-10 w-full rounded-lg border border-gold/15 bg-black/35 px-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-gold/55 focus:bg-black/50 focus:shadow-[0_0_0_3px_rgba(196,154,69,0.10)]";
 
+/* ------------------------------------------------------------------ */
+/* Paginação                                                          */
+/* ------------------------------------------------------------------ */
+
+type PaginationProps = {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  displayed: number;
+  disabled: boolean;
+  onChange: (page: number) => void;
+};
+
+function Pagination({ page, pageSize, total, totalPages, displayed, disabled, onChange }: PaginationProps) {
+  if (total === 0) {
+    return null;
+  }
+
+  const firstRow = (page - 1) * pageSize + 1;
+  const lastRow = (page - 1) * pageSize + displayed;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-gold/15 bg-[#090a0a] p-3 text-sm shadow-premium sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-xs text-zinc-400">
+        Registros {firstRow.toLocaleString("pt-BR")}–{lastRow.toLocaleString("pt-BR")} de{" "}
+        <strong className="text-champagne">{total.toLocaleString("pt-BR")}</strong>
+      </span>
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onChange(page - 1)}
+          disabled={disabled || page <= 1}
+          className={paginationButtonClassName}
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Anterior
+        </button>
+        <span className="px-2 text-xs text-zinc-300">
+          Página <strong className="text-gold">{page}</strong> de {totalPages}
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange(page + 1)}
+          disabled={disabled || page >= totalPages}
+          className={paginationButtonClassName}
+        >
+          Próxima
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const paginationButtonClassName =
+  "inline-flex h-9 items-center gap-1.5 rounded-lg border border-gold/20 bg-white/[0.04] px-3 text-xs font-semibold text-zinc-200 transition hover:border-gold/40 hover:bg-gold/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-gold/20 disabled:hover:bg-white/[0.04] disabled:hover:text-zinc-200";
+
+/* ------------------------------------------------------------------ */
+/* Tabela                                                             */
+/* ------------------------------------------------------------------ */
+
 type ServiceOrdersTableProps = {
   groups: Array<{ responsible: string; orders: ServiceOrderListItem[] }>;
   selected: Set<string>;
-  visibleCount: number;
+  displayedCount: number;
+  filteredTotal: number;
   allVisibleSelected: boolean;
   onToggleAll: () => void;
   onToggleOrder: (id: string) => void;
@@ -379,7 +655,8 @@ type ServiceOrdersTableProps = {
 function ServiceOrdersTable({
   groups,
   selected,
-  visibleCount,
+  displayedCount,
+  filteredTotal,
   allVisibleSelected,
   onToggleAll,
   onToggleOrder
@@ -392,7 +669,7 @@ function ServiceOrdersTable({
           <p className="mt-0.5 text-xs text-zinc-500">Agrupado por responsável da ordem</p>
         </div>
         <span className="rounded-lg border border-gold/20 bg-gold/10 px-3 py-1 text-xs font-semibold text-gold">
-          {visibleCount.toLocaleString("pt-BR")} registro(s)
+          {displayedCount.toLocaleString("pt-BR")} de {filteredTotal.toLocaleString("pt-BR")} registro(s)
         </span>
       </div>
 
@@ -548,39 +825,9 @@ function StatusBadge({ status }: { status: ServiceOrderStatusLabel }) {
   );
 }
 
-function matchesFilters(order: ServiceOrderListItem, filters: FiltersState) {
-  const haystack = [
-    order.title,
-    order.osNumber,
-    order.technicalObject,
-    order.equipmentName,
-    order.equipmentCode,
-    order.operation,
-    order.operationCode,
-    order.responsibleName,
-    order.responsibleId,
-    order.planningGroup,
-    order.planningGroupCode
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  const openedDate = order.openedAt ? order.openedAt.slice(0, 10) : "";
-  const responsible = getResponsibleGroup(order);
-
-  return (
-    includes(haystack, filters.search) &&
-    includes(order.osNumber, filters.order) &&
-    (filters.status === "TODOS" || order.status === filters.status) &&
-    includes(order.technicalObject, filters.technicalObject) &&
-    includes(order.workCenter ?? "", filters.workCenter) &&
-    includes(formatPlanningGroup(order), filters.planningGroup) &&
-    (filters.responsible === "TODOS" || responsible === filters.responsible) &&
-    (!filters.startDate || (openedDate && openedDate >= filters.startDate)) &&
-    (!filters.endDate || (openedDate && openedDate <= filters.endDate))
-  );
-}
+/* ------------------------------------------------------------------ */
+/* Helpers                                                            */
+/* ------------------------------------------------------------------ */
 
 function groupOrdersByResponsible(orders: ServiceOrderListItem[]) {
   const groups = new Map<string, ServiceOrderListItem[]>();
@@ -628,12 +875,4 @@ function formatHours(value: number | null) {
     minimumFractionDigits: 3,
     maximumFractionDigits: 3
   })} H`;
-}
-
-function includes(value: string, term: string) {
-  if (!term.trim()) {
-    return true;
-  }
-
-  return value.toLowerCase().includes(term.trim().toLowerCase());
 }

@@ -1,16 +1,29 @@
 import type { LucideIcon } from "lucide-react";
 import type { AlertStatus, AlertType, Criticality, Priority, PurchaseStatus } from "@prisma/client";
+import type { PeriodVariation } from "@/utils/period";
 
-export type KPITrendDirection = "up" | "down" | "flat";
+export type KPITrendDirection = "up" | "down" | "stable";
 export type KPITone = "blue" | "gold" | "red";
+
+/**
+ * Comparativo com o período anterior.
+ * - "available": variação calculada com dados reais.
+ * - "unavailable": sem histórico suficiente para comparar (não exibir percentual).
+ */
+export type KPIComparison =
+  | { status: "available"; direction: KPITrendDirection; percentage: number; label: string }
+  | { status: "unavailable"; label: string };
 
 export type DashboardKPI = {
   title: string;
   value: string;
-  trend: string;
-  direction: KPITrendDirection;
   tone: KPITone;
   icon: LucideIcon;
+  comparison: KPIComparison;
+  /** true quando o valor atual é zero / não há registros no período. */
+  isEmpty: boolean;
+  /** Texto auxiliar exibido quando isEmpty (ex.: "Sem registros no período"). */
+  emptyHint?: string;
 };
 
 export type ChartPoint = Record<string, string | number>;
@@ -132,6 +145,7 @@ export type LubricantConsumptionPoint = {
 export type DatabaseDashboardData = {
   period: DashboardPeriod;
   kpis: DashboardKPIsData;
+  kpiComparisons: Record<string, PeriodVariation>;
   openClosedServiceOrders: OpenClosedServiceOrdersPoint[];
   correctivePreventiveChart: CorrectivePreventiveChartData;
   topCriticalEquipments: TopCriticalEquipmentData[];

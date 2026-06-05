@@ -151,10 +151,11 @@ async function seedServiceOrders(equipment: Record<string, { id: string }>) {
     const description = descriptions[index % descriptions.length];
     const equipmentName = weightedEquipment[index % weightedEquipment.length];
     const osNumber = `OS-2024-05-${String(index + 1).padStart(4, "0")}`;
+    const operationCode = "0010";
 
     saved.push(
       await prisma.serviceOrder.upsert({
-        where: { osNumber },
+        where: { osNumber_operationCode: { osNumber, operationCode } },
         update: {
           title: `${type === MaintenanceType.CORRETIVA ? "Correção" : "Preventiva"} - ${description}`,
           description,
@@ -174,6 +175,7 @@ async function seedServiceOrders(equipment: Record<string, { id: string }>) {
         },
         create: {
           osNumber,
+          operationCode,
           title: `${type === MaintenanceType.CORRETIVA ? "Correção" : "Preventiva"} - ${description}`,
           description,
           type,

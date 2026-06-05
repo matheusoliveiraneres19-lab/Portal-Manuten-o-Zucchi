@@ -190,7 +190,7 @@ model Equipment {
 
 model ServiceOrder {
   id                 String             @id @default(cuid())
-  osNumber           String             @unique
+  osNumber           String
   title              String
   description        String?
   status             ServiceOrderStatus @default(ABERTA)
@@ -223,6 +223,7 @@ model ServiceOrder {
   updatedAt          DateTime           @updatedAt
   timeEntries        TimeEntry[]
 
+  @@unique([osNumber, operationCode])
   @@index([osNumber])
   @@index([status])
   @@index([type])

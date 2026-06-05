@@ -17,6 +17,7 @@ import {
   Package,
   ShoppingCart
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import {
   alerts as mockAlerts,
   collaboratorHours as mockCollaboratorHours,
@@ -35,10 +36,13 @@ import type {
   CriticalAlertData,
   DashboardData,
   DatabaseDashboardData,
+  DashboardKPI,
   DashboardKPIsData,
   DashboardPeriod,
   DashboardPeriodInput,
   HoursByCollaboratorData,
+  KPIComparison,
+  KPITone,
   LubricantConsumptionPoint,
   OpenClosedServiceOrdersPoint,
   PendingPurchaseData,
@@ -47,6 +51,7 @@ import type {
   TopMachineBreakIndexData
 } from "@/types/dashboard";
 import { formatCurrency, formatDate, formatMonthName, formatPercent, formatShortDate, formatVolume } from "@/utils/formatters";
+import { calculatePeriodVariation, getPreviousPeriod, type PeriodVariation } from "@/utils/period";
 
 const openServiceOrderStatuses = [ServiceOrderStatus.ABERTA, ServiceOrderStatus.EM_ANDAMENTO];
 const pendingPurchaseStatuses = [
@@ -128,6 +133,29 @@ export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promi
     mostUsedMaterials: mostUsedMaterials.length,
     activeProcedures,
     criticalAlerts
+  };
+}
+
+/**
+ * Calcula o comparativo com o período imediatamente anterior (mesma duração).
+ * Só os KPIs realmente filtrados por período têm comparativo temporal; os demais
+ * são contagens "snapshot" e ficam como indisponíveis na camada de apresentação.
+ */
+export async function getDashboardKPIComparisons(
+  period: DashboardPeriod
+): Promise<Record<string, PeriodVariation>> {
+  const previousPeriod = getPreviousPeriod(period.startDate, period.endDate);
+  const [current, previous] = await Promise.all([
+    getDashboardKPIs(period),
+    getDashboardKPIs(previousPeriod)
+  ]);
+
+  return {
+    lubricantConsumption: calculatePeriodVariation(
+      current.lubricantConsumption,
+      previous.lubricantConsumption
+    ),
+    mostUsedMaterials: calculatePeriodVariation(current.mostUsedMaterials, previous.mostUsedMaterials)
   };
 }
 
@@ -386,6 +414,7 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
   const period = parsePeriod(periodInput);
   const [
     kpis,
+    kpiComparisons,
     openClosedServiceOrders,
     correctivePreventiveChart,
     topCriticalEquipments,
@@ -397,6 +426,7 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     lubricantConsumptionByPeriod
   ] = await Promise.all([
     getDashboardKPIs(period),
+    getDashboardKPIComparisons(period),
     getOpenClosedServiceOrders(period),
     getCorrectivePreventiveChart(period),
     getTopCriticalEquipments(period),
@@ -411,6 +441,7 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
   return {
     period,
     kpis,
+    kpiComparisons,
     openClosedServiceOrders,
     correctivePreventiveChart,
     topCriticalEquipments,
@@ -423,9 +454,32 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
   };
 }
 
+/**
+ * Extrai o período (startDate/endDate) dos search params da URL — o store global
+ * de período do portal. Retorna undefined quando ausente, para usar o padrão.
+ */
+export function parseDashboardPeriodParams(
+  searchParams: Record<string, string | string[] | undefined>
+): DashboardPeriodInput | undefined {
+  const startDate = firstParam(searchParams.startDate);
+  const endDate = firstParam(searchParams.endDate);
+
+  if (startDate && endDate) {
+    return { startDate, endDate };
+  }
+
+  return undefined;
+}
+
+function firstParam(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw && raw.trim() ? raw.trim() : undefined;
+}
+
 export async function getDashboardData(periodInput?: DashboardPeriodInput): Promise<DashboardData> {
   try {
-    const data = await getDatabaseDashboardData(periodInput ?? getDefaultDashboardPeriod());
+    const period = periodInput ?? (await resolveDefaultDashboardPeriod());
+    const data = await getDatabaseDashboardData(period);
     return mapDatabaseDashboardToVisualData(data);
   } catch (error) {
     console.error("Falha ao carregar dashboard pelo banco. Usando fallback mockado.", error);
@@ -433,9 +487,45 @@ export async function getDashboardData(periodInput?: DashboardPeriodInput): Prom
   }
 }
 
+/**
+ * Quando nenhum período é informado, usa o intervalo real das Ordens de Serviço
+ * (menor e maior data de abertura) em vez de um mês fixo. Assim o dashboard
+ * reflete os dados importados da planilha automaticamente.
+ */
+export async function resolveDefaultDashboardPeriod(): Promise<DashboardPeriod> {
+  try {
+    const range = await prisma.serviceOrder.aggregate({
+      _min: { openedAt: true },
+      _max: { openedAt: true }
+    });
+
+    const start = range._min.openedAt;
+    const end = range._max.openedAt;
+
+    if (!start || !end) {
+      return getDefaultDashboardPeriod();
+    }
+
+    return {
+      startDate: toStartOfDay(start),
+      endDate: toEndOfDay(end)
+    };
+  } catch (error) {
+    console.error("Falha ao resolver período padrão do dashboard. Usando período padrão.", error);
+    return getDefaultDashboardPeriod();
+  }
+}
+
 export function getMockDashboardData(): DashboardData {
   return {
-    kpis: [...mockKpis],
+    kpis: mockKpis.map((kpi): DashboardKPI => ({
+      title: kpi.title,
+      value: kpi.value,
+      tone: kpi.tone,
+      icon: kpi.icon,
+      comparison: { status: "unavailable", label: "Comparativo indisponível" },
+      isEmpty: false
+    })),
     openClosedOrders: mockOpenClosedOrders,
     correctivePreventive: mockCorrectivePreventive,
     criticalEquipment: mockCriticalEquipment,
@@ -524,57 +614,110 @@ function roundPercent(value: number) {
   return Number(value.toFixed(1));
 }
 
+const NON_TEMPORAL_COMPARISON: KPIComparison = {
+  status: "unavailable",
+  label: "Comparativo indisponível"
+};
+
+/** Converte a variação calculada em um comparativo pronto para exibição (com rótulo). */
+function toComparison(variation: PeriodVariation | undefined): KPIComparison {
+  if (!variation || variation.status === "unavailable") {
+    return { ...NON_TEMPORAL_COMPARISON };
+  }
+
+  const arrow = variation.direction === "up" ? "↑" : variation.direction === "down" ? "↓" : "→";
+
+  return {
+    status: "available",
+    direction: variation.direction,
+    percentage: variation.percentage,
+    label: `${arrow} ${formatPercent(variation.percentage)} vs período anterior`
+  };
+}
+
+/**
+ * Monta um KPI tratando estado vazio. Quando o valor atual é zero/ausente, o
+ * comparativo é suprimido em favor do texto auxiliar (emptyHint).
+ */
+function buildKpi(input: {
+  title: string;
+  rawValue: number;
+  value: string;
+  tone: KPITone;
+  icon: LucideIcon;
+  comparison: KPIComparison;
+  emptyHint: string;
+}): DashboardKPI {
+  const isEmpty = !Number.isFinite(input.rawValue) || input.rawValue <= 0;
+
+  return {
+    title: input.title,
+    value: input.value,
+    tone: input.tone,
+    icon: input.icon,
+    comparison: isEmpty ? { status: "unavailable", label: input.emptyHint } : input.comparison,
+    isEmpty,
+    emptyHint: input.emptyHint
+  };
+}
+
 function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): DashboardData {
   return {
     kpis: [
-      {
+      buildKpi({
         title: "OS Abertas",
+        rawValue: data.kpis.openServiceOrders,
         value: String(data.kpis.openServiceOrders),
-        trend: `${formatPercent(14)} vs mês anterior`,
-        direction: "up",
         tone: "blue",
-        icon: ClipboardList
-      },
-      {
+        icon: ClipboardList,
+        comparison: NON_TEMPORAL_COMPARISON,
+        emptyHint: "Sem registros no período"
+      }),
+      buildKpi({
         title: "Compras Pendentes",
+        rawValue: data.kpis.pendingPurchases,
         value: String(data.kpis.pendingPurchases),
-        trend: `${formatPercent(8)} vs mês anterior`,
-        direction: "up",
         tone: "gold",
-        icon: ShoppingCart
-      },
-      {
+        icon: ShoppingCart,
+        comparison: NON_TEMPORAL_COMPARISON,
+        emptyHint: "Aguardando importação"
+      }),
+      buildKpi({
         title: "Máquinas Críticas",
+        rawValue: data.kpis.criticalMachines,
         value: String(data.kpis.criticalMachines),
-        trend: `${formatPercent(40)} vs mês anterior`,
-        direction: "up",
         tone: "red",
-        icon: AlertTriangle
-      },
-      {
+        icon: AlertTriangle,
+        comparison: NON_TEMPORAL_COMPARISON,
+        emptyHint: "Aguardando importação"
+      }),
+      buildKpi({
         title: "Consumo Lubrificantes",
+        rawValue: data.kpis.lubricantConsumption,
         value: formatVolume(data.kpis.lubricantConsumption),
-        trend: `${formatPercent(6)} vs mês anterior`,
-        direction: "down",
         tone: "blue",
-        icon: Droplet
-      },
-      {
+        icon: Droplet,
+        comparison: toComparison(data.kpiComparisons.lubricantConsumption),
+        emptyHint: "Aguardando importação"
+      }),
+      buildKpi({
         title: "Materiais Mais Utilizados",
+        rawValue: data.kpis.mostUsedMaterials,
         value: String(data.kpis.mostUsedMaterials),
-        trend: `${formatPercent(12)} vs mês anterior`,
-        direction: "up",
         tone: "gold",
-        icon: Package
-      },
-      {
+        icon: Package,
+        comparison: toComparison(data.kpiComparisons.mostUsedMaterials),
+        emptyHint: "Aguardando importação"
+      }),
+      buildKpi({
         title: "Procedimentos Ativos",
+        rawValue: data.kpis.activeProcedures,
         value: String(data.kpis.activeProcedures),
-        trend: `${formatPercent(0)} vs mês anterior`,
-        direction: "flat",
         tone: "blue",
-        icon: FileText
-      }
+        icon: FileText,
+        comparison: NON_TEMPORAL_COMPARISON,
+        emptyHint: "Aguardando importação"
+      })
     ],
     openClosedOrders: pickChartCheckpoints(data.openClosedServiceOrders).map((item) => ({
       name: formatShortDate(item.date),

@@ -1,6 +1,7 @@
 import { Header } from "@/components/Header";
 import { HeroBanner } from "@/components/HeroBanner";
 import { Sidebar } from "@/components/Sidebar";
+import { toInputDate } from "@/utils/period";
 
 function SkeletonPanel({ className = "" }: { className?: string }) {
   return (
@@ -12,10 +13,16 @@ function SkeletonPanel({ className = "" }: { className?: string }) {
 }
 
 export default function Loading() {
+  // Placeholder de período no skeleton (mês corrente). O período real é resolvido
+  // pelo layout/página quando o conteúdo carrega.
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
   return (
     <main className="min-h-screen lg:pl-80">
       <Sidebar />
-      <Header />
+      <Header defaultStartDate={toInputDate(monthStart)} defaultEndDate={toInputDate(monthEnd)} />
       <div className="mx-auto max-w-[1780px] px-4 pb-8 pt-4 sm:px-6 lg:px-7">
         <HeroBanner />
 

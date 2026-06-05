@@ -1,9 +1,16 @@
-import { CalendarDays, ChevronDown, Search } from "lucide-react";
+import { Suspense } from "react";
+import { Search } from "lucide-react";
 import { AlertsButton } from "@/components/AlertsButton";
 import { AuthUserSummary } from "@/components/AuthUserSummary";
 import { LogoutButton } from "@/components/LogoutButton";
+import { PeriodFilter } from "@/components/PeriodFilter";
 
-export function Header() {
+type HeaderProps = {
+  defaultStartDate: string;
+  defaultEndDate: string;
+};
+
+export function Header({ defaultStartDate, defaultEndDate }: HeaderProps) {
   return (
     <header className="sticky top-0 z-30 border-b border-gold/20 bg-[#070808]/95 px-4 py-3 text-white shadow-[0_8px_24px_rgba(0,0,0,0.24)] backdrop-blur sm:px-6 lg:px-7">
       <div className="mx-auto flex max-w-[1780px] flex-wrap items-center gap-3">
@@ -26,12 +33,9 @@ export function Header() {
               placeholder="Buscar..."
             />
           </label>
-          <button className="hidden h-11 items-center gap-2 rounded-lg border border-gold/20 bg-black/45 px-4 text-sm text-champagne xl:flex">
-            <span className="text-[11px] text-zinc-400">Período</span>
-            <strong className="font-semibold text-white">01/05/2024 - 31/05/2024</strong>
-            <CalendarDays className="h-4 w-4" />
-            <ChevronDown className="h-4 w-4" />
-          </button>
+          <Suspense fallback={null}>
+            <PeriodFilter defaultStartDate={defaultStartDate} defaultEndDate={defaultEndDate} />
+          </Suspense>
           <AlertsButton />
           <AuthUserSummary />
           <LogoutButton />

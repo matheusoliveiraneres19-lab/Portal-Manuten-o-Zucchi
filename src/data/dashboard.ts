@@ -8,55 +8,15 @@
   ShoppingCart
 } from "lucide-react";
 
+// Valores de fallback exibidos apenas se o banco falhar. Sem percentuais de
+// comparação — o comparativo real é calculado no service a partir do banco.
 export const kpis = [
-  {
-    title: "OS Abertas",
-    value: "24",
-    trend: "14% vs mês anterior",
-    direction: "up",
-    tone: "blue",
-    icon: ClipboardList
-  },
-  {
-    title: "Compras Pendentes",
-    value: "18",
-    trend: "8% vs mês anterior",
-    direction: "up",
-    tone: "gold",
-    icon: ShoppingCart
-  },
-  {
-    title: "Máquinas Críticas",
-    value: "7",
-    trend: "40% vs mês anterior",
-    direction: "up",
-    tone: "red",
-    icon: AlertTriangle
-  },
-  {
-    title: "Consumo Lubrificantes",
-    value: "1.245 L",
-    trend: "6% vs mês anterior",
-    direction: "down",
-    tone: "blue",
-    icon: Droplet
-  },
-  {
-    title: "Materiais Mais Utilizados",
-    value: "32",
-    trend: "12% vs mês anterior",
-    direction: "up",
-    tone: "gold",
-    icon: Package
-  },
-  {
-    title: "Procedimentos Ativos",
-    value: "56",
-    trend: "0% vs mês anterior",
-    direction: "flat",
-    tone: "blue",
-    icon: FileText
-  }
+  { title: "OS Abertas", value: "0", tone: "blue", icon: ClipboardList },
+  { title: "Compras Pendentes", value: "0", tone: "gold", icon: ShoppingCart },
+  { title: "Máquinas Críticas", value: "0", tone: "red", icon: AlertTriangle },
+  { title: "Consumo Lubrificantes", value: "0 L", tone: "blue", icon: Droplet },
+  { title: "Materiais Mais Utilizados", value: "0", tone: "gold", icon: Package },
+  { title: "Procedimentos Ativos", value: "0", tone: "blue", icon: FileText }
 ] as const;
 
 export const openClosedOrders = [
