@@ -82,10 +82,12 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
 
   function applyFilters() {
     navigate(draft);
+    toast.success("Filtros aplicados");
   }
 
   function clearFilters() {
     startTransition(() => router.push(pathname));
+    toast("Filtros limpos");
   }
 
   function openDetails(id: string) {

@@ -105,11 +105,13 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
 
   function applyFilters() {
     navigate(draft, 1);
+    toast.success("Filtros aplicados");
   }
 
   function clearFilters() {
     setDraft(emptyFilters());
     startTransition(() => router.push(pathname));
+    toast("Filtros limpos");
   }
 
   function goToPage(page: number) {
@@ -204,7 +206,10 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
         canClear={chips.length > 0}
         canExport={data.orders.length > 0}
         onToggleImport={() => setShowImportPanel((current) => !current)}
-        onRefresh={() => startTransition(() => router.refresh())}
+        onRefresh={() => {
+          startTransition(() => router.refresh());
+          toast("Atualizando informações...");
+        }}
         onExport={() => exportOrdersToCsv(data.orders)}
         onClear={clearFilters}
       />

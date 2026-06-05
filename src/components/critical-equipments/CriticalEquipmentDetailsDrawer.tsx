@@ -48,7 +48,7 @@ export function CriticalEquipmentDetailsDrawer({
     setSelectedOrder(null);
   }, [equipmentId]);
 
-  const orders = details?.serviceOrders ?? [];
+  const orders = useMemo(() => details?.serviceOrders ?? [], [details]);
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
     return orders.filter((order) => {
