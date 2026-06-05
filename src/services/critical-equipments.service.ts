@@ -120,18 +120,18 @@ export async function getCriticalEquipmentsTrend(
 }
 
 export async function getCriticalEquipmentDetails(
-  equipmentCode: string,
+  equipmentId: string,
   params: Partial<CriticalEquipmentFilters> = {}
 ): Promise<CriticalEquipmentDetails | null> {
   const rows = await fetchRows(params);
-  const groupRows = rows.filter((row) => resolveCode(row) === equipmentCode);
+  const groupRows = rows.filter((row) => resolveCode(row) === equipmentId);
 
   if (!groupRows.length) {
     return null;
   }
 
   const items = analyzeEquipments(rows, params);
-  const item = items.find((current) => current.equipmentCode === equipmentCode);
+  const item = items.find((current) => current.id === equipmentId);
 
   if (!item) {
     return null;
@@ -263,14 +263,14 @@ function analyzeEquipments(
   }
 
   // Filtros pós-agregação no nível do equipamento.
-  let aggregated = Array.from(groups.values()).map((group) => {
+  let aggregated = Array.from(groups.entries()).map(([id, group]) => {
     const backlogOrders =
       group.statusCounts.ABERTA +
       group.statusCounts.LIBERADA +
       group.statusCounts.EM_ANDAMENTO +
       group.statusCounts.AGUARDANDO_MATERIAL;
 
-    return { group, backlogOrders };
+    return { id, group, backlogOrders };
   });
 
   if (params.onlyOpenOrders) {
@@ -284,7 +284,7 @@ function analyzeEquipments(
   const maxWorkedHours = Math.max(0, ...aggregated.map((entry) => entry.group.totalWorkedHours));
   const maxOpenOrders = Math.max(0, ...aggregated.map((entry) => entry.backlogOrders));
 
-  const items: CriticalEquipmentItem[] = aggregated.map(({ group, backlogOrders }) => {
+  const items: CriticalEquipmentItem[] = aggregated.map(({ id, group, backlogOrders }) => {
     const score = calculateCriticalityScore({
       totalOrders: group.totalOrders,
       maxOrders,
@@ -295,6 +295,7 @@ function analyzeEquipments(
     });
 
     return {
+      id,
       position: 0,
       equipmentName: group.equipmentName,
       equipmentCode: group.equipmentCode,

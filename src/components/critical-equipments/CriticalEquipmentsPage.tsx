@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { CalendarRange, ShieldAlert } from "lucide-react";
 import { formatPeriodRange } from "@/utils/period";
+import { CriticalEquipmentDetailsDrawer } from "@/components/critical-equipments/CriticalEquipmentDetailsDrawer";
+import type { CriticalEquipmentDetails } from "@/types/critical-equipments";
 import {
   ActiveFilterChips,
   type ActiveFilterChip
@@ -42,6 +44,13 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
   const [isPending, startTransition] = useTransition();
   const [draft, setDraft] = useState<AppliedCriticalEquipmentFilters>(appliedFilters);
 
+  // Drill-down: detalhes do equipamento selecionado (carregados via API, sem recarregar a página).
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [details, setDetails] = useState<CriticalEquipmentDetails | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const requestRef = useRef(0);
+
   const appliedSignature = JSON.stringify(appliedFilters);
 
   useEffect(() => {
@@ -68,6 +77,46 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
 
   function clearFilters() {
     startTransition(() => router.push(pathname));
+  }
+
+  function openDetails(id: string) {
+    const requestId = requestRef.current + 1;
+    requestRef.current = requestId;
+    setSelectedId(id);
+    setDetails(null);
+    setDetailsError(null);
+    setDetailsLoading(true);
+
+    const params = filtersToParams(appliedFilters);
+    params.set("id", id);
+
+    fetch(`/api/critical-equipments/details?${params.toString()}`)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("request failed");
+        }
+        return (await response.json()) as CriticalEquipmentDetails;
+      })
+      .then((data) => {
+        if (requestRef.current === requestId) {
+          setDetails(data);
+        }
+      })
+      .catch(() => {
+        if (requestRef.current === requestId) {
+          setDetailsError("Não foi possível carregar os detalhes deste equipamento.");
+        }
+      })
+      .finally(() => {
+        if (requestRef.current === requestId) {
+          setDetailsLoading(false);
+        }
+      });
+  }
+
+  function closeDetails() {
+    requestRef.current += 1;
+    setSelectedId(null);
   }
 
   const chips = useMemo(
@@ -136,9 +185,17 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
             <CriticalEquipmentStatusChart slices={data.statusDistribution} />
           </section>
 
-          <CriticalEquipmentTable items={data.ranking} />
+          <CriticalEquipmentTable items={data.ranking} onSelect={openDetails} />
         </>
       )}
+
+      <CriticalEquipmentDetailsDrawer
+        open={selectedId !== null}
+        loading={detailsLoading}
+        error={detailsError}
+        details={details}
+        onClose={closeDetails}
+      />
     </section>
   );
 }

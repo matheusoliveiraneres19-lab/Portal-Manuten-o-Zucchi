@@ -1,11 +1,15 @@
+"use client";
+
+import { ChevronRight } from "lucide-react";
 import { CriticalityScoreBadge } from "@/components/critical-equipments/CriticalityScoreBadge";
 import type { CriticalEquipmentItem } from "@/types/critical-equipments";
 
 type CriticalEquipmentTableProps = {
   items: CriticalEquipmentItem[];
+  onSelect: (id: string) => void;
 };
 
-export function CriticalEquipmentTable({ items }: CriticalEquipmentTableProps) {
+export function CriticalEquipmentTable({ items, onSelect }: CriticalEquipmentTableProps) {
   return (
     <article className="panel overflow-hidden rounded-lg">
       <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
@@ -35,11 +39,17 @@ export function CriticalEquipmentTable({ items }: CriticalEquipmentTableProps) {
               <th className="px-3 py-2.5 font-bold">Grupo principal</th>
               <th className="px-3 py-2.5 font-bold">Responsável principal</th>
               <th className="px-3 py-2.5 font-bold">Score crítico</th>
+              <th className="px-3 py-2.5" aria-label="Detalhes" />
             </tr>
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={`${item.equipmentCode}-${item.position}`} className="border-b border-zinc-100 transition hover:bg-gold/[0.06]">
+              <tr
+                key={`${item.id}-${item.position}`}
+                onClick={() => onSelect(item.id)}
+                title="Ver detalhes do equipamento"
+                className="cursor-pointer border-b border-zinc-100 transition hover:bg-gold/[0.06]"
+              >
                 <td className="px-3 py-2.5 font-bold text-zinc-500">{String(item.position).padStart(2, "0")}</td>
                 <td className="max-w-[240px] px-3 py-2.5">
                   <p className="truncate font-semibold text-zinc-900" title={item.equipmentName}>
@@ -66,6 +76,9 @@ export function CriticalEquipmentTable({ items }: CriticalEquipmentTableProps) {
                 </td>
                 <td className="px-3 py-2.5">
                   <CriticalityScoreBadge score={item.criticalityScore} label={item.criticalityLabel} />
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <ChevronRight className="ml-auto h-4 w-4 text-zinc-400" />
                 </td>
               </tr>
             ))}

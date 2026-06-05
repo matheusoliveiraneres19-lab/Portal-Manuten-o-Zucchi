@@ -16,6 +16,8 @@ export type CriticalEquipmentFilters = {
 };
 
 export type CriticalEquipmentItem = {
+  /** Chave estável de agrupamento (código, ou derivada do nome quando ausente). */
+  id: string;
   position: number;
   equipmentName: string;
   equipmentCode: string;
