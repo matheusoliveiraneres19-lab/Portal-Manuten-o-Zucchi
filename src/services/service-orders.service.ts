@@ -1,4 +1,4 @@
-import { MaintenanceArea, Prisma, ServiceOrderStatus } from "@prisma/client";
+import { ImportType, MaintenanceArea, Prisma, ServiceOrderStatus } from "@prisma/client";
 import { mockServiceOrders } from "@/data/service-orders";
 import { prisma } from "@/lib/prisma";
 import type {
@@ -141,10 +141,11 @@ export async function getServiceOrdersSummary(): Promise<ServiceOrdersSummary> {
 }
 
 export async function getServiceOrdersPageData(params: ServiceOrdersQueryParams = {}): Promise<ServiceOrdersPageData> {
-  const [orders, filterOptions, summary] = await Promise.all([
+  const [orders, filterOptions, summary, lastImportAt] = await Promise.all([
     getServiceOrders(params),
     getServiceOrderFilterOptions(),
-    getServiceOrdersSummary()
+    getServiceOrdersSummary(),
+    getLastServiceOrderImportAt()
   ]);
 
   return {
@@ -155,8 +156,24 @@ export async function getServiceOrdersPageData(params: ServiceOrdersQueryParams 
     totalPages: orders.totalPages,
     filterOptions,
     summary,
-    source: orders.source
+    source: orders.source,
+    lastImportAt
   };
+}
+
+async function getLastServiceOrderImportAt(): Promise<string | null> {
+  try {
+    const last = await prisma.importHistory.findFirst({
+      where: { type: ImportType.ORDENS_SERVICO },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true }
+    });
+
+    return last?.createdAt.toISOString() ?? null;
+  } catch (error) {
+    console.error("Falha ao carregar última importação de OS.", error);
+    return null;
+  }
 }
 
 const serviceOrderSelect = {

@@ -535,7 +535,8 @@ export function getMockDashboardData(): DashboardData {
     monthlyPurchases: mockMonthlyPurchases,
     lubricantConsumption: mockLubricantConsumption,
     topBreakdownMachines: mockTopBreakdownMachines,
-    source: "mock"
+    source: "mock",
+    period: null
   };
 }
 
@@ -763,7 +764,11 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       name: item.equipmentName,
       value: item.breakIndex
     })),
-    source: "database"
+    source: "database",
+    period: {
+      startDate: data.period.startDate.toISOString(),
+      endDate: data.period.endDate.toISOString()
+    }
   };
 }
 

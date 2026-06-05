@@ -35,6 +35,8 @@ export type ServiceOrdersPageData = {
   filterOptions: ServiceOrderFilterOptions;
   summary: ServiceOrdersSummary;
   source: "database" | "mock";
+  /** Data (ISO) da última importação de Ordens de Serviço, se houver. */
+  lastImportAt: string | null;
 };
 
 export type ServiceOrdersQueryParams = {

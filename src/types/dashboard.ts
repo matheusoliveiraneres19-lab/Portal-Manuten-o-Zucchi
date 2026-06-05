@@ -58,6 +58,8 @@ export type DashboardData = {
   lubricantConsumption: ChartPoint[];
   topBreakdownMachines: RankingItem[];
   source: "database" | "mock";
+  /** Intervalo analisado (ISO) para exibição discreta no dashboard. */
+  period: { startDate: string; endDate: string } | null;
 };
 
 export type DashboardPeriod = {

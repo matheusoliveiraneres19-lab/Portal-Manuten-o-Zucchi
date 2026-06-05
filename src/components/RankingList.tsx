@@ -1,3 +1,6 @@
+import { Trophy } from "lucide-react";
+import { EmptyState } from "@/components/EmptyState";
+
 type RankingItem = {
   name: string;
   value: number;
@@ -8,17 +11,31 @@ type RankingListProps = {
   items: RankingItem[];
   variant: "badges" | "bars";
   className?: string;
+  emptyTitle?: string;
+  emptyDescription?: string;
 };
 
-export function RankingList({ title, items, variant, className = "" }: RankingListProps) {
-  const maxValue = Math.max(...items.map((item) => item.value));
+export function RankingList({
+  title,
+  items,
+  variant,
+  className = "",
+  emptyTitle = "Sem dados no período",
+  emptyDescription = "Importe ordens ou ajuste o filtro para visualizar este indicador."
+}: RankingListProps) {
+  const maxValue = Math.max(...items.map((item) => item.value), 0) || 1;
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">{title}</h3>
-        {variant === "bars" ? <button className="text-xs font-semibold text-petroleum">Ver todas</button> : null}
+        {variant === "bars" && items.length ? (
+          <button className="text-xs font-semibold text-petroleum">Ver todas</button>
+        ) : null}
       </div>
+      {items.length === 0 ? (
+        <EmptyState icon={Trophy} title={emptyTitle} description={emptyDescription} />
+      ) : (
       <div className="space-y-2.5">
         {items.map((item, index) => (
           <div key={item.name} className="grid grid-cols-[28px_1fr_auto] items-center gap-3 border-b border-zinc-100 pb-2.5 last:border-0 last:pb-0">
@@ -41,6 +58,7 @@ export function RankingList({ title, items, variant, className = "" }: RankingLi
           </div>
         ))}
       </div>
+      )}
     </article>
   );
 }

@@ -17,16 +17,41 @@ import {
   XAxis,
   YAxis
 } from "recharts";
+import { LineChart as LineChartIcon } from "lucide-react";
+import { EmptyState } from "@/components/EmptyState";
 
 type ChartCardProps = {
   title: string;
   kind: "line" | "donut" | "bar-horizontal" | "bar" | "area";
   data: Array<Record<string, string | number>>;
   className?: string;
+  emptyTitle?: string;
+  emptyDescription?: string;
 };
 
-export function ChartCard({ title, kind, data, className = "" }: ChartCardProps) {
+export function ChartCard({
+  title,
+  kind,
+  data,
+  className = "",
+  emptyTitle = "Sem dados no período",
+  emptyDescription = "Importe ordens ou ajuste o filtro para visualizar este indicador."
+}: ChartCardProps) {
   const donutTotal = data.reduce((total, item) => total + Number(item.value ?? 0), 0);
+  const isEmpty = kind === "donut" ? donutTotal === 0 : data.length === 0;
+  // Séries temporais com 1 ponto não permitem leitura de tendência.
+  const isInsufficient = !isEmpty && kind !== "donut" && data.length < 2;
+
+  if (isEmpty) {
+    return (
+      <article className={`panel rounded-lg p-4 ${className}`}>
+        <h3 className="mb-3 text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">{title}</h3>
+        <div className="h-[185px] w-full">
+          <EmptyState icon={LineChartIcon} title={emptyTitle} description={emptyDescription} />
+        </div>
+      </article>
+    );
+  }
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
@@ -92,6 +117,11 @@ export function ChartCard({ title, kind, data, className = "" }: ChartCardProps)
           )}
         </ResponsiveContainer>
       </div>
+      {isInsufficient ? (
+        <p className="mt-2 text-center text-[11px] italic text-zinc-500">
+          Dados insuficientes para análise completa.
+        </p>
+      ) : null}
     </article>
   );
 }

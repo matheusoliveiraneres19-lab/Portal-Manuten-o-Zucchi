@@ -7,6 +7,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Database,
   Download,
   FileSpreadsheet,
   FilterX,
@@ -114,6 +115,13 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
     navigate(appliedFilters, page);
   }
 
+  function changePageSize(size: number) {
+    const params = filtersToSearchParams(appliedFilters, 1);
+    params.set("pageSize", String(size));
+    const query = params.toString();
+    startTransition(() => router.push(query ? `${pathname}?${query}` : pathname));
+  }
+
   const chips = useMemo(
     () => buildChips(appliedFilters, (next) => navigate(next, 1)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -172,6 +180,18 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
             <p className="text-xs uppercase tracking-[0.22em] text-zinc-400">Ordens de manutenção e operações</p>
             <p className="mt-1 font-serif text-2xl text-gold">({data.total.toLocaleString("pt-BR")})</p>
             <p className="mt-1 text-xs text-zinc-500">{buildTotalsLabel(data)}</p>
+            <div className="mt-2 space-y-0.5 border-t border-gold/15 pt-2 text-[11px] text-zinc-500">
+              <p className="flex items-center gap-1.5">
+                <Database className="h-3 w-3 text-gold" />
+                Fonte: {data.source === "database" ? "Banco SQLite/Prisma" : "Fallback mockado"}
+              </p>
+              <p>
+                Última importação:{" "}
+                <span className="text-zinc-300">
+                  {data.lastImportAt ? formatDateTime(data.lastImportAt) : "nenhuma registrada"}
+                </span>
+              </p>
+            </div>
           </div>
         </div>
       </header>
@@ -180,8 +200,11 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
         selectedCount={selected.size}
         source={data.source}
         showImportPanel={showImportPanel}
+        canClear={chips.length > 0}
+        canExport={data.orders.length > 0}
         onToggleImport={() => setShowImportPanel((current) => !current)}
         onRefresh={() => startTransition(() => router.refresh())}
+        onExport={() => exportOrdersToCsv(data.orders)}
         onClear={clearFilters}
       />
 
@@ -219,6 +242,7 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
         displayed={data.orders.length}
         disabled={isPending}
         onChange={goToPage}
+        onPageSizeChange={changePageSize}
       />
     </section>
   );
@@ -350,8 +374,11 @@ type ServiceOrderActionsProps = {
   selectedCount: number;
   source: ServiceOrdersPageData["source"];
   showImportPanel: boolean;
+  canClear: boolean;
+  canExport: boolean;
   onToggleImport: () => void;
   onRefresh: () => void;
+  onExport: () => void;
   onClear: () => void;
 };
 
@@ -359,8 +386,11 @@ function ServiceOrderActions({
   selectedCount,
   source,
   showImportPanel,
+  canClear,
+  canExport,
   onToggleImport,
   onRefresh,
+  onExport,
   onClear
 }: ServiceOrderActionsProps) {
   return (
@@ -368,11 +398,17 @@ function ServiceOrderActions({
       <div className="flex flex-wrap items-center gap-2">
         <ActionButton icon={Upload} label="Importar Excel" active={showImportPanel} onClick={onToggleImport} />
         <ActionButton icon={RefreshCw} label="Atualizar dados" onClick={onRefresh} />
-        <ActionButton icon={Download} label="Exportar" />
-        <ActionButton icon={FilterX} label="Limpar filtros" onClick={onClear} />
+        <ActionButton
+          icon={Download}
+          label="Exportar"
+          onClick={onExport}
+          disabled={!canExport}
+          title={canExport ? "Exportar a página atual em CSV" : "Sem registros para exportar"}
+        />
+        <ActionButton icon={FilterX} label="Limpar filtros" onClick={onClear} disabled={!canClear} />
       </div>
       <div className="flex items-center gap-3 text-xs text-zinc-400">
-        <span>{selectedCount ? `${selectedCount} selecionada(s)` : "Nenhuma ordem selecionada"}</span>
+        <span>{selectedCount ? `${selectedCount} ordens selecionadas` : "Nenhuma ordem selecionada"}</span>
         <span className="h-4 w-px bg-gold/20" />
         <span>Fonte: {source === "database" ? "Banco SQLite/Prisma" : "Fallback mockado"}</span>
       </div>
@@ -384,18 +420,22 @@ type ActionButtonProps = {
   icon: LucideIcon;
   label: string;
   active?: boolean;
+  disabled?: boolean;
+  title?: string;
   onClick?: () => void;
 };
 
-function ActionButton({ icon: Icon, label, active = false, onClick }: ActionButtonProps) {
+function ActionButton({ icon: Icon, label, active = false, disabled = false, title, onClick }: ActionButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition ${
+      disabled={disabled}
+      title={title}
+      className={`inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
         active
           ? "border-gold/55 bg-gold/15 text-gold"
-          : "border-gold/20 bg-white/[0.04] text-zinc-200 hover:border-gold/40 hover:bg-gold/10 hover:text-white"
+          : "border-gold/20 bg-white/[0.04] text-zinc-200 hover:border-gold/40 hover:bg-gold/10 hover:text-white disabled:hover:border-gold/20 disabled:hover:bg-white/[0.04] disabled:hover:text-zinc-200"
       }`}
     >
       <Icon className="h-4 w-4 text-gold" />
@@ -591,9 +631,21 @@ type PaginationProps = {
   displayed: number;
   disabled: boolean;
   onChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
 };
 
-function Pagination({ page, pageSize, total, totalPages, displayed, disabled, onChange }: PaginationProps) {
+const PAGE_SIZE_OPTIONS = [25, 50, 100];
+
+function Pagination({
+  page,
+  pageSize,
+  total,
+  totalPages,
+  displayed,
+  disabled,
+  onChange,
+  onPageSizeChange
+}: PaginationProps) {
   if (total === 0) {
     return null;
   }
@@ -603,10 +655,27 @@ function Pagination({ page, pageSize, total, totalPages, displayed, disabled, on
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-gold/15 bg-[#090a0a] p-3 text-sm shadow-premium sm:flex-row sm:items-center sm:justify-between">
-      <span className="text-xs text-zinc-400">
-        Registros {firstRow.toLocaleString("pt-BR")}–{lastRow.toLocaleString("pt-BR")} de{" "}
-        <strong className="text-champagne">{total.toLocaleString("pt-BR")}</strong>
-      </span>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="text-xs text-zinc-400">
+          Registros {firstRow.toLocaleString("pt-BR")}–{lastRow.toLocaleString("pt-BR")} de{" "}
+          <strong className="text-champagne">{total.toLocaleString("pt-BR")}</strong>
+        </span>
+        <label className="flex items-center gap-2 text-xs text-zinc-400">
+          Por página:
+          <select
+            value={pageSize}
+            disabled={disabled}
+            onChange={(event) => onPageSizeChange(Number(event.target.value))}
+            className="h-8 rounded-lg border border-gold/20 bg-black/40 px-2 text-xs text-zinc-100 outline-none transition [color-scheme:dark] focus:border-gold/55 disabled:opacity-50"
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       <div className="flex items-center gap-2">
         <button
@@ -642,8 +711,10 @@ const paginationButtonClassName =
 /* Tabela                                                             */
 /* ------------------------------------------------------------------ */
 
+type ServiceOrderGroupData = { responsible: string; orders: ServiceOrderListItem[]; totalHours: number };
+
 type ServiceOrdersTableProps = {
-  groups: Array<{ responsible: string; orders: ServiceOrderListItem[] }>;
+  groups: ServiceOrderGroupData[];
   selected: Set<string>;
   displayedCount: number;
   filteredTotal: number;
@@ -673,10 +744,10 @@ function ServiceOrdersTable({
         </span>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="max-h-[65vh] overflow-auto">
         <table className="w-full min-w-[1280px] border-collapse text-left text-xs">
-          <thead className="bg-black/50 text-[11px] uppercase tracking-wide text-zinc-400">
-            <tr className="border-b border-gold/15">
+          <thead className="sticky top-0 z-10 bg-[#0c0d0d] text-[11px] uppercase tracking-wide text-zinc-300 shadow-[0_1px_0_rgba(196,154,69,0.25)]">
+            <tr className="border-b border-gold/25">
               <th className="w-12 px-3 py-3">
                 <input
                   type="checkbox"
@@ -708,8 +779,13 @@ function ServiceOrdersTable({
               ))
             ) : (
               <tr>
-                <td colSpan={9} className="px-4 py-12 text-center text-sm text-zinc-400">
-                  Nenhuma ordem encontrada para os filtros aplicados.
+                <td colSpan={9} className="px-4 py-14 text-center">
+                  <p className="text-sm font-semibold text-zinc-200">
+                    Não encontramos ordens para os filtros aplicados.
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Revise os filtros ou limpe a busca para visualizar todos os registros.
+                  </p>
                 </td>
               </tr>
             )}
@@ -725,13 +801,17 @@ function ServiceOrderGroup({
   selected,
   onToggleOrder
 }: {
-  group: { responsible: string; orders: ServiceOrderListItem[] };
+  group: ServiceOrderGroupData;
   selected: Set<string>;
   onToggleOrder: (id: string) => void;
 }) {
   return (
     <>
-      <ServiceOrderGroupHeader responsible={group.responsible} count={group.orders.length} />
+      <ServiceOrderGroupHeader
+        responsible={group.responsible}
+        count={group.orders.length}
+        totalHours={group.totalHours}
+      />
       {group.orders.map((order) => (
         <ServiceOrderRow
           key={order.id}
@@ -744,15 +824,25 @@ function ServiceOrderGroup({
   );
 }
 
-function ServiceOrderGroupHeader({ responsible, count }: { responsible: string; count: number }) {
+function ServiceOrderGroupHeader({
+  responsible,
+  count,
+  totalHours
+}: {
+  responsible: string;
+  count: number;
+  totalHours: number;
+}) {
   return (
-    <tr className="border-y border-gold/15 bg-[#11100d]">
-      <td colSpan={9} className="px-4 py-2">
-        <div className="flex items-center justify-between gap-3">
+    <tr className="border-y border-gold/20 bg-[#15130d]">
+      <td colSpan={9} className="px-4 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <span className="text-xs font-semibold uppercase tracking-wide text-gold">
             Responsável (ordem): {responsible}
           </span>
-          <span className="text-[11px] text-zinc-500">{count.toLocaleString("pt-BR")} ordem(ns)</span>
+          <span className="text-[11px] text-zinc-400">
+            {count.toLocaleString("pt-BR")} ordem(ns) · {formatHours(totalHours)}
+          </span>
         </div>
       </td>
     </tr>
@@ -838,7 +928,11 @@ function groupOrdersByResponsible(orders: ServiceOrderListItem[]) {
   }
 
   return Array.from(groups.entries())
-    .map(([responsible, groupOrders]) => ({ responsible, orders: groupOrders }))
+    .map(([responsible, groupOrders]) => ({
+      responsible,
+      orders: groupOrders,
+      totalHours: groupOrders.reduce((sum, order) => sum + (order.workedHours ?? 0), 0)
+    }))
     .sort((a, b) => a.responsible.localeCompare(b.responsible, "pt-BR"));
 }
 
@@ -875,4 +969,63 @@ function formatHours(value: number | null) {
     minimumFractionDigits: 3,
     maximumFractionDigits: 3
   })} H`;
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+/** Exporta as ordens da página atual para CSV (separador ';', compatível com Excel pt-BR). */
+function exportOrdersToCsv(orders: ServiceOrderListItem[]) {
+  if (!orders.length) {
+    return;
+  }
+
+  const headers = [
+    "OS",
+    "Titulo",
+    "Data-base do inicio",
+    "Status",
+    "Objeto tecnico",
+    "Codigo equipamento",
+    "Responsavel",
+    "Grupo de planejamento",
+    "Trabalho real (H)",
+    "Operacao",
+    "Codigo operacao"
+  ];
+
+  const lines = orders.map((order) => [
+    order.osNumber,
+    order.title,
+    order.openedAt ? new Date(order.openedAt).toLocaleDateString("pt-BR") : "",
+    order.status,
+    order.technicalObject,
+    order.equipmentCode ?? "",
+    getResponsibleGroup(order),
+    formatPlanningGroup(order),
+    order.workedHours ?? "",
+    order.operation ?? "",
+    order.operationCode ?? ""
+  ]);
+
+  const csv = [headers, ...lines].map((line) => line.map(csvCell).join(";")).join("\r\n");
+  const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "ordens-servico.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function csvCell(value: string | number) {
+  const text = String(value ?? "");
+  return /[";\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }

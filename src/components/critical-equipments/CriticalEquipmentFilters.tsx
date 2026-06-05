@@ -1,0 +1,185 @@
+"use client";
+
+import { Check, FilterX, SlidersHorizontal } from "lucide-react";
+import { MultiSelectFilter } from "@/components/service-orders/filters/MultiSelectFilter";
+import { DateRangeFilter } from "@/components/service-orders/filters/DateRangeFilter";
+import type { AppliedCriticalEquipmentFilters } from "@/components/critical-equipments/CriticalEquipmentsPage";
+import type { CriticalEquipmentFilterOptions } from "@/types/critical-equipments";
+import type { ServiceOrderStatusLabel } from "@/types/service-orders";
+
+const STATUS_OPTIONS: ServiceOrderStatusLabel[] = [
+  "ABERTA",
+  "LIBERADA",
+  "EM_ANDAMENTO",
+  "AGUARDANDO_MATERIAL",
+  "FECHADA",
+  "CANCELADA"
+];
+
+export const AREA_LABELS: Record<string, string> = {
+  MECANICA: "Mecânica",
+  ELETRICA: "Elétrica",
+  LUBRIFICACAO: "Lubrificação",
+  PCM: "PCM",
+  OPERACIONAL: "Operacional"
+};
+
+const AREA_OPTIONS = Object.entries(AREA_LABELS).map(([value, label]) => ({ value, label }));
+const TOP_OPTIONS = [5, 10, 20, 50];
+
+type CriticalEquipmentFiltersProps = {
+  draft: AppliedCriticalEquipmentFilters;
+  options: CriticalEquipmentFilterOptions;
+  isPending: boolean;
+  onChange: <Key extends keyof AppliedCriticalEquipmentFilters>(
+    key: Key,
+    value: AppliedCriticalEquipmentFilters[Key]
+  ) => void;
+  onApply: () => void;
+  onClear: () => void;
+};
+
+export function CriticalEquipmentFilters({
+  draft,
+  options,
+  isPending,
+  onChange,
+  onApply,
+  onClear
+}: CriticalEquipmentFiltersProps) {
+  return (
+    <div className="rounded-lg border border-gold/20 bg-[#080909] p-4 shadow-premium sm:p-5">
+      <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-gold">
+        <SlidersHorizontal className="h-4 w-4" />
+        Filtros da análise
+      </div>
+
+      <div className="grid gap-x-4 gap-y-4 md:grid-cols-2 xl:grid-cols-4">
+        <DateRangeFilter
+          label="Período"
+          startDate={draft.startDate}
+          endDate={draft.endDate}
+          onChange={({ startDate, endDate }) => {
+            onChange("startDate", startDate);
+            onChange("endDate", endDate);
+          }}
+        />
+
+        <MultiSelectFilter
+          label="Status da OS"
+          options={STATUS_OPTIONS.map((status) => ({ value: status, label: status }))}
+          selected={draft.statuses}
+          onChange={(next) => onChange("statuses", next as ServiceOrderStatusLabel[])}
+          placeholder="Todos os status"
+          searchable={false}
+        />
+
+        <MultiSelectFilter
+          label="Grupo de planejamento"
+          options={options.planningGroups.map((value) => ({ value, label: value }))}
+          selected={draft.planningGroups}
+          onChange={(next) => onChange("planningGroups", next)}
+          placeholder="Todos os grupos"
+        />
+
+        <MultiSelectFilter
+          label="Responsável"
+          options={options.responsibles.map((value) => ({ value, label: value }))}
+          selected={draft.responsibleNames}
+          onChange={(next) => onChange("responsibleNames", next)}
+          placeholder="Todos os responsáveis"
+        />
+
+        <MultiSelectFilter
+          label="Área / Centro de trabalho"
+          options={AREA_OPTIONS}
+          selected={draft.areas}
+          onChange={(next) => onChange("areas", next)}
+          placeholder="Todas as áreas"
+          searchable={false}
+        />
+
+        <label className="block">
+          <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+            Top N equipamentos
+          </span>
+          <select
+            value={draft.limit}
+            onChange={(event) => onChange("limit", Number(event.target.value))}
+            className="h-10 w-full rounded-lg border border-gold/15 bg-black/35 px-3 text-sm text-zinc-100 outline-none transition [color-scheme:dark] focus:border-gold/55 focus:bg-black/50"
+          >
+            {TOP_OPTIONS.map((value) => (
+              <option key={value} value={value}>
+                Top {value}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <Toggle
+          label="Somente com OS abertas"
+          checked={draft.onlyOpenOrders}
+          onChange={(checked) => onChange("onlyOpenOrders", checked)}
+        />
+
+        <Toggle
+          label="Somente com horas apontadas"
+          checked={draft.onlyWithWorkedHours}
+          onChange={(checked) => onChange("onlyWithWorkedHours", checked)}
+        />
+      </div>
+
+      <div className="mt-5 flex flex-col gap-2 border-t border-gold/10 pt-4 sm:flex-row sm:items-center sm:justify-end">
+        <button
+          type="button"
+          onClick={onClear}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gold/20 px-4 text-sm font-semibold text-zinc-300 transition hover:border-gold/40 hover:text-white"
+        >
+          <FilterX className="h-4 w-4" />
+          Limpar filtros
+        </button>
+        <button
+          type="button"
+          onClick={onApply}
+          disabled={isPending}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-5 text-sm font-bold text-gold transition hover:bg-gold/25 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Check className="h-4 w-4" />
+          {isPending ? "Aplicando..." : "Aplicar filtros"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Toggle({
+  label,
+  checked,
+  onChange
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-end gap-2.5 pb-0.5">
+      <span className="flex-1">
+        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Filtro</span>
+        <span className="flex h-10 items-center gap-2.5 rounded-lg border border-gold/15 bg-black/35 px-3">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            onClick={() => onChange(!checked)}
+            className={`relative h-5 w-9 shrink-0 rounded-full transition ${checked ? "bg-gold" : "bg-zinc-600"}`}
+          >
+            <span
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${checked ? "left-[18px]" : "left-0.5"}`}
+            />
+          </button>
+          <span className="truncate text-xs text-zinc-200">{label}</span>
+        </span>
+      </span>
+    </label>
+  );
+}
