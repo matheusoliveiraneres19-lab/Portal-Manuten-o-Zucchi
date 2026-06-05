@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { ImportType, MaintenanceArea, Prisma, ServiceOrderStatus } from "@prisma/client";
 import { mockServiceOrders } from "@/data/service-orders";
 import { prisma } from "@/lib/prisma";
@@ -46,8 +47,13 @@ export async function getServiceOrders(params: ServiceOrdersQueryParams = {}): P
   }
 }
 
-export async function getServiceOrderFilterOptions(): Promise<ServiceOrderFilterOptions> {
-  try {
+/**
+ * Os valores distintos de filtro mudam pouco (só em importações); são cacheados
+ * por 120s para evitar reconsultar a cada navegação. Invalide com
+ * revalidateTag("service-orders") após uma importação, se necessário.
+ */
+const loadServiceOrderFilterOptions = unstable_cache(
+  async (): Promise<ServiceOrderFilterOptions> => {
     const [statuses, areas, planningGroups, responsibles, equipments] = await Promise.all([
       prisma.serviceOrder.findMany({
         distinct: ["status"],
@@ -97,6 +103,14 @@ export async function getServiceOrderFilterOptions(): Promise<ServiceOrderFilter
         .map((item) => formatTechnicalObject(item.equipmentName, item.equipmentCode))
         .filter((item) => item !== "-")
     };
+  },
+  ["service-order-filter-options"],
+  { revalidate: 120, tags: ["service-orders"] }
+);
+
+export async function getServiceOrderFilterOptions(): Promise<ServiceOrderFilterOptions> {
+  try {
+    return await loadServiceOrderFilterOptions();
   } catch (error) {
     console.error("Falha ao carregar opções de filtros de OS. Usando fallback mockado.", error);
     return getMockFilterOptions();

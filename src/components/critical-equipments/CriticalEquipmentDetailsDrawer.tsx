@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { Clock, Layers, Loader2, Search, Users, Wrench, X } from "lucide-react";
 import { CRITICALITY_COLORS } from "@/components/critical-equipments/criticality";
 import { EquipmentOrderDetailModal } from "@/components/critical-equipments/EquipmentOrderDetailModal";
@@ -74,7 +74,7 @@ export function CriticalEquipmentDetailsDrawer({
   return (
     <AnimatePresence>
       {open ? (
-        <motion.div
+        <m.div
           key="equipment-drawer"
           className="fixed inset-0 z-50"
           initial={{ opacity: 0 }}
@@ -89,7 +89,7 @@ export function CriticalEquipmentDetailsDrawer({
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
           />
 
-          <motion.aside
+          <m.aside
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
@@ -259,10 +259,10 @@ export function CriticalEquipmentDetailsDrawer({
             </div>
           )}
         </div>
-          </motion.aside>
+          </m.aside>
 
           <EquipmentOrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />
-        </motion.div>
+        </m.div>
       ) : null}
     </AnimatePresence>
   );

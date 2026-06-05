@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { X } from "lucide-react";
 import type { CriticalEquipmentServiceOrder } from "@/types/critical-equipments";
 
@@ -27,7 +27,7 @@ export function EquipmentOrderDetailModal({ order, onClose }: EquipmentOrderDeta
   return (
     <AnimatePresence>
       {order ? (
-        <motion.div
+        <m.div
           key="order-modal"
           className="fixed inset-0 z-[60] flex items-center justify-center p-4"
           initial={{ opacity: 0 }}
@@ -42,7 +42,7 @@ export function EquipmentOrderDetailModal({ order, onClose }: EquipmentOrderDeta
             className="absolute inset-0 bg-black/70 backdrop-blur-sm"
           />
 
-          <motion.div
+          <m.div
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 6 }}
@@ -86,8 +86,8 @@ export function EquipmentOrderDetailModal({ order, onClose }: EquipmentOrderDeta
           <Field label="Causa" value={text(order.failureCause)} className="sm:col-span-2" />
           <Field label="Solução" value={text(order.solution)} className="sm:col-span-2" />
             </div>
-          </motion.div>
-        </motion.div>
+          </m.div>
+        </m.div>
       ) : null}
     </AnimatePresence>
   );

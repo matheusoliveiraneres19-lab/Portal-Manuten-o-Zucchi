@@ -1,5 +1,6 @@
 ﻿import type { Metadata } from "next";
 import { Toaster } from "sonner";
+import { MotionProvider } from "@/components/MotionProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,7 +12,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="pt-BR">
       <body className="font-sans antialiased">
-        {children}
+        <MotionProvider>{children}</MotionProvider>
         <Toaster
           position="top-right"
           theme="dark"

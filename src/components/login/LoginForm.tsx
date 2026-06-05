@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { AnimatePresence, motion, useAnimationControls } from "framer-motion";
+import { AnimatePresence, m, useAnimationControls } from "framer-motion";
 import { ArrowRight, Eye, EyeOff, Loader2, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -96,7 +96,7 @@ export function LoginForm() {
 
   return (
     <>
-      <motion.form
+      <m.form
         noValidate
         animate={controls}
         className="mx-auto mt-8 w-full max-w-[410px] space-y-3 sm:mt-9"
@@ -151,7 +151,7 @@ export function LoginForm() {
             type="button"
           >
             <AnimatePresence mode="wait" initial={false}>
-              <motion.span
+              <m.span
                 key={showPassword ? "off" : "on"}
                 initial={{ opacity: 0, scale: 0.7 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -163,14 +163,14 @@ export function LoginForm() {
                 ) : (
                   <Eye className="h-5 w-5" strokeWidth={1.65} />
                 )}
-              </motion.span>
+              </m.span>
             </AnimatePresence>
           </button>
         </label>
 
         <AnimatePresence>
           {error ? (
-            <motion.div
+            <m.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
@@ -184,7 +184,7 @@ export function LoginForm() {
               >
                 {error}
               </div>
-            </motion.div>
+            </m.div>
           ) : null}
         </AnimatePresence>
 
@@ -195,7 +195,7 @@ export function LoginForm() {
         >
           {/* Brilho que percorre o botão durante o loading */}
           {status === "loading" ? (
-            <motion.span
+            <m.span
               aria-hidden
               className="absolute inset-y-0 w-1/3 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.45),transparent)]"
               initial={{ x: "-150%" }}
@@ -227,12 +227,12 @@ export function LoginForm() {
             <span>Esqueceu a senha?</span>
           </a>
         </div>
-      </motion.form>
+      </m.form>
 
       {/* Transição premium login -> portal */}
       <AnimatePresence>
         {status === "success" ? (
-          <motion.div
+          <m.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -240,7 +240,7 @@ export function LoginForm() {
             className="fixed inset-0 z-[80] grid place-items-center bg-[#040404]"
           >
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,rgba(196,154,69,0.18),transparent_30rem)]" />
-            <motion.div
+            <m.div
               initial={{ opacity: 0, y: 10, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={{ duration: 0.4, ease: "easeOut" }}
@@ -251,8 +251,8 @@ export function LoginForm() {
               </span>
               <p className="font-serif text-2xl text-gold">Preparando seu ambiente de manutenção...</p>
               <p className="text-sm text-zinc-400">Zucchi Stones Luxury</p>
-            </motion.div>
-          </motion.div>
+            </m.div>
+          </m.div>
         ) : null}
       </AnimatePresence>
     </>

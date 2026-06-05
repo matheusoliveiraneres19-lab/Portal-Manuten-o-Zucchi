@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import { Clock, Loader2, X } from "lucide-react";
 import type { EquipmentHoursByResponsible } from "@/types/critical-equipments";
 
@@ -38,7 +38,7 @@ export function EquipmentHoursByResponsibleModal({
   return (
     <AnimatePresence>
       {open ? (
-        <motion.div
+        <m.div
           key="hours-modal"
           className="fixed inset-0 z-[55] flex items-center justify-center p-4"
           initial={{ opacity: 0 }}
@@ -53,7 +53,7 @@ export function EquipmentHoursByResponsibleModal({
             className="absolute inset-0 bg-black/65 backdrop-blur-sm"
           />
 
-          <motion.div
+          <m.div
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 6 }}
@@ -123,8 +123,8 @@ export function EquipmentHoursByResponsibleModal({
             </div>
           )}
             </div>
-          </motion.div>
-        </motion.div>
+          </m.div>
+        </m.div>
       ) : null}
     </AnimatePresence>
   );
