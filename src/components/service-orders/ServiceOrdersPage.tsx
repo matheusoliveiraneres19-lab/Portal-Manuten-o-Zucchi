@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   Check,
   ChevronLeft,
@@ -1023,6 +1024,10 @@ function exportOrdersToCsv(orders: ServiceOrderListItem[]) {
   link.download = "ordens-servico.csv";
   link.click();
   URL.revokeObjectURL(url);
+
+  toast.success("Exportação concluída", {
+    description: `${orders.length.toLocaleString("pt-BR")} ordem(ns) exportada(s) em CSV.`
+  });
 }
 
 function csvCell(value: string | number) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import type { CriticalEquipmentServiceOrder } from "@/types/critical-equipments";
 
@@ -23,20 +24,31 @@ export function EquipmentOrderDetailModal({ order, onClose }: EquipmentOrderDeta
     return () => document.removeEventListener("keydown", handleKey);
   }, [order, onClose]);
 
-  if (!order) {
-    return null;
-  }
-
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <button
-        type="button"
-        aria-label="Fechar ordem"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-      />
+    <AnimatePresence>
+      {order ? (
+        <motion.div
+          key="order-modal"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+        >
+          <button
+            type="button"
+            aria-label="Fechar ordem"
+            onClick={onClose}
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+          />
 
-      <div className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-gold/30 bg-[#0a0b0b] text-champagne shadow-[0_0_60px_rgba(0,0,0,0.7)]">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 6 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-gold/30 bg-[#0a0b0b] text-champagne shadow-[0_0_60px_rgba(0,0,0,0.7)]"
+          >
         <div className="flex items-start justify-between gap-3 border-b border-gold/20 bg-[#070808] px-5 py-4">
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-gold">
@@ -73,9 +85,11 @@ export function EquipmentOrderDetailModal({ order, onClose }: EquipmentOrderDeta
           <Field label="Descrição" value={text(order.description)} className="sm:col-span-2" />
           <Field label="Causa" value={text(order.failureCause)} className="sm:col-span-2" />
           <Field label="Solução" value={text(order.solution)} className="sm:col-span-2" />
-        </div>
-      </div>
-    </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   );
 }
 

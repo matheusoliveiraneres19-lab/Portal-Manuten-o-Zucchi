@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { CalendarRange, ShieldAlert } from "lucide-react";
 import { formatPeriodRange } from "@/utils/period";
 import { CriticalEquipmentDetailsDrawer } from "@/components/critical-equipments/CriticalEquipmentDetailsDrawer";
@@ -113,6 +114,7 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
       .catch(() => {
         if (requestRef.current === requestId) {
           setDetailsError("Não foi possível carregar os detalhes deste equipamento.");
+          toast.error("Não foi possível carregar os detalhes deste equipamento no momento.");
         }
       })
       .finally(() => {
@@ -153,6 +155,7 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
       .catch(() => {
         if (hoursRequestRef.current === requestId) {
           setHoursError("Não foi possível carregar as horas deste equipamento no momento.");
+          toast.error("Não foi possível carregar as horas deste equipamento no momento.");
         }
       })
       .finally(() => {

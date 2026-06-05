@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Clock, Layers, Loader2, Search, Users, Wrench, X } from "lucide-react";
 import { CRITICALITY_COLORS } from "@/components/critical-equipments/criticality";
 import { EquipmentOrderDetailModal } from "@/components/critical-equipments/EquipmentOrderDetailModal";
@@ -68,22 +69,33 @@ export function CriticalEquipmentDetailsDrawer({
 
   const statusOptions = useMemo(() => details?.statusDistribution.map((slice) => slice.status) ?? [], [details]);
 
-  if (!open) {
-    return null;
-  }
-
   const item = details?.item;
 
   return (
-    <div className="fixed inset-0 z-50">
-      <button
-        type="button"
-        aria-label="Fechar detalhes"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-      />
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          key="equipment-drawer"
+          className="fixed inset-0 z-50"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          <button
+            type="button"
+            aria-label="Fechar detalhes"
+            onClick={onClose}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          />
 
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[540px] flex-col border-l border-gold/25 bg-[#0a0b0b] text-champagne shadow-[0_0_60px_rgba(0,0,0,0.6)]">
+          <motion.aside
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ duration: 0.3, ease: [0.22, 0.61, 0.36, 1] }}
+            className="absolute right-0 top-0 flex h-full w-full max-w-[540px] flex-col border-l border-gold/25 bg-[#0a0b0b] text-champagne shadow-[0_0_60px_rgba(0,0,0,0.6)]"
+          >
         {/* Cabeçalho */}
         <div className="flex items-start justify-between gap-3 border-b border-gold/20 bg-[#070808] px-5 py-4">
           <div className="min-w-0">
@@ -247,10 +259,12 @@ export function CriticalEquipmentDetailsDrawer({
             </div>
           )}
         </div>
-      </aside>
+          </motion.aside>
 
-      <EquipmentOrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />
-    </div>
+          <EquipmentOrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} />
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   );
 }
 

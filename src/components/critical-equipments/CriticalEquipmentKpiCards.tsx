@@ -1,3 +1,6 @@
+"use client";
+
+import { motion } from "framer-motion";
 import { Activity, AlertTriangle, Boxes, ClipboardList, Clock, TrendingUp } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { CriticalEquipmentSummary } from "@/types/critical-equipments";
@@ -64,13 +67,16 @@ export function CriticalEquipmentKpiCards({ summary }: CriticalEquipmentKpiCards
 
   return (
     <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-      {cards.map((card) => {
+      {cards.map((card, index) => {
         const Icon = card.icon;
         const isEmpty = !hasData;
 
         return (
-          <article
+          <motion.article
             key={card.title}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: index * 0.05, ease: "easeOut" }}
             className="panel flex min-h-[112px] items-center gap-4 rounded-lg p-4 transition hover:-translate-y-0.5 hover:shadow-premium"
           >
             <div
@@ -87,7 +93,7 @@ export function CriticalEquipmentKpiCards({ summary }: CriticalEquipmentKpiCards
                 {card.description}
               </p>
             </div>
-          </article>
+          </motion.article>
         );
       })}
     </section>

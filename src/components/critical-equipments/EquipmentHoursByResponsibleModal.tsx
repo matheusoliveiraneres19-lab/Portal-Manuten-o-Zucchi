@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Clock, Loader2, X } from "lucide-react";
 import type { EquipmentHoursByResponsible } from "@/types/critical-equipments";
 
@@ -32,22 +33,33 @@ export function EquipmentHoursByResponsibleModal({
     return () => document.removeEventListener("keydown", handleKey);
   }, [open, onClose]);
 
-  if (!open) {
-    return null;
-  }
-
   const hasHours = Boolean(data && data.totalWorkedHours > 0 && data.responsibles.length);
 
   return (
-    <div className="fixed inset-0 z-[55] flex items-center justify-center p-4">
-      <button
-        type="button"
-        aria-label="Fechar"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/65 backdrop-blur-sm"
-      />
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          key="hours-modal"
+          className="fixed inset-0 z-[55] flex items-center justify-center p-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+        >
+          <button
+            type="button"
+            aria-label="Fechar"
+            onClick={onClose}
+            className="absolute inset-0 bg-black/65 backdrop-blur-sm"
+          />
 
-      <div className="relative flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-gold/30 bg-[#0a0b0b] text-champagne shadow-[0_0_60px_rgba(0,0,0,0.7)]">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 6 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="relative flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-gold/30 bg-[#0a0b0b] text-champagne shadow-[0_0_60px_rgba(0,0,0,0.7)]"
+          >
         <div className="flex items-start justify-between gap-3 border-b border-gold/20 bg-[#070808] px-5 py-4">
           <div className="min-w-0">
             <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-gold">
@@ -110,9 +122,11 @@ export function EquipmentHoursByResponsibleModal({
               ))}
             </div>
           )}
-        </div>
-      </div>
-    </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   );
 }
 
