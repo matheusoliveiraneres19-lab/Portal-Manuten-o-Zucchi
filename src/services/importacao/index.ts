@@ -27,3 +27,8 @@ export {
 } from "@/utils/importacao";
 
 export { importServiceOrdersFromNormalizedRows } from "@/services/importacao/service-orders-import.service";
+export {
+  importLubricantMovements,
+  importLubricantsFromExcel,
+  readLubricantRows
+} from "@/services/importacao/lubricants-import.service";

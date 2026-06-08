@@ -61,6 +61,7 @@ App disponível em http://localhost:3000
 | `npm run prisma:studio` | Prisma Studio (visualizador do banco) |
 | `npm run db:seed` | Popula o banco com dados de exemplo |
 | `npm run import:service-orders` | Importa ordens de serviço (SAP/Excel) |
+| `npm run import:lubricants` | Importa a planilha de lubrificação (SAP/Fiori, aba `Data`) |
 
 ## Banco de dados
 

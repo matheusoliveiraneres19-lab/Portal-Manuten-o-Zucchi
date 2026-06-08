@@ -12,6 +12,7 @@
     "prisma:studio": "prisma studio",
     "db:seed": "prisma db seed",
     "import:service-orders": "tsx scripts/import-service-orders.ts",
+    "import:lubricants": "tsx scripts/import-lubricants.ts",
     "capture": "node scripts/capture-portal.mjs",
     "video": "remotion studio remotion/index.ts",
     "video:render": "remotion render remotion/index.ts PortalDemo out/portal-demo.mp4"

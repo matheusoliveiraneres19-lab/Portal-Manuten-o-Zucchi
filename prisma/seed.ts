@@ -6,7 +6,7 @@ import {
   EquipmentStatus,
   ImportStatus,
   ImportType,
-  LubricantMovementType,
+  LubricantMovementCategory,
   MaintenanceArea,
   MaintenanceType,
   MaterialMovementType,
@@ -21,6 +21,7 @@ import {
 
 const prisma = new PrismaClient();
 const seedOwner = "Seed Zucchi";
+const SEED_LUBRICANT_BATCH = "SEED-LUBRIFICACAO";
 
 const parseDate = (value: string) => new Date(`${value}T09:00:00.000Z`);
 const mayDate = (day: number, hour = 8) =>
@@ -43,7 +44,8 @@ async function cleanGeneratedSeedData() {
       }
     }
   });
-  await prisma.lubricantMovement.deleteMany({ where: { responsible: seedOwner } });
+  await prisma.lubricantMovement.deleteMany({ where: { importBatch: SEED_LUBRICANT_BATCH } });
+  await prisma.lubricantMachineApplication.deleteMany({ where: { equipmentName: { startsWith: "[SEED]" } } });
   await prisma.materialMovement.deleteMany({ where: { responsible: seedOwner } });
   await prisma.serviceOrder.deleteMany({ where: { osNumber: { startsWith: "OS-2024-05-" } } });
   await prisma.purchase.deleteMany({
@@ -365,55 +367,141 @@ async function seedMaterials(equipment: Record<string, { id: string }>) {
   }
 }
 
-async function seedLubricants(equipment: Record<string, { id: string }>) {
+async function seedLubricants(_equipment: Record<string, { id: string }>) {
+  // type aqui representa a categoria do material (mantido no campo legado `type` + novo `category`).
   const items = [
-    ["LUB-001", "Óleo Hidráulico ISO 68", "Hidráulico"],
-    ["LUB-002", "Óleo ISO VG 220", "Engrenagem"],
-    ["LUB-003", "Graxa EP2", "Graxa"],
-    ["LUB-004", "Graxa para Rolamentos", "Graxa"],
-    ["LUB-005", "Lubrificante de Corrente", "Corrente"],
-    ["LUB-006", "Óleo de Redutor", "Redutor"]
+    ["1000123", "OLEO HIDRAULICO ISO 68", "Hidráulico", "L"],
+    ["1000124", "OLEO ENGRENAGEM ISO VG 220", "Engrenagem", "L"],
+    ["1000125", "GRAXA EP2 AZUL", "Graxa", "KG"],
+    ["1000126", "GRAXA ROLAMENTO ALTA TEMP", "Graxa", "KG"],
+    ["1000127", "LUBRIFICANTE DE CORRENTE", "Corrente", "L"],
+    ["1000128", "OLEO REDUTOR ISO VG 320", "Redutor", "L"]
   ] as const;
+
   const lubricants = [];
-  for (const [code, name, type] of items) {
+  for (const [code, name, category, unit] of items) {
+    // 1000128 propositalmente com mínimo alto para demonstrar o alerta de reposição.
+    const minimumStock = code === "1000128" ? 600 : 80;
     lubricants.push(
       await prisma.lubricant.upsert({
         where: { code },
-        update: { name, type, unit: type === "Graxa" ? "KG" : "L", currentStock: code === "LUB-001" ? 45 : 180, minimumStock: 80 },
-        create: { code, name, type, unit: type === "Graxa" ? "KG" : "L", currentStock: code === "LUB-001" ? 45 : 180, minimumStock: 80 }
+        update: { name, type: category, category, unit, minimumStock },
+        create: { code, name, type: category, category, unit, currentStock: 0, minimumStock }
       })
     );
   }
 
-  const equipmentItems = Object.values(equipment);
+  let movementSeq = 0;
+  const buildKey = (code: string, date: Date, typeCode: string, qty: number) =>
+    `${SEED_LUBRICANT_BATCH}|${code}|${date.toISOString()}|${typeCode}|${qty}|${(movementSeq += 1)}`;
+
   for (let index = 0; index < lubricants.length; index += 1) {
+    const lub = lubricants[index];
+    const [code, name, , unit] = items[index];
+
+    // Estoque inicial (positivo, tipo 561).
+    const initialQty = 300 + index * 25;
     await prisma.lubricantMovement.create({
       data: {
-        lubricantId: lubricants[index].id,
-        equipmentId: equipmentItems[index % equipmentItems.length].id,
-        type: LubricantMovementType.COMPRA,
-        quantity: 220 + index * 20,
-        movementDate: mayDate(2 + index, 9),
-        responsible: seedOwner,
-        observation: "Compra seed de lubrificante"
+        lubricantId: lub.id,
+        materialCode: code,
+        materialDescription: name,
+        center: "1000",
+        companyName: "GRANITO ZUCCHI",
+        storageLocation: "CD01",
+        movementTypeCode: "561",
+        movementTypeText: "Reg.inic.estq.sist.",
+        movementCategory: LubricantMovementCategory.ESTOQUE_INICIAL,
+        movementDate: mayDate(1, 8),
+        movementTime: "08:00:00",
+        quantity: initialQty,
+        absoluteQuantity: initialQty,
+        unit,
+        source: DataSource.EXCEL,
+        importBatch: SEED_LUBRICANT_BATCH,
+        technicalKey: buildKey(code, mayDate(1, 8), "561", initialQty)
+      }
+    });
+
+    // Entrada de mercadoria (positivo, tipo 101).
+    const inputQty = 120 + index * 15;
+    await prisma.lubricantMovement.create({
+      data: {
+        lubricantId: lub.id,
+        materialCode: code,
+        materialDescription: name,
+        center: "1000",
+        companyName: "GRANITO ZUCCHI",
+        storageLocation: "CD01",
+        movementTypeCode: "101",
+        movementTypeText: "EM Entrada mercador.",
+        movementCategory: LubricantMovementCategory.ENTRADA,
+        movementDate: mayDate(3 + index, 9),
+        movementTime: "09:30:00",
+        quantity: inputQty,
+        absoluteQuantity: inputQty,
+        unit,
+        source: DataSource.EXCEL,
+        importBatch: SEED_LUBRICANT_BATCH,
+        technicalKey: buildKey(code, mayDate(3 + index, 9), "101", inputQty)
       }
     });
   }
 
-  const consumptions = [100, 145, 160, 130, 180, 155, 205, 170];
+  // Saídas para ordem (negativo, tipo 261) distribuídas ao longo do mês.
+  const consumptions = [40, 55, 30, 62, 48, 70, 35, 58, 44, 66, 52, 38];
   for (let index = 0; index < consumptions.length; index += 1) {
+    const lub = lubricants[index % lubricants.length];
+    const [code, name, , unit] = items[index % lubricants.length];
+    const day = 5 + index * 2;
+    const date = mayDate(Math.min(day, 28), 10);
+    const abs = consumptions[index];
     await prisma.lubricantMovement.create({
       data: {
-        lubricantId: lubricants[index % lubricants.length].id,
-        equipmentId: equipmentItems[index % equipmentItems.length].id,
-        type: LubricantMovementType.CONSUMO,
-        quantity: consumptions[index],
-        movementDate: mayDate(4 + index * 3, 10),
-        responsible: seedOwner,
-        observation: "Consumo seed maio/2024"
+        lubricantId: lub.id,
+        materialCode: code,
+        materialDescription: name,
+        center: "1000",
+        companyName: "GRANITO ZUCCHI",
+        storageLocation: "CD01",
+        movementTypeCode: "261",
+        movementTypeText: "SM para ordem",
+        movementCategory: LubricantMovementCategory.SAIDA,
+        movementDate: date,
+        movementTime: "10:15:00",
+        quantity: -abs,
+        absoluteQuantity: abs,
+        unit,
+        source: DataSource.EXCEL,
+        importBatch: SEED_LUBRICANT_BATCH,
+        technicalKey: buildKey(code, date, "261", -abs)
       }
     });
   }
+
+  // Aplicações em máquina (cadastro manual de exemplo) + uma ficha técnica.
+  await prisma.lubricantMachineApplication.create({
+    data: {
+      lubricantId: lubricants[0].id,
+      equipmentName: "[SEED] Compressor Atlas Copco",
+      equipmentCode: "EQ-COMP-01",
+      applicationPoint: "Sistema hidráulico",
+      recommendation: "Verificar nível semanalmente"
+    }
+  });
+  await prisma.lubricantMachineApplication.create({
+    data: {
+      lubricantId: lubricants[2].id,
+      equipmentName: "[SEED] Ponte Rolante 10t",
+      equipmentCode: "EQ-PR-10",
+      applicationPoint: "Rolamentos do tambor",
+      recommendation: "Reengraxar a cada 250h"
+    }
+  });
+  await prisma.lubricant.update({
+    where: { id: lubricants[0].id },
+    data: { technicalSheetUrl: "https://exemplo.zucchi.local/fichas/oleo-iso-68.pdf" }
+  });
 }
 
 async function seedProcedures() {

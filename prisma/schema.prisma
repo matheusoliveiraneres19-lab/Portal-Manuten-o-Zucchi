@@ -88,6 +88,14 @@ enum LubricantMovementType {
   AJUSTE
 }
 
+/// Classificação derivada do sinal/tipo de movimento na planilha SAP/Fiori.
+enum LubricantMovementCategory {
+  ENTRADA
+  SAIDA
+  ESTOQUE_INICIAL
+  AJUSTE
+}
+
 enum AlertType {
   QUEBRA_RECORRENTE
   COMPRA_ATRASADA
@@ -165,22 +173,21 @@ model User {
 }
 
 model Equipment {
-  id                 String              @id @default(cuid())
-  name               String
-  code               String              @unique
-  sector             String?
-  location           String?
-  manufacturer       String?
-  model              String?
-  status             EquipmentStatus     @default(OPERANDO)
-  criticality        Criticality         @default(MEDIA)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  serviceOrders      ServiceOrder[]
-  alerts             Alert[]
-  purchases          Purchase[]
-  materialMovements  MaterialMovement[]
-  lubricantMovements LubricantMovement[]
+  id                String             @id @default(cuid())
+  name              String
+  code              String             @unique
+  sector            String?
+  location          String?
+  manufacturer      String?
+  model             String?
+  status            EquipmentStatus    @default(OPERANDO)
+  criticality       Criticality        @default(MEDIA)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  serviceOrders     ServiceOrder[]
+  alerts            Alert[]
+  purchases         Purchase[]
+  materialMovements MaterialMovement[]
 
   @@index([code])
   @@index([name])
@@ -303,38 +310,78 @@ model MaterialMovement {
 }
 
 model Lubricant {
-  id           String              @id @default(cuid())
-  name         String
-  code         String              @unique
-  type         String?
-  unit         String
-  currentStock Float               @default(0)
-  minimumStock Float               @default(0)
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
-  movements    LubricantMovement[]
+  id                  String                        @id @default(cuid())
+  name                String
+  code                String                        @unique
+  description         String?
+  /// Categoria/tipo do material (ex.: Hidráulico, Graxa). Mantém o antigo "type".
+  category            String?
+  type                String?
+  unit                String
+  currentStock        Float                         @default(0)
+  minimumStock        Float                         @default(0)
+  technicalSheetUrl   String?
+  applicationNotes    String?
+  active              Boolean                       @default(true)
+  createdAt           DateTime                      @default(now())
+  updatedAt           DateTime                      @updatedAt
+  movements           LubricantMovement[]
+  machineApplications LubricantMachineApplication[]
 
   @@index([code])
   @@index([name])
+  @@index([active])
 }
 
-model LubricantMovement {
-  id           String                @id @default(cuid())
-  lubricantId  String
-  lubricant    Lubricant             @relation(fields: [lubricantId], references: [id], onDelete: Restrict)
-  equipmentId  String?
-  equipment    Equipment?            @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
-  type         LubricantMovementType
-  quantity     Float
-  movementDate DateTime
-  responsible  String?
-  observation  String?
-  createdAt    DateTime              @default(now())
+/// Máquina/equipamento onde um lubrificante é aplicado (cadastro manual).
+model LubricantMachineApplication {
+  id               String    @id @default(cuid())
+  lubricantId      String
+  lubricant        Lubricant @relation(fields: [lubricantId], references: [id], onDelete: Cascade)
+  equipmentId      String?
+  equipmentCode    String?
+  equipmentName    String
+  applicationPoint String?
+  recommendation   String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([lubricantId])
   @@index([equipmentId])
-  @@index([type])
+  @@index([equipmentCode])
+}
+
+/// Movimentação de lubrificante/material importada da planilha SAP/Fiori.
+model LubricantMovement {
+  id                  String                    @id @default(cuid())
+  lubricantId         String
+  lubricant           Lubricant                 @relation(fields: [lubricantId], references: [id], onDelete: Restrict)
+  materialCode        String
+  materialDescription String
+  center              String?
+  companyName         String?
+  storageLocation     String?
+  movementTypeCode    String?
+  movementTypeText    String?
+  movementCategory    LubricantMovementCategory
+  movementDate        DateTime
+  movementTime        String?
+  /// Quantidade com o sinal original da planilha (negativo = saída).
+  quantity            Float
+  /// Quantidade sempre positiva (para somatórios de consumo/entrada).
+  absoluteQuantity    Float
+  unit                String
+  source              DataSource                @default(EXCEL)
+  importBatch         String?
+  /// Chave de deduplicação da movimentação na reimportação.
+  technicalKey        String?                   @unique
+  createdAt           DateTime                  @default(now())
+
+  @@index([lubricantId])
+  @@index([materialCode])
   @@index([movementDate])
+  @@index([movementCategory])
+  @@index([technicalKey])
 }
 
 model Alert {

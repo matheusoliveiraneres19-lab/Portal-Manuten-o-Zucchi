@@ -1,7 +1,7 @@
 import {
   AlertStatus,
   Criticality,
-  LubricantMovementType,
+  LubricantMovementCategory,
   MaintenanceType,
   MaterialMovementType,
   Priority,
@@ -102,9 +102,9 @@ export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promi
     prisma.purchase.count({ where: { status: { in: pendingPurchaseStatuses } } }),
     prisma.equipment.count({ where: { criticality: { in: criticalities } } }),
     prisma.lubricantMovement.aggregate({
-      _sum: { quantity: true },
+      _sum: { absoluteQuantity: true },
       where: {
-        type: LubricantMovementType.CONSUMO,
+        movementCategory: LubricantMovementCategory.SAIDA,
         movementDate: withinPeriod(period)
       }
     }),
@@ -129,7 +129,7 @@ export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promi
     openServiceOrders,
     pendingPurchases,
     criticalMachines,
-    lubricantConsumption: Number(lubricantConsumption._sum.quantity ?? 0),
+    lubricantConsumption: Number(lubricantConsumption._sum.absoluteQuantity ?? 0),
     mostUsedMaterials: mostUsedMaterials.length,
     activeProcedures,
     criticalAlerts
@@ -389,19 +389,19 @@ export async function getLubricantConsumptionByPeriod(
   const period = parsePeriod(periodInput);
   const movements = await prisma.lubricantMovement.findMany({
     where: {
-      type: LubricantMovementType.CONSUMO,
+      movementCategory: LubricantMovementCategory.SAIDA,
       movementDate: withinPeriod(period)
     },
     select: {
       movementDate: true,
-      quantity: true
+      absoluteQuantity: true
     },
     orderBy: { movementDate: "asc" }
   });
   const buckets = createConsumptionBuckets(period);
 
   for (const movement of movements) {
-    buckets.get(dayKey(movement.movementDate))!.consumption += Number(movement.quantity);
+    buckets.get(dayKey(movement.movementDate))!.consumption += Number(movement.absoluteQuantity);
   }
 
   return Array.from(buckets.values()).map((item) => ({
