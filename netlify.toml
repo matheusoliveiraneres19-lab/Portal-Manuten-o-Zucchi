@@ -1,0 +1,17 @@
+# Configuração de deploy na Netlify.
+# O Prisma Client é gerado no install via "postinstall": "prisma generate" (package.json).
+# O plugin oficial @netlify/plugin-nextjs cuida do publish/funções do Next.
+
+[build]
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Variáveis a configurar no painel da Netlify (Site settings > Environment variables):
+#
+#   DATABASE_URL  -> opcional nesta fase de testes.
+#       O login tem fallback temporário de demonstração quando o banco está
+#       indisponível (ver src/app/api/auth/login/route.ts).
+#       Para autenticação real em produção, aponte para um Postgres gerenciado
+#       (Supabase/Neon/Railway) — SQLite (file:./dev.db) NÃO funciona em serverless.
