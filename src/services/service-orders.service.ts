@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 import { ImportType, MaintenanceArea, Prisma, ServiceOrderStatus } from "@prisma/client";
 import { mockServiceOrders } from "@/data/service-orders";
 import { prisma } from "@/lib/prisma";
+import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
 import type {
   ServiceOrderFilterOptions,
   ServiceOrderListItem,
@@ -446,16 +447,6 @@ function normalizeArea(value: string): MaintenanceArea | null {
   };
 
   return map[normalized] ?? null;
-}
-
-function toStartOfDay(value: string) {
-  const date = new Date(value);
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0));
-}
-
-function toEndOfDay(value: string) {
-  const date = new Date(value);
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999));
 }
 
 function formatTechnicalObject(name: string | null, code: string | null) {

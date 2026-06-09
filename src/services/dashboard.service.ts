@@ -1,11 +1,7 @@
 import {
-  AlertStatus,
   Criticality,
   LubricantMovementCategory,
   MaintenanceType,
-  MaterialMovementType,
-  Priority,
-  PurchaseStatus,
   ServiceOrderStatus
 } from "@prisma/client";
 import {
@@ -31,37 +27,36 @@ import {
   topBreakdownMachines as mockTopBreakdownMachines
 } from "@/data/dashboard";
 import { prisma } from "@/lib/prisma";
+import { getCriticalAlerts, getCriticalAlertsCount } from "@/services/alerts.service";
+import { getMostUsedMaterialsCount } from "@/services/materials.service";
+import {
+  getPendingPurchases,
+  getPendingPurchasesCount,
+  getPurchasesByMonth
+} from "@/services/purchases.service";
+import {
+  CRITICAL_EQUIPMENT_CRITICALITIES,
+  OPEN_SERVICE_ORDER_STATUSES
+} from "@/services/shared/portal-rules";
+import { getHoursByCollaborator } from "@/services/time-entries.service";
 import type {
   CorrectivePreventiveChartData,
-  CriticalAlertData,
   DashboardData,
   DatabaseDashboardData,
   DashboardKPI,
   DashboardKPIsData,
   DashboardPeriod,
   DashboardPeriodInput,
-  HoursByCollaboratorData,
   KPIComparison,
   KPITone,
   LubricantConsumptionPoint,
   OpenClosedServiceOrdersPoint,
-  PendingPurchaseData,
-  PurchasesByMonthData,
   TopCriticalEquipmentData,
   TopMachineBreakIndexData
 } from "@/types/dashboard";
 import { formatCurrency, formatDate, formatMonthName, formatPercent, formatShortDate, formatVolume } from "@/utils/formatters";
+import { dayKey, isWithinPeriod, toEndOfDay, toStartOfDay, withinPeriod } from "@/utils/date-range";
 import { calculatePeriodVariation, getPreviousPeriod, type PeriodVariation } from "@/utils/period";
-
-const openServiceOrderStatuses = [ServiceOrderStatus.ABERTA, ServiceOrderStatus.EM_ANDAMENTO];
-const pendingPurchaseStatuses = [
-  PurchaseStatus.SOLICITADA,
-  PurchaseStatus.EM_COTACAO,
-  PurchaseStatus.APROVADA,
-  PurchaseStatus.ATRASADA
-];
-const criticalPriorities = [Priority.ALTA, Priority.CRITICA];
-const criticalities = [Criticality.ALTA, Criticality.CRITICA];
 
 export function getDefaultDashboardPeriod(): DashboardPeriod {
   return parsePeriod("2024-05");
@@ -98,9 +93,9 @@ export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promi
     activeProcedures,
     criticalAlerts
   ] = await Promise.all([
-    prisma.serviceOrder.count({ where: { status: { in: openServiceOrderStatuses } } }),
-    prisma.purchase.count({ where: { status: { in: pendingPurchaseStatuses } } }),
-    prisma.equipment.count({ where: { criticality: { in: criticalities } } }),
+    prisma.serviceOrder.count({ where: { status: { in: OPEN_SERVICE_ORDER_STATUSES } } }),
+    getPendingPurchasesCount(),
+    prisma.equipment.count({ where: { criticality: { in: CRITICAL_EQUIPMENT_CRITICALITIES } } }),
     prisma.lubricantMovement.aggregate({
       _sum: { absoluteQuantity: true },
       where: {
@@ -108,21 +103,9 @@ export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promi
         movementDate: withinPeriod(period)
       }
     }),
-    prisma.materialMovement.groupBy({
-      by: ["materialId"],
-      where: {
-        type: MaterialMovementType.SAIDA,
-        movementDate: withinPeriod(period)
-      },
-      _sum: { quantity: true }
-    }),
+    getMostUsedMaterialsCount(period),
     prisma.procedure.count({ where: { active: true } }),
-    prisma.alert.count({
-      where: {
-        status: AlertStatus.ABERTO,
-        severity: { in: criticalPriorities }
-      }
-    })
+    getCriticalAlertsCount()
   ]);
 
   return {
@@ -130,7 +113,7 @@ export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promi
     pendingPurchases,
     criticalMachines,
     lubricantConsumption: Number(lubricantConsumption._sum.absoluteQuantity ?? 0),
-    mostUsedMaterials: mostUsedMaterials.length,
+    mostUsedMaterials,
     activeProcedures,
     criticalAlerts
   };
@@ -224,7 +207,7 @@ export async function getTopCriticalEquipments(
     where: {
       openedAt: withinPeriod(period),
       equipmentId: { not: null },
-      equipment: { criticality: { in: criticalities } }
+      equipment: { criticality: { in: CRITICAL_EQUIPMENT_CRITICALITIES } }
     },
     _count: { _all: true },
     orderBy: { _count: { equipmentId: "desc" } },
@@ -245,59 +228,6 @@ export async function getTopCriticalEquipments(
         ]
       : [];
   });
-}
-
-export async function getPendingPurchases(limit = 5): Promise<PendingPurchaseData[]> {
-  const purchases = await prisma.purchase.findMany({
-    where: { status: { in: pendingPurchaseStatuses } },
-    select: {
-      item: true,
-      supplier: true,
-      expectedDate: true,
-      totalValue: true,
-      status: true
-    },
-    orderBy: [{ expectedDate: "asc" }, { priority: "desc" }],
-    take: limit
-  });
-
-  return purchases.map((purchase) => ({
-    item: purchase.item,
-    supplier: purchase.supplier,
-    expectedDate: purchase.expectedDate,
-    totalValue: purchase.totalValue === null ? null : Number(purchase.totalValue),
-    status: purchase.status
-  }));
-}
-
-export async function getCriticalAlerts(limit = 5): Promise<CriticalAlertData[]> {
-  const alerts = await prisma.alert.findMany({
-    where: {
-      status: AlertStatus.ABERTO,
-      severity: { in: criticalPriorities }
-    },
-    select: {
-      title: true,
-      description: true,
-      severity: true,
-      status: true,
-      type: true,
-      createdAt: true,
-      equipment: { select: { name: true } }
-    },
-    orderBy: [{ severity: "desc" }, { createdAt: "desc" }],
-    take: limit
-  });
-
-  return alerts.map((alert) => ({
-    title: alert.title,
-    description: alert.description,
-    equipmentName: alert.equipment?.name ?? null,
-    severity: alert.severity,
-    status: alert.status,
-    type: alert.type,
-    createdAt: alert.createdAt
-  }));
 }
 
 export async function getTopMachinesBreakIndex(
@@ -340,47 +270,6 @@ export async function getTopMachinesBreakIndex(
         ]
       : [];
   });
-}
-
-export async function getHoursByCollaborator(periodInput: DashboardPeriodInput): Promise<HoursByCollaboratorData[]> {
-  const period = parsePeriod(periodInput);
-  const grouped = await prisma.timeEntry.groupBy({
-    by: ["userName"],
-    where: { workDate: withinPeriod(period) },
-    _sum: { hours: true },
-    orderBy: { _sum: { hours: "desc" } }
-  });
-
-  return grouped.map((item) => ({
-    userName: item.userName,
-    hours: Number(item._sum.hours ?? 0)
-  }));
-}
-
-export async function getPurchasesByMonth(year: number): Promise<PurchasesByMonthData[]> {
-  const startDate = new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0));
-  const endDate = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
-  const purchases = await prisma.purchase.findMany({
-    where: {
-      OR: [{ purchaseDate: { gte: startDate, lte: endDate } }, { requestDate: { gte: startDate, lte: endDate } }]
-    },
-    select: {
-      purchaseDate: true,
-      requestDate: true,
-      totalValue: true
-    }
-  });
-  const totals = Array.from({ length: 12 }, (_, index) => ({ month: index + 1, value: 0 }));
-
-  for (const purchase of purchases) {
-    const referenceDate = purchase.purchaseDate ?? purchase.requestDate;
-
-    if (referenceDate) {
-      totals[referenceDate.getUTCMonth()].value += Number(purchase.totalValue ?? 0);
-    }
-  }
-
-  return totals.map((item) => ({ ...item, value: Number(item.value.toFixed(2)) }));
 }
 
 export async function getLubricantConsumptionByPeriod(
@@ -523,8 +412,9 @@ export function getMockDashboardData(): DashboardData {
       value: kpi.value,
       tone: kpi.tone,
       icon: kpi.icon,
-      comparison: { status: "unavailable", label: "Comparativo indisponível" },
-      isEmpty: false
+      comparison: { status: "unavailable", label: "Aguardando importação" },
+      isEmpty: true,
+      emptyHint: "Aguardando importação"
     })),
     openClosedOrders: mockOpenClosedOrders,
     correctivePreventive: mockCorrectivePreventive,
@@ -545,31 +435,6 @@ function monthPeriod(year: number, month: number): DashboardPeriod {
     startDate: new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0)),
     endDate: new Date(Date.UTC(year, month, 0, 23, 59, 59, 999))
   };
-}
-
-function toStartOfDay(value: Date | string) {
-  const date = new Date(value);
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0));
-}
-
-function toEndOfDay(value: Date | string) {
-  const date = new Date(value);
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999));
-}
-
-function withinPeriod(period: DashboardPeriod) {
-  return {
-    gte: period.startDate,
-    lte: period.endDate
-  };
-}
-
-function isWithinPeriod(date: Date, period: DashboardPeriod) {
-  return date >= period.startDate && date <= period.endDate;
-}
-
-function dayKey(date: Date) {
-  return date.toISOString().slice(0, 10);
 }
 
 function createDailyBuckets(period: DashboardPeriod) {

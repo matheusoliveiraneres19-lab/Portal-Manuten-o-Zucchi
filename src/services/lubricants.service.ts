@@ -102,6 +102,18 @@ export async function resolveLubricantReference(
   let year = params.year;
   let month = params.month;
 
+  // Período global do portal (startDate/endDate): quando o usuário não escolheu
+  // um ano/mês específico na própria página, a janela global define a referência
+  // mês/ano dos KPIs — assim os Lubrificantes acompanham o período selecionado
+  // no header como os demais módulos. Usa-se o fim da janela como mês de referência.
+  if ((!year || !month) && params.endDate) {
+    const ref = new Date(params.endDate);
+    if (!Number.isNaN(ref.getTime())) {
+      year = year ?? ref.getUTCFullYear();
+      month = month ?? ref.getUTCMonth() + 1;
+    }
+  }
+
   if (!year || !month) {
     const agg = await prisma.lubricantMovement.aggregate({ _max: { movementDate: true } });
     const ref = agg._max.movementDate ?? new Date();

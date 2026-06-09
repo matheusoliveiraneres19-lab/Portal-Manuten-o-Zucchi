@@ -10,8 +10,9 @@
 
 # Variáveis a configurar no painel da Netlify (Site settings > Environment variables):
 #
-#   DATABASE_URL  -> opcional nesta fase de testes.
-#       O login tem fallback temporário de demonstração quando o banco está
-#       indisponível (ver src/app/api/auth/login/route.ts).
-#       Para autenticação real em produção, aponte para um Postgres gerenciado
-#       (Supabase/Neon/Railway) — SQLite (file:./dev.db) NÃO funciona em serverless.
+#   DATABASE_URL  -> conexão POOLED do Supabase (Transaction mode, porta 6543, pgbouncer).
+#       Obrigatória em serverless para não esgotar conexões. Ver .env.example.
+#   DIRECT_URL    -> conexão DIRETA do Supabase (porta 5432), usada por migrations.
+#
+#   Se DATABASE_URL não responder, o login cai num fallback temporário de testes
+#   (ver src/app/api/auth/login/route.ts). SQLite (file:./dev.db) NÃO funciona em serverless.

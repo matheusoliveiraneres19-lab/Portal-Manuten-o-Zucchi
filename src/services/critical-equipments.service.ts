@@ -1,6 +1,13 @@
 import { MaintenanceArea, Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getServiceOrderFilterOptions } from "@/services/service-orders.service";
+import {
+  ATTENTION_SCORE_THRESHOLD,
+  CRITICALITY_SCORE_THRESHOLD,
+  CRITICALITY_WEIGHTS
+} from "@/services/shared/portal-rules";
+import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
+import { toInputDate } from "@/utils/period";
 import type {
   CriticalEquipmentDetails,
   CriticalEquipmentFilterOptions,
@@ -22,14 +29,6 @@ const DEFAULT_LIMIT = 10;
 const NO_NAME = "EQUIPAMENTO NÃO INFORMADO";
 const NO_CODE = "SEM CÓDIGO";
 const NOT_INFORMED = "Não informado";
-
-/** Status considerados "em aberto" (backlog operacional). */
-const OPEN_STATUSES: ServiceOrderStatus[] = [
-  ServiceOrderStatus.ABERTA,
-  ServiceOrderStatus.LIBERADA,
-  ServiceOrderStatus.EM_ANDAMENTO,
-  ServiceOrderStatus.AGUARDANDO_MATERIAL
-];
 
 const STATUS_META: Record<ServiceOrderStatusLabel, { label: string; color: string }> = {
   ABERTA: { label: "Aberta", color: "#c49a45" },
@@ -90,15 +89,18 @@ export function calculateCriticalityScore(input: CriticalityScoreInput): number 
   const hoursScore = input.maxWorkedHours > 0 ? (input.totalWorkedHours / input.maxWorkedHours) * 100 : 0;
   const openScore = input.maxOpenOrders > 0 ? (input.openOrders / input.maxOpenOrders) * 100 : 0;
 
-  const score = ordersScore * 0.6 + hoursScore * 0.3 + openScore * 0.1;
+  const score =
+    ordersScore * CRITICALITY_WEIGHTS.orders +
+    hoursScore * CRITICALITY_WEIGHTS.hours +
+    openScore * CRITICALITY_WEIGHTS.openOrders;
   return Math.min(100, Math.max(0, Math.round(score)));
 }
 
 export function getCriticalityLabel(score: number): CriticalityLabel {
-  if (score >= 70) {
+  if (score >= CRITICALITY_SCORE_THRESHOLD) {
     return "Crítico";
   }
-  if (score >= 40) {
+  if (score >= ATTENTION_SCORE_THRESHOLD) {
     return "Atenção";
   }
   return "Monitorado";
@@ -468,7 +470,7 @@ function buildSummary(items: CriticalEquipmentItem[], totalOrders: number): Crit
       ? Number((totalOrders / totalEquipmentsAnalyzed).toFixed(1))
       : 0,
     totalOpenOrders,
-    totalCriticalEquipments: items.filter((item) => item.criticalityScore >= 70).length
+    totalCriticalEquipments: items.filter((item) => item.criticalityScore >= CRITICALITY_SCORE_THRESHOLD).length
   };
 }
 
@@ -783,18 +785,4 @@ function normalizeArea(value: string): MaintenanceArea | null {
   };
 
   return map[normalized] ?? null;
-}
-
-function toStartOfDay(value: string): Date {
-  const date = new Date(value);
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0));
-}
-
-function toEndOfDay(value: string): Date {
-  const date = new Date(value);
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999));
-}
-
-function toInputDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
 }

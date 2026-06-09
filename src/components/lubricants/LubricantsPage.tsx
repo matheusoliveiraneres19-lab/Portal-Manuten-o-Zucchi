@@ -16,6 +16,7 @@ import { LubricantDetailsDrawer } from "@/components/lubricants/LubricantDetails
 import { LubricantMachineApplicationModal } from "@/components/lubricants/LubricantMachineApplicationModal";
 import { LubricantTechnicalSheetModal } from "@/components/lubricants/LubricantTechnicalSheetModal";
 import { LubricantImportModal } from "@/components/lubricants/LubricantImportModal";
+import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import type { LubricantDetails, LubricantsPageData } from "@/types/lubricants";
 
 const LubricantOutputChart = dynamic(
@@ -55,6 +56,7 @@ export function LubricantsPage({ data, appliedFilters }: LubricantsPageProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
+  const { refresh: refreshPortalData, isRefreshing } = usePortalDataRefresh();
   const [draft, setDraft] = useState<AppliedLubricantFilters>(appliedFilters);
 
   const [selectedCode, setSelectedCode] = useState<string | null>(null);
@@ -94,8 +96,7 @@ export function LubricantsPage({ data, appliedFilters }: LubricantsPageProps) {
   }
 
   function refreshData() {
-    startTransition(() => router.refresh());
-    toast("Dados atualizados");
+    refreshPortalData({ toastMessage: "Dados atualizados" });
   }
 
   function fetchDetails(code: string) {
@@ -141,7 +142,8 @@ export function LubricantsPage({ data, appliedFilters }: LubricantsPageProps) {
   }
 
   function handleSaved() {
-    startTransition(() => router.refresh());
+    // O modal de importação/edição já exibe seu próprio toast; aqui só recarregamos.
+    refreshPortalData({ toastMessage: null });
     if (selectedCode) {
       fetchDetails(selectedCode);
     }
@@ -194,7 +196,7 @@ export function LubricantsPage({ data, appliedFilters }: LubricantsPageProps) {
   const appCode = appModalCode ? data.codes.find((row) => row.code === appModalCode) : null;
 
   return (
-    <section className={`space-y-4 text-champagne transition ${isPending ? "opacity-70" : ""}`}>
+    <section className={`space-y-4 text-champagne transition ${isPending || isRefreshing ? "opacity-70" : ""}`}>
       {/* Hero */}
       <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-6">
         <div className="login-marble-bg absolute inset-0 opacity-80" />
@@ -238,7 +240,7 @@ export function LubricantsPage({ data, appliedFilters }: LubricantsPageProps) {
       <LubricantFilters
         draft={draft}
         options={data.filterOptions}
-        isPending={isPending}
+        isPending={isPending || isRefreshing}
         onChange={updateDraft}
         onApply={applyFilters}
         onClear={clearFilters}
