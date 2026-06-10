@@ -3,7 +3,6 @@
 import { FormEvent, useState } from "react";
 import { AnimatePresence, m, useAnimationControls } from "framer-motion";
 import { ArrowRight, Eye, EyeOff, Loader2, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createTemporarySession } from "@/lib/auth.client";
 import { cn } from "@/lib/utils";
@@ -17,7 +16,6 @@ type ErrorField = "login" | "password" | "both" | null;
 const INVALID_MESSAGE = "Login ou senha inválidos. Verifique suas credenciais e tente novamente.";
 
 export function LoginForm() {
-  const router = useRouter();
   const controls = useAnimationControls();
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -78,9 +76,14 @@ export function LoginForm() {
       setStatus("success");
       toast.success("Acesso autorizado", { description: `Bem-vindo, ${result.user.name}.` });
 
+      // Navegação de documento (full load) em vez de soft-nav RSC.
+      // O `router.replace("/") + router.refresh()` disparava o fetch RSC da home
+      // (dashboard pesado) e o refresh abortava o stream → "Error: Connection closed."
+      // no serverless da Netlify (Application error pós-login). Um load real do "/"
+      // re-executa o middleware com o cookie novo e renderiza no servidor de forma
+      // resiliente — exatamente o caminho que já funciona ao abrir "/" diretamente.
       window.setTimeout(() => {
-        router.replace("/");
-        router.refresh();
+        window.location.assign("/");
       }, 850);
     } catch {
       setError(INVALID_MESSAGE);
