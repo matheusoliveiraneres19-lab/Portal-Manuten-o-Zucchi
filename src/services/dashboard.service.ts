@@ -125,11 +125,17 @@ export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promi
  * são contagens "snapshot" e ficam como indisponíveis na camada de apresentação.
  */
 export async function getDashboardKPIComparisons(
-  period: DashboardPeriod
+  period: DashboardPeriod,
+  /**
+   * KPIs do período atual já em andamento/calculados. Passe a MESMA promise usada
+   * para montar o dashboard para evitar recalcular os 7 queries do período atual
+   * (o anterior continua sendo buscado em paralelo). Sem isso, recai no cálculo próprio.
+   */
+  currentKpis?: Promise<DashboardKPIsData> | DashboardKPIsData
 ): Promise<Record<string, PeriodVariation>> {
   const previousPeriod = getPreviousPeriod(period.startDate, period.endDate);
   const [current, previous] = await Promise.all([
-    getDashboardKPIs(period),
+    currentKpis ?? getDashboardKPIs(period),
     getDashboardKPIs(previousPeriod)
   ]);
 
@@ -301,6 +307,10 @@ export async function getLubricantConsumptionByPeriod(
 
 export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInput): Promise<DatabaseDashboardData> {
   const period = parsePeriod(periodInput);
+  // Calcula os KPIs do período atual UMA vez e reaproveita a mesma promise no
+  // comparativo (que só precisa buscar, além desta, o período anterior). Antes,
+  // o período atual era calculado 2x (aqui + dentro de getDashboardKPIComparisons).
+  const currentKpis = getDashboardKPIs(period);
   const [
     kpis,
     kpiComparisons,
@@ -314,8 +324,8 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     purchasesByMonth,
     lubricantConsumptionByPeriod
   ] = await Promise.all([
-    getDashboardKPIs(period),
-    getDashboardKPIComparisons(period),
+    currentKpis,
+    getDashboardKPIComparisons(period, currentKpis),
     getOpenClosedServiceOrders(period),
     getCorrectivePreventiveChart(period),
     getTopCriticalEquipments(period),
