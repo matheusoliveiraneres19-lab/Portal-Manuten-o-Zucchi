@@ -9,19 +9,18 @@
  * Limiares configuráveis via SystemConfig (chaves abaixo); na ausência da
  * configuração, usa defaults seguros.
  */
-import { AlertType, MaintenanceType, Priority } from "@prisma/client";
+import { AlertType, MaintenanceType, Priority, PurchaseType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getLubricantReplenishmentItems } from "@/services/lubricants.service";
-import {
-  BREAKDOWN_MAINTENANCE_TYPES,
-  OPEN_SERVICE_ORDER_STATUSES,
-  PENDING_PURCHASE_STATUSES
-} from "@/services/shared/portal-rules";
+import { resolvePurchaseValue } from "@/utils/purchases-normalizer";
+import { BREAKDOWN_MAINTENANCE_TYPES, OPEN_SERVICE_ORDER_STATUSES } from "@/services/shared/portal-rules";
 import { withinPeriod, type DateRange } from "@/utils/date-range";
 
 const CONFIG_KEYS = {
   limiteQuebrasMes: "limite_quebras_mes",
-  diasOsAtrasada: "dias_os_atrasada"
+  diasOsAtrasada: "dias_os_atrasada",
+  diasRequisicaoSemPedido: "dias_requisicao_sem_pedido",
+  valorAltoRegularizacao: "valor_alto_regularizacao"
 } as const;
 
 export type DerivedAlertConfig = {
@@ -29,12 +28,18 @@ export type DerivedAlertConfig = {
   limiteQuebrasMes: number;
   /** Dias de OS aberta acima dos quais gera OS_ATRASADA. */
   diasOsAtrasada: number;
+  /** Dias de requisição sem pedido criado acima dos quais gera alerta. */
+  diasRequisicaoSemPedido: number;
+  /** Valor (R$) acima do qual uma regularização Y04 gera alerta. */
+  valorAltoRegularizacao: number;
 };
 
 /** Defaults seguros usados quando SystemConfig não tem a chave (ou está indisponível). */
 export const DERIVED_ALERT_DEFAULTS: DerivedAlertConfig = {
   limiteQuebrasMes: 5,
-  diasOsAtrasada: 30
+  diasOsAtrasada: 30,
+  diasRequisicaoSemPedido: 15,
+  valorAltoRegularizacao: 5000
 };
 
 export type DerivedAlert = {
@@ -58,7 +63,15 @@ export async function getDerivedAlertConfig(): Promise<DerivedAlertConfig> {
 
     return {
       limiteQuebrasMes: toPositiveInt(map.get(CONFIG_KEYS.limiteQuebrasMes), DERIVED_ALERT_DEFAULTS.limiteQuebrasMes),
-      diasOsAtrasada: toPositiveInt(map.get(CONFIG_KEYS.diasOsAtrasada), DERIVED_ALERT_DEFAULTS.diasOsAtrasada)
+      diasOsAtrasada: toPositiveInt(map.get(CONFIG_KEYS.diasOsAtrasada), DERIVED_ALERT_DEFAULTS.diasOsAtrasada),
+      diasRequisicaoSemPedido: toPositiveInt(
+        map.get(CONFIG_KEYS.diasRequisicaoSemPedido),
+        DERIVED_ALERT_DEFAULTS.diasRequisicaoSemPedido
+      ),
+      valorAltoRegularizacao: toPositiveInt(
+        map.get(CONFIG_KEYS.valorAltoRegularizacao),
+        DERIVED_ALERT_DEFAULTS.valorAltoRegularizacao
+      )
     };
   } catch {
     return { ...DERIVED_ALERT_DEFAULTS };
@@ -126,29 +139,120 @@ export async function detectOverdueServiceOrders(
   });
 }
 
+const DATE_PT = (date: Date | null): string =>
+  date ? date.toLocaleDateString("pt-BR", { timeZone: "UTC" }) : "data não informada";
+
 /**
- * COMPRA_ATRASADA — compras pendentes com previsão de entrega já vencida.
+ * COMPRA_ATRASADA — pedidos atrasados em aberto (previsão vencida, sem recebimento/MIGO).
+ * Lê de PurchaseRecord (fonte única); itens bloqueados (ignored) ficam de fora.
  */
-export async function detectOverduePurchases(now: Date): Promise<DerivedAlert[]> {
-  const purchases = await prisma.purchase.findMany({
-    where: {
-      status: { in: PENDING_PURCHASE_STATUSES },
-      expectedDate: { lt: now }
-    },
-    select: { id: true, item: true, supplier: true, expectedDate: true, equipmentId: true },
-    orderBy: { expectedDate: "asc" },
+export async function detectOverduePurchases(): Promise<DerivedAlert[]> {
+  const purchases = await prisma.purchaseRecord.findMany({
+    where: { ignored: false, isLateOpen: true },
+    select: { itemDescription: true, supplierName: true, expectedDeliveryDate: true, delayDays: true },
+    orderBy: { delayDays: "desc" },
     take: 50
   });
 
   return purchases.map((purchase) => ({
     type: AlertType.COMPRA_ATRASADA,
     severity: Priority.ALTA,
-    title: `Compra atrasada: ${purchase.item}`,
-    description: `${purchase.supplier ?? "Fornecedor não informado"} — previsão vencida em ${
-      purchase.expectedDate ? purchase.expectedDate.toLocaleDateString("pt-BR", { timeZone: "UTC" }) : "data não informada"
-    }.`,
-    equipmentId: purchase.equipmentId
+    title: `Compra atrasada: ${purchase.itemDescription}`,
+    description: `${purchase.supplierName ?? "Fornecedor não informado"} — previsão vencida em ${DATE_PT(
+      purchase.expectedDeliveryDate
+    )}${purchase.delayDays !== null ? ` (${purchase.delayDays} dias de atraso)` : ""}.`,
+    equipmentId: null
   }));
+}
+
+/** COMPRA_ATRASADA — pedidos recebidos com atraso (recebimento/MIGO após a previsão). */
+export async function detectLateReceivedPurchases(): Promise<DerivedAlert[]> {
+  const purchases = await prisma.purchaseRecord.findMany({
+    where: { ignored: false, isLateReceived: true },
+    select: { itemDescription: true, supplierName: true, delayDays: true },
+    orderBy: { delayDays: "desc" },
+    take: 50
+  });
+
+  return purchases.map((purchase) => ({
+    type: AlertType.COMPRA_ATRASADA,
+    severity: Priority.MEDIA,
+    title: `Recebido com atraso: ${purchase.itemDescription}`,
+    description: `${purchase.supplierName ?? "Fornecedor não informado"} — entregue ${
+      purchase.delayDays !== null ? `${purchase.delayDays} dias` : "dias"
+    } após a previsão de entrega.`,
+    equipmentId: null
+  }));
+}
+
+/** COMPRA_ATRASADA — requisições sem pedido criado há mais de N dias. */
+export async function detectRequisitionsWithoutOrder(config: DerivedAlertConfig, now: Date): Promise<DerivedAlert[]> {
+  const threshold = new Date(now.getTime() - config.diasRequisicaoSemPedido * DAY_IN_MS);
+  const requisitions = await prisma.purchaseRecord.findMany({
+    where: { ignored: false, hasPurchaseOrder: false, requisitionDate: { lt: threshold } },
+    select: { itemDescription: true, requisitionNumber: true, requisitionDate: true },
+    orderBy: { requisitionDate: "asc" },
+    take: 50
+  });
+
+  return requisitions.map((requisition) => {
+    const days = requisition.requisitionDate
+      ? Math.floor((now.getTime() - requisition.requisitionDate.getTime()) / DAY_IN_MS)
+      : null;
+    return {
+      type: AlertType.COMPRA_ATRASADA,
+      severity: Priority.MEDIA,
+      title: `Requisição sem pedido: ${requisition.requisitionNumber ?? requisition.itemDescription}`,
+      description: `${requisition.itemDescription} — requisição aberta há ${days ?? "?"} dias sem pedido de compra (limite ${config.diasRequisicaoSemPedido}).`,
+      equipmentId: null
+    };
+  });
+}
+
+/** COMPRA_ATRASADA — pedidos recebidos pendentes de MIRO (fatura não lançada). */
+export async function detectPendingMiro(): Promise<DerivedAlert[]> {
+  const purchases = await prisma.purchaseRecord.findMany({
+    where: { ignored: false, hasPurchaseOrder: true, isReceiptCompleted: true, hasMiro: false },
+    select: { itemDescription: true, supplierName: true, purchaseOrderNumber: true },
+    orderBy: { purchaseOrderDate: "asc" },
+    take: 50
+  });
+
+  return purchases.map((purchase) => ({
+    type: AlertType.COMPRA_ATRASADA,
+    severity: Priority.MEDIA,
+    title: `Pendência de MIRO: ${purchase.purchaseOrderNumber ?? purchase.itemDescription}`,
+    description: `${purchase.supplierName ?? "Fornecedor não informado"} — mercadoria recebida, fatura (MIRO) ainda não lançada.`,
+    equipmentId: null
+  }));
+}
+
+/** COMPRA_ATRASADA — regularizações Y04 com valor acima do limite configurado. */
+export async function detectHighValueRegularizations(config: DerivedAlertConfig): Promise<DerivedAlert[]> {
+  const purchases = await prisma.purchaseRecord.findMany({
+    where: {
+      ignored: false,
+      purchaseType: PurchaseType.REGULARIZACAO,
+      OR: [{ netTotal: { gte: config.valorAltoRegularizacao } }, { grossTotal: { gte: config.valorAltoRegularizacao } }]
+    },
+    select: { itemDescription: true, supplierName: true, netTotal: true, grossTotal: true },
+    take: 50
+  });
+
+  return purchases
+    .map((purchase) => ({ purchase, value: resolvePurchaseValue(purchase.netTotal, purchase.grossTotal) ?? 0 }))
+    .filter(({ value }) => value >= config.valorAltoRegularizacao)
+    .sort((a, b) => b.value - a.value)
+    .map(({ purchase, value }) => ({
+      type: AlertType.COMPRA_ATRASADA,
+      severity: Priority.ALTA,
+      title: `Regularização de valor alto: ${purchase.itemDescription}`,
+      description: `${purchase.supplierName ?? "Fornecedor não informado"} — regularização (Y04) de ${value.toLocaleString(
+        "pt-BR",
+        { style: "currency", currency: "BRL" }
+      )}.`,
+      equipmentId: null
+    }));
 }
 
 /**
@@ -175,14 +279,36 @@ export async function getDerivedAlerts(period: DateRange): Promise<DerivedAlert[
   const config = await getDerivedAlertConfig();
   const now = new Date();
 
-  const [breakdowns, overdueOrders, overduePurchases, lowLubricants] = await Promise.all([
+  const [
+    breakdowns,
+    overdueOrders,
+    overduePurchases,
+    lateReceived,
+    requisitionsWithoutOrder,
+    pendingMiro,
+    highValueRegularizations,
+    lowLubricants
+  ] = await Promise.all([
     detectRecurrentBreakdowns(period, config),
     detectOverdueServiceOrders(config, now),
-    detectOverduePurchases(now),
+    detectOverduePurchases(),
+    detectLateReceivedPurchases(),
+    detectRequisitionsWithoutOrder(config, now),
+    detectPendingMiro(),
+    detectHighValueRegularizations(config),
     detectLowLubricants()
   ]);
 
-  return [...breakdowns, ...overdueOrders, ...overduePurchases, ...lowLubricants];
+  return [
+    ...breakdowns,
+    ...overdueOrders,
+    ...overduePurchases,
+    ...lateReceived,
+    ...requisitionsWithoutOrder,
+    ...pendingMiro,
+    ...highValueRegularizations,
+    ...lowLubricants
+  ];
 }
 
 function toPositiveInt(value: string | undefined, fallback: number): number {

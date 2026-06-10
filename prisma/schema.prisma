@@ -83,6 +83,26 @@ enum MaterialMovementType {
   AJUSTE
 }
 
+/// Natureza da compra a partir do Grupo Comp (Y01 = normal, Y04 = regularização).
+enum PurchaseType {
+  NORMAL
+  REGULARIZACAO
+  OUTROS
+}
+
+/// Natureza do item comprado (material físico ou serviço/locação/mão de obra).
+enum ItemNature {
+  MATERIAL
+  SERVICO
+}
+
+/// Origem do registro de compra importado.
+enum PurchaseRecordSource {
+  EXCEL
+  SAP
+  MANUAL
+}
+
 enum LubricantMovementType {
   COMPRA
   CONSUMO
@@ -267,6 +287,89 @@ model Purchase {
   @@index([supplier])
   @@index([expectedDate])
   @@index([equipmentId])
+}
+
+/// Registro de compra rico importado da planilha SAP/Fiori (BASE DE DADOS PORTAL COMPRAS).
+/// Fonte ÚNICA das páginas Compras Pendentes/Realizadas e dos indicadores de compras.
+model PurchaseRecord {
+  id                     String               @id @default(cuid())
+  /// Pedido de Compra (vazio = requisição sem pedido criado).
+  purchaseOrderNumber    String?
+  /// Requisição e nível da requisição.
+  requisitionNumber      String?
+  requisitionLevel       String?
+  /// Fornecedor (código + descrição).
+  supplierCode           String?
+  supplierName           String?
+  /// Material (código) e texto breve do pedido.
+  materialCode           String?
+  itemDescription        String
+  quantity               Float?
+  unit                   String?
+  /// Datas do processo.
+  requisitionDate        DateTime?
+  purchaseOrderDate      DateTime?
+  expectedDeliveryDate   DateTime?
+  receiptDate            DateTime?
+  migoDate               DateTime?
+  miroDate               DateTime?
+  /// Documentos SAP.
+  receiptNumber          String?
+  migoNumber             String?
+  miroNumber             String?
+  /// Valores (unitário e total, bruto e líquido).
+  grossPrice             Float?
+  netPrice               Float?
+  grossTotal             Float?
+  netTotal               Float?
+  /// Categoria de mercadoria (Grupo Merc).
+  goodsGroupCode         String?
+  goodsGroupDescription  String?
+  requester              String?
+  /// Grupo de compras (Y01/Y04) e código de eliminação.
+  purchasingGroup        String?
+  deletionCode           String?
+  /// Classificações derivadas.
+  purchaseType           PurchaseType         @default(OUTROS)
+  itemNature             ItemNature           @default(MATERIAL)
+  hasPurchaseOrder       Boolean              @default(false)
+  hasMigo                Boolean              @default(false)
+  hasMiro                Boolean              @default(false)
+  isReceiptCompleted     Boolean              @default(false)
+  /// Atraso em aberto (previsão vencida, ainda sem recebimento/MIGO).
+  isLateOpen             Boolean              @default(false)
+  /// Recebido com atraso (recebimento/MIGO após a previsão).
+  isLateReceived         Boolean              @default(false)
+  delayDays              Int?
+  /// Tempos do processo (em dias).
+  requisitionToOrderDays Int?
+  orderToReceiptDays     Int?
+  migoToMiroDays         Int?
+  totalProcessDays       Int?
+  /// Itens bloqueados/ignorados na análise (mantidos só para auditoria).
+  ignored                Boolean              @default(false)
+  ignoredReason          String?
+  source                 PurchaseRecordSource @default(EXCEL)
+  importBatch            String?
+  /// Chave de deduplicação na reimportação.
+  technicalKey           String               @unique
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+
+  @@index([purchaseOrderNumber])
+  @@index([requisitionNumber])
+  @@index([supplierName])
+  @@index([materialCode])
+  @@index([goodsGroupCode])
+  @@index([purchaseType])
+  @@index([itemNature])
+  @@index([purchaseOrderDate])
+  @@index([requisitionDate])
+  @@index([expectedDeliveryDate])
+  @@index([hasPurchaseOrder])
+  @@index([isReceiptCompleted])
+  @@index([isLateOpen])
+  @@index([ignored])
 }
 
 model Material {

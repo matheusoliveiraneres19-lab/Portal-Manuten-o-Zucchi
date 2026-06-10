@@ -32,3 +32,8 @@ export {
   importLubricantsFromExcel,
   readLubricantRows
 } from "@/services/importacao/lubricants-import.service";
+export {
+  importPurchaseRows,
+  importPurchasesFromExcel,
+  readPurchaseRows
+} from "@/services/importacao/purchases-import.service";

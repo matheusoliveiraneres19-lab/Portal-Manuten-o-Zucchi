@@ -6,14 +6,6 @@ const modules = {
     title: "Ordens de Serviço",
     description: "Acompanhe solicitações, prioridades, execução e encerramento das ordens de serviço."
   },
-  "compras-realizadas": {
-    title: "Compras Realizadas",
-    description: "Consulte o histórico de compras concluídas e os valores aplicados na manutenção."
-  },
-  "compras-pendentes": {
-    title: "Compras Pendentes",
-    description: "Monitore solicitações em aberto, aprovações e previsões de entrega de materiais."
-  },
   "materiais-utilizados": {
     title: "Materiais Utilizados",
     description: "Visualize o consumo de materiais por período, equipamento e tipo de manutenção."
