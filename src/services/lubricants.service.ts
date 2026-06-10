@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { AlertStatus, AlertType, LubricantMovementCategory, Prisma, Priority } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toInputDate } from "@/utils/period";
@@ -45,7 +46,10 @@ type LubricantInfo = {
   machineNames: string[];
 };
 
-async function loadLubricantIndex(): Promise<Map<string, LubricantInfo>> {
+// `cache` deduplica esta carga (índice completo de lubrificantes) dentro de UM
+// render/request. A página chama loadLubricantIndex em ~7 sub-funções; sem isso,
+// seriam ~7 varreduras idênticas — peso que estourava o tempo da função serverless.
+const loadLubricantIndex = cache(async (): Promise<Map<string, LubricantInfo>> => {
   const lubricants = await prisma.lubricant.findMany({
     select: {
       id: true,
@@ -76,7 +80,7 @@ async function loadLubricantIndex(): Promise<Map<string, LubricantInfo>> {
     });
   }
   return index;
-}
+});
 
 /* ------------------------------------------------------------------ */
 /* Período de referência                                              */
@@ -228,7 +232,9 @@ function emptyTotals(): CategoryTotals {
   return { ENTRADA: 0, SAIDA: 0, ESTOQUE_INICIAL: 0, AJUSTE: 0 };
 }
 
-async function loadAllTimeTotalsByCode(): Promise<Map<string, CategoryTotals>> {
+// `cache` deduplica os totais all-time por código (groupBy completo) no mesmo
+// render — chamado por KPIs, saldo, reposição e tabela de códigos numa só carga.
+const loadAllTimeTotalsByCode = cache(async (): Promise<Map<string, CategoryTotals>> => {
   const grouped = await prisma.lubricantMovement.groupBy({
     by: ["materialCode", "movementCategory"],
     _sum: { absoluteQuantity: true }
@@ -241,7 +247,7 @@ async function loadAllTimeTotalsByCode(): Promise<Map<string, CategoryTotals>> {
     totals.set(row.materialCode, current);
   }
   return totals;
-}
+});
 
 function computeBalance(totals: CategoryTotals): number {
   return round(totals.ENTRADA + totals.ESTOQUE_INICIAL + totals.AJUSTE - totals.SAIDA);
