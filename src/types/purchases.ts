@@ -131,27 +131,48 @@ export type PurchaseImportResult = {
 /* Consulta / filtros                                                 */
 /* ------------------------------------------------------------------ */
 
-/** Filtro de status na página de pendentes. */
-export type PendingPurchaseStatusFilter =
-  | "sem-pedido"
-  | "pendente-migo"
-  | "pendente-miro"
-  | "atrasado"
-  | "recebido-atraso";
+/** Campo de data sobre o qual o filtro de período atua. */
+export type PurchaseDateField =
+  | "requisitionDate"
+  | "purchaseOrderDate"
+  | "expectedDeliveryDate"
+  | "receiptDate"
+  | "migoDate"
+  | "miroDate";
 
+/** Status operacional de compra (multi-seleção; OR dentro do grupo). */
+export type PurchaseOperationalStatus =
+  | "sem-pedido"
+  | "com-pedido"
+  | "pendente-migo"
+  | "com-migo"
+  | "pendente-miro"
+  | "com-miro"
+  | "atrasado-aberto"
+  | "recebido-atraso"
+  | "recebimento-concluido"
+  | "y04"
+  | "y01"
+  | "servico"
+  | "material";
+
+/**
+ * Parâmetros de consulta/filtro. Multi-seleção em arrays: dentro de um mesmo
+ * grupo as opções são combinadas por OR; entre grupos diferentes, por AND.
+ */
 export type PurchaseQueryParams = {
+  /** Busca textual: materialCode / itemDescription / requisição / pedido. */
+  search?: string;
+  suppliers?: string[];
+  categories?: string[];
+  purchasingGroups?: string[];
+  itemNatures?: ItemNature[];
+  operationalStatuses?: PurchaseOperationalStatus[];
+  requesters?: string[];
+  /** Período sobre o campo escolhido (default: data de referência). */
+  dateField?: PurchaseDateField;
   startDate?: string;
   endDate?: string;
-  requisition?: string;
-  purchaseOrder?: string;
-  supplier?: string;
-  material?: string;
-  category?: string;
-  purchaseType?: PurchaseType;
-  nature?: ItemNature;
-  pendingStatus?: PendingPurchaseStatusFilter;
-  requester?: string;
-  search?: string;
   page?: number;
   pageSize?: number;
 };
@@ -322,6 +343,7 @@ export type PurchaseNatureSlice = {
 export type PurchaseFilterOptions = {
   suppliers: Array<{ value: string; label: string }>;
   categories: Array<{ value: string; label: string }>;
+  purchasingGroups: Array<{ value: string; label: string }>;
   requesters: string[];
   purchaseTypes: PurchaseType[];
   natures: ItemNature[];

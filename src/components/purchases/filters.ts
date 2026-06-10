@@ -1,51 +1,95 @@
-import type { ItemNature, PendingPurchaseStatusFilter, PurchaseQueryParams, PurchaseType } from "@/types/purchases";
+import type {
+  ItemNature,
+  PurchaseDateField,
+  PurchaseOperationalStatus,
+  PurchaseQueryParams
+} from "@/types/purchases";
 
-/** Estado de filtros aplicado nas páginas de compras (espelha PurchaseQueryParams). */
+/** Estado de filtros aplicado nas páginas de compras (multi-seleção). */
 export type AppliedPurchaseFilters = {
+  search: string;
+  suppliers: string[];
+  categories: string[];
+  purchasingGroups: string[];
+  itemNatures: string[];
+  operationalStatuses: string[];
+  requesters: string[];
+  /** "" = data de referência (padrão); senão um campo de data específico. */
+  dateField: string;
   startDate: string;
   endDate: string;
-  requisition: string;
-  purchaseOrder: string;
-  supplier: string;
-  material: string;
-  category: string;
-  purchaseType: string;
-  nature: string;
-  requester: string;
-  pendingStatus: string;
-  search: string;
 };
 
 export const EMPTY_PURCHASE_FILTERS: AppliedPurchaseFilters = {
+  search: "",
+  suppliers: [],
+  categories: [],
+  purchasingGroups: [],
+  itemNatures: [],
+  operationalStatuses: [],
+  requesters: [],
+  dateField: "",
   startDate: "",
-  endDate: "",
-  requisition: "",
-  purchaseOrder: "",
-  supplier: "",
-  material: "",
-  category: "",
-  purchaseType: "",
-  nature: "",
-  requester: "",
-  pendingStatus: "",
-  search: ""
+  endDate: ""
 };
 
-/** Converte os filtros aplicados em query string da URL. */
+/** Chaves de grupos multi-seleção (para iterar em chips/contagem). */
+export const MULTI_FILTER_KEYS = [
+  "suppliers",
+  "categories",
+  "purchasingGroups",
+  "itemNatures",
+  "operationalStatuses",
+  "requesters"
+] as const;
+
+const DATE_FIELDS = ["requisitionDate", "purchaseOrderDate", "expectedDeliveryDate", "receiptDate", "migoDate", "miroDate"];
+const NATURES = ["MATERIAL", "SERVICO"];
+const OPERATIONAL_STATUSES = [
+  "sem-pedido",
+  "com-pedido",
+  "pendente-migo",
+  "com-migo",
+  "pendente-miro",
+  "com-miro",
+  "atrasado-aberto",
+  "recebido-atraso",
+  "recebimento-concluido",
+  "y04",
+  "y01",
+  "servico",
+  "material"
+];
+
+/** Conta quantos grupos/filtros estão ativos. */
+export function countActiveFilters(filters: AppliedPurchaseFilters): number {
+  let count = 0;
+  for (const key of MULTI_FILTER_KEYS) {
+    count += filters[key].length;
+  }
+  if (filters.search.trim()) count += 1;
+  if (filters.startDate || filters.endDate) count += 1;
+  return count;
+}
+
+/** Converte os filtros aplicados em query string da URL (arrays como CSV). */
 export function purchaseFiltersToParams(filters: AppliedPurchaseFilters): URLSearchParams {
   const params = new URLSearchParams();
+  const setCsv = (key: string, values: string[]) => {
+    if (values.length) {
+      params.set(key, values.join(","));
+    }
+  };
+  if (filters.search.trim()) params.set("q", filters.search.trim());
+  setCsv("fornecedores", filters.suppliers);
+  setCsv("categorias", filters.categories);
+  setCsv("grupos", filters.purchasingGroups);
+  setCsv("naturezas", filters.itemNatures);
+  setCsv("status", filters.operationalStatuses);
+  setCsv("requisitantes", filters.requesters);
+  if (filters.dateField) params.set("campoData", filters.dateField);
   if (filters.startDate) params.set("startDate", filters.startDate);
   if (filters.endDate) params.set("endDate", filters.endDate);
-  if (filters.requisition) params.set("req", filters.requisition);
-  if (filters.purchaseOrder) params.set("pedido", filters.purchaseOrder);
-  if (filters.supplier) params.set("fornecedor", filters.supplier);
-  if (filters.material) params.set("material", filters.material);
-  if (filters.category) params.set("categoria", filters.category);
-  if (filters.purchaseType) params.set("grupo", filters.purchaseType);
-  if (filters.nature) params.set("natureza", filters.nature);
-  if (filters.requester) params.set("requisitante", filters.requester);
-  if (filters.pendingStatus) params.set("status", filters.pendingStatus);
-  if (filters.search) params.set("q", filters.search);
   return params;
 }
 
@@ -60,32 +104,36 @@ function firstParam(value: string | string[] | undefined): string | undefined {
   return raw && raw.trim() ? raw.trim() : undefined;
 }
 
-const PURCHASE_TYPES = ["NORMAL", "REGULARIZACAO", "OUTROS"];
-const NATURES = ["MATERIAL", "SERVICO"];
-const PENDING_STATUSES = ["sem-pedido", "pendente-migo", "pendente-miro", "atrasado", "recebido-atraso"];
+function csvParam(value: string | string[] | undefined, allowed?: string[]): string[] {
+  const raw = firstParam(value);
+  if (!raw) {
+    return [];
+  }
+  const list = raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const unique = Array.from(new Set(list));
+  return allowed ? unique.filter((item) => allowed.includes(item)) : unique;
+}
 
 /** Lê os searchParams da URL e devolve PurchaseQueryParams tipado. */
 export function parsePurchaseQueryParams(searchParams: SearchParams): PurchaseQueryParams {
-  const purchaseTypeRaw = firstParam(searchParams.grupo);
-  const natureRaw = firstParam(searchParams.natureza);
-  const statusRaw = firstParam(searchParams.status);
+  const dateFieldRaw = firstParam(searchParams.campoData);
   const page = Number(firstParam(searchParams.page));
   const pageSize = Number(firstParam(searchParams.tamanho));
 
   return {
+    search: firstParam(searchParams.q),
+    suppliers: csvParam(searchParams.fornecedores),
+    categories: csvParam(searchParams.categorias),
+    purchasingGroups: csvParam(searchParams.grupos),
+    itemNatures: csvParam(searchParams.naturezas, NATURES) as ItemNature[],
+    operationalStatuses: csvParam(searchParams.status, OPERATIONAL_STATUSES) as PurchaseOperationalStatus[],
+    requesters: csvParam(searchParams.requisitantes),
+    dateField: dateFieldRaw && DATE_FIELDS.includes(dateFieldRaw) ? (dateFieldRaw as PurchaseDateField) : undefined,
     startDate: firstParam(searchParams.startDate),
     endDate: firstParam(searchParams.endDate),
-    requisition: firstParam(searchParams.req),
-    purchaseOrder: firstParam(searchParams.pedido),
-    supplier: firstParam(searchParams.fornecedor),
-    material: firstParam(searchParams.material),
-    category: firstParam(searchParams.categoria),
-    purchaseType: purchaseTypeRaw && PURCHASE_TYPES.includes(purchaseTypeRaw) ? (purchaseTypeRaw as PurchaseType) : undefined,
-    nature: natureRaw && NATURES.includes(natureRaw) ? (natureRaw as ItemNature) : undefined,
-    pendingStatus:
-      statusRaw && PENDING_STATUSES.includes(statusRaw) ? (statusRaw as PendingPurchaseStatusFilter) : undefined,
-    requester: firstParam(searchParams.requisitante),
-    search: firstParam(searchParams.q),
     page: Number.isFinite(page) && page > 0 ? page : undefined,
     pageSize: Number.isFinite(pageSize) && pageSize > 0 ? pageSize : undefined
   };
@@ -94,17 +142,15 @@ export function parsePurchaseQueryParams(searchParams: SearchParams): PurchaseQu
 /** Reflete os params resolvidos de volta no estado de filtros da UI. */
 export function queryParamsToFilters(params: PurchaseQueryParams): AppliedPurchaseFilters {
   return {
+    search: params.search ?? "",
+    suppliers: params.suppliers ?? [],
+    categories: params.categories ?? [],
+    purchasingGroups: params.purchasingGroups ?? [],
+    itemNatures: params.itemNatures ?? [],
+    operationalStatuses: params.operationalStatuses ?? [],
+    requesters: params.requesters ?? [],
+    dateField: params.dateField ?? "",
     startDate: params.startDate ?? "",
-    endDate: params.endDate ?? "",
-    requisition: params.requisition ?? "",
-    purchaseOrder: params.purchaseOrder ?? "",
-    supplier: params.supplier ?? "",
-    material: params.material ?? "",
-    category: params.category ?? "",
-    purchaseType: params.purchaseType ?? "",
-    nature: params.nature ?? "",
-    requester: params.requester ?? "",
-    pendingStatus: params.pendingStatus ?? "",
-    search: params.search ?? ""
+    endDate: params.endDate ?? ""
   };
 }

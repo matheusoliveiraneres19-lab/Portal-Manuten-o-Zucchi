@@ -277,6 +277,37 @@ export const ITEM_NATURE_LABELS: Record<ItemNature, string> = {
   SERVICO: "Serviço"
 };
 
+/** Opções do filtro de status operacional (multi-seleção). value estável p/ URL. */
+export const PURCHASE_OPERATIONAL_STATUSES: Array<{ value: string; label: string }> = [
+  { value: "sem-pedido", label: "Sem pedido criado" },
+  { value: "com-pedido", label: "Com pedido criado" },
+  { value: "pendente-migo", label: "Pendente de MIGO" },
+  { value: "com-migo", label: "Com MIGO" },
+  { value: "pendente-miro", label: "Pendente de MIRO" },
+  { value: "com-miro", label: "Com MIRO" },
+  { value: "atrasado-aberto", label: "Atrasado em aberto" },
+  { value: "recebido-atraso", label: "Recebido com atraso" },
+  { value: "recebimento-concluido", label: "Recebimento concluído" },
+  { value: "y04", label: "Regularização (Y04)" },
+  { value: "y01", label: "Compra normal (Y01)" },
+  { value: "servico", label: "Serviço" },
+  { value: "material", label: "Material" }
+];
+
+export const PURCHASE_OPERATIONAL_STATUS_LABELS: Record<string, string> = Object.fromEntries(
+  PURCHASE_OPERATIONAL_STATUSES.map((status) => [status.value, status.label])
+);
+
+/** Campos de data filtráveis e seus rótulos. */
+export const PURCHASE_DATE_FIELD_LABELS: Record<string, string> = {
+  requisitionDate: "Data da requisição",
+  purchaseOrderDate: "Data do pedido",
+  expectedDeliveryDate: "Previsão de entrega",
+  receiptDate: "Data de recebimento",
+  migoDate: "Data MIGO",
+  miroDate: "Data MIRO"
+};
+
 /** Rótulo de status legível para a tabela (pendentes e realizadas). */
 export function purchaseStatusLabel(flags: {
   hasPurchaseOrder: boolean;

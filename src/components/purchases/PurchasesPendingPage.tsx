@@ -63,11 +63,15 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
     toast("Filtros limpos");
   }
 
-  function removeChip(key: keyof AppliedPurchaseFilters) {
-    const next: AppliedPurchaseFilters =
-      key === "startDate"
-        ? { ...appliedFilters, startDate: "", endDate: "" }
-        : { ...appliedFilters, [key]: "" };
+  function removeChip(key: keyof AppliedPurchaseFilters, value?: string) {
+    let next: AppliedPurchaseFilters;
+    if (key === "startDate") {
+      next = { ...appliedFilters, startDate: "", endDate: "" };
+    } else if (value !== undefined && Array.isArray(appliedFilters[key])) {
+      next = { ...appliedFilters, [key]: (appliedFilters[key] as string[]).filter((item) => item !== value) };
+    } else {
+      next = { ...appliedFilters, [key]: "" };
+    }
     setDraft(next);
     navigate(next);
   }
@@ -121,7 +125,6 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
         draft={draft}
         options={data.filterOptions}
         isPending={isPending || isRefreshing}
-        showPendingStatus
         onChange={updateDraft}
         onApply={applyFilters}
         onClear={clearFilters}

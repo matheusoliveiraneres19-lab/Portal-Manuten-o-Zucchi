@@ -50,79 +50,102 @@ const NATURE_COLORS: Record<ItemNature, string> = {
 /* WHERE builders (filtros no banco)                                  */
 /* ------------------------------------------------------------------ */
 
-/** Cláusula base: sempre exclui itens bloqueados/ignorados + aplica filtros. */
+function buildDateRange(params: PurchaseQueryParams): Prisma.DateTimeFilter | null {
+  if (!params.startDate && !params.endDate) {
+    return null;
+  }
+  const range: Prisma.DateTimeFilter = {};
+  if (params.startDate) {
+    range.gte = new Date(`${params.startDate}T00:00:00.000Z`);
+  }
+  if (params.endDate) {
+    range.lte = new Date(`${params.endDate}T23:59:59.999Z`);
+  }
+  return range;
+}
+
+/**
+ * Traduz os status operacionais escolhidos em cláusula Prisma (OR dentro do grupo).
+ * Cada status mapeia para uma condição sobre os flags derivados de PurchaseRecord.
+ */
+export function buildPurchaseOperationalStatusWhere(statuses: string[]): Prisma.PurchaseRecordWhereInput {
+  const map: Record<string, Prisma.PurchaseRecordWhereInput> = {
+    "sem-pedido": { hasPurchaseOrder: false },
+    "com-pedido": { hasPurchaseOrder: true },
+    "pendente-migo": { hasMigo: false },
+    "com-migo": { hasMigo: true },
+    "pendente-miro": { hasMiro: false },
+    "com-miro": { hasMiro: true },
+    "atrasado-aberto": { isLateOpen: true },
+    "recebido-atraso": { isLateReceived: true },
+    "recebimento-concluido": { isReceiptCompleted: true },
+    y04: { OR: [{ purchaseType: PurchaseType.REGULARIZACAO }, { purchasingGroup: { contains: "Y04", mode: "insensitive" } }] },
+    y01: { OR: [{ purchaseType: PurchaseType.NORMAL }, { purchasingGroup: { contains: "Y01", mode: "insensitive" } }] },
+    servico: { itemNature: ItemNature.SERVICO },
+    material: { itemNature: ItemNature.MATERIAL }
+  };
+
+  const clauses = statuses.map((status) => map[status]).filter(Boolean) as Prisma.PurchaseRecordWhereInput[];
+  return clauses.length ? { OR: clauses } : {};
+}
+
+/**
+ * Cláusula base: exclui bloqueados/ignorados + aplica filtros acumulativos.
+ * AND entre grupos diferentes; OR dentro do mesmo grupo (via `in`/`OR`).
+ */
 function buildBaseWhere(params: PurchaseQueryParams = {}): Prisma.PurchaseRecordWhereInput {
-  const where: Prisma.PurchaseRecordWhereInput = { ignored: false };
   const and: Prisma.PurchaseRecordWhereInput[] = [];
 
-  if (params.startDate || params.endDate) {
-    const range: Prisma.DateTimeFilter = {};
-    if (params.startDate) {
-      range.gte = new Date(`${params.startDate}T00:00:00.000Z`);
-    }
-    if (params.endDate) {
-      range.lte = new Date(`${params.endDate}T23:59:59.999Z`);
-    }
-    // Período sobre a data de referência: pedido → requisição → previsão de entrega
-    // (mesma prioridade de getPurchaseRecordReferenceDate). Garante que registros
-    // sem pedido (só requisição/previsão) ainda entrem no período.
-    and.push({
-      OR: [
-        { purchaseOrderDate: range },
-        { purchaseOrderDate: null, requisitionDate: range },
-        { purchaseOrderDate: null, requisitionDate: null, expectedDeliveryDate: range }
-      ]
-    });
-  }
-
-  if (params.requisition) {
-    where.requisitionNumber = { contains: params.requisition, mode: "insensitive" };
-  }
-  if (params.purchaseOrder) {
-    where.purchaseOrderNumber = { contains: params.purchaseOrder, mode: "insensitive" };
-  }
-  if (params.supplier) {
-    where.supplierName = { contains: params.supplier, mode: "insensitive" };
-  }
-  if (params.category) {
-    where.goodsGroupCode = params.category;
-  }
-  if (params.purchaseType) {
-    where.purchaseType = params.purchaseType;
-  }
-  if (params.nature) {
-    where.itemNature = params.nature;
-  }
-  if (params.requester) {
-    where.requester = params.requester;
-  }
-  if (params.material) {
-    and.push({
-      OR: [
-        { materialCode: { contains: params.material, mode: "insensitive" } },
-        { itemDescription: { contains: params.material, mode: "insensitive" } }
-      ]
-    });
-  }
-  if (params.search) {
-    const term = params.search.trim();
-    if (term) {
+  const range = buildDateRange(params);
+  if (range) {
+    if (params.dateField) {
+      // Filtra exatamente o campo de data escolhido.
+      and.push({ [params.dateField]: range } as Prisma.PurchaseRecordWhereInput);
+    } else {
+      // Sem campo escolhido: data de referência (pedido → requisição → previsão).
       and.push({
         OR: [
-          { itemDescription: { contains: term, mode: "insensitive" } },
-          { materialCode: { contains: term, mode: "insensitive" } },
-          { supplierName: { contains: term, mode: "insensitive" } },
-          { requisitionNumber: { contains: term, mode: "insensitive" } },
-          { purchaseOrderNumber: { contains: term, mode: "insensitive" } }
+          { purchaseOrderDate: range },
+          { purchaseOrderDate: null, requisitionDate: range },
+          { purchaseOrderDate: null, requisitionDate: null, expectedDeliveryDate: range }
         ]
       });
     }
   }
 
-  if (and.length) {
-    where.AND = and;
+  if (params.suppliers?.length) {
+    and.push({ supplierName: { in: params.suppliers } });
   }
-  return where;
+  if (params.categories?.length) {
+    and.push({ goodsGroupCode: { in: params.categories } });
+  }
+  if (params.purchasingGroups?.length) {
+    and.push({ purchasingGroup: { in: params.purchasingGroups } });
+  }
+  if (params.itemNatures?.length) {
+    and.push({ itemNature: { in: params.itemNatures } });
+  }
+  if (params.requesters?.length) {
+    and.push({ requester: { in: params.requesters } });
+  }
+  if (params.operationalStatuses?.length) {
+    and.push(buildPurchaseOperationalStatusWhere(params.operationalStatuses));
+  }
+
+  const term = params.search?.trim();
+  if (term) {
+    and.push({
+      OR: [
+        { itemDescription: { contains: term, mode: "insensitive" } },
+        { materialCode: { contains: term, mode: "insensitive" } },
+        { supplierName: { contains: term, mode: "insensitive" } },
+        { requisitionNumber: { contains: term, mode: "insensitive" } },
+        { purchaseOrderNumber: { contains: term, mode: "insensitive" } }
+      ]
+    });
+  }
+
+  return { ignored: false, ...(and.length ? { AND: and } : {}) };
 }
 
 /** Compra concluída: pedido criado + recebida + MIRO lançada. */
@@ -136,24 +159,6 @@ const COMPLETED_CLAUSE: Prisma.PurchaseRecordWhereInput = {
 const PENDING_CLAUSE: Prisma.PurchaseRecordWhereInput = {
   OR: [{ hasPurchaseOrder: false }, { isReceiptCompleted: false }, { hasMiro: false }]
 };
-
-/** Aplica o filtro de status específico da página de pendentes. */
-function pendingStatusClause(params: PurchaseQueryParams): Prisma.PurchaseRecordWhereInput {
-  switch (params.pendingStatus) {
-    case "sem-pedido":
-      return { hasPurchaseOrder: false };
-    case "pendente-migo":
-      return { hasPurchaseOrder: true, hasMigo: false };
-    case "pendente-miro":
-      return { hasMiro: false };
-    case "atrasado":
-      return { isLateOpen: true };
-    case "recebido-atraso":
-      return { isLateReceived: true };
-    default:
-      return PENDING_CLAUSE;
-  }
-}
 
 function mergeWhere(...clauses: Prisma.PurchaseRecordWhereInput[]): Prisma.PurchaseRecordWhereInput {
   return { AND: clauses };
@@ -416,9 +421,9 @@ async function paginate(
   };
 }
 
-/** TAREFA 4.2 — Compras pendentes (paginadas). */
+/** TAREFA 4.2 — Compras pendentes (paginadas). Filtros de status operacional já entram em buildBaseWhere. */
 export async function getPendingPurchasesList(params: PurchaseQueryParams = {}): Promise<PaginatedPurchases> {
-  const where = mergeWhere(buildBaseWhere(params), pendingStatusClause(params));
+  const where = mergeWhere(buildBaseWhere(params), PENDING_CLAUSE);
   return paginate(where, params, [
     { isLateOpen: "desc" },
     { expectedDeliveryDate: "asc" },
@@ -851,7 +856,7 @@ async function getTopSuppliers(params: PurchaseQueryParams = {}, limit = 10): Pr
 /* ------------------------------------------------------------------ */
 
 export async function getPurchaseFilterOptions(): Promise<PurchaseFilterOptions> {
-  const [suppliers, categories, requesters, range] = await Promise.all([
+  const [suppliers, categories, purchasingGroups, requesters, range] = await Promise.all([
     prisma.purchaseRecord.findMany({
       where: { ignored: false, supplierName: { not: null } },
       select: { supplierName: true },
@@ -863,6 +868,12 @@ export async function getPurchaseFilterOptions(): Promise<PurchaseFilterOptions>
       select: { goodsGroupCode: true, goodsGroupDescription: true },
       distinct: ["goodsGroupCode"],
       orderBy: { goodsGroupCode: "asc" }
+    }),
+    prisma.purchaseRecord.findMany({
+      where: { ignored: false, purchasingGroup: { not: null } },
+      select: { purchasingGroup: true },
+      distinct: ["purchasingGroup"],
+      orderBy: { purchasingGroup: "asc" }
     }),
     prisma.purchaseRecord.findMany({
       where: { ignored: false, requester: { not: null } },
@@ -897,6 +908,10 @@ export async function getPurchaseFilterOptions(): Promise<PurchaseFilterOptions>
         value: item.goodsGroupCode!,
         label: item.goodsGroupDescription ? `${item.goodsGroupCode} — ${item.goodsGroupDescription}` : item.goodsGroupCode!
       })),
+    purchasingGroups: purchasingGroups
+      .map((item) => item.purchasingGroup!)
+      .filter(Boolean)
+      .map((group) => ({ value: group, label: group })),
     requesters: requesters.map((item) => item.requester!).filter(Boolean),
     purchaseTypes: [PurchaseType.NORMAL, PurchaseType.REGULARIZACAO, PurchaseType.OUTROS],
     natures: [ItemNature.MATERIAL, ItemNature.SERVICO],
@@ -1069,6 +1084,7 @@ function emptyFilterOptions(): PurchaseFilterOptions {
   return {
     suppliers: [],
     categories: [],
+    purchasingGroups: [],
     requesters: [],
     purchaseTypes: [PurchaseType.NORMAL, PurchaseType.REGULARIZACAO, PurchaseType.OUTROS],
     natures: [ItemNature.MATERIAL, ItemNature.SERVICO],

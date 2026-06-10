@@ -1,58 +1,55 @@
 "use client";
 
 import { X } from "lucide-react";
-import { PURCHASE_TYPE_LABELS, ITEM_NATURE_LABELS } from "@/utils/purchases-normalizer";
-import type { ItemNature, PurchaseType } from "@/types/purchases";
-import type { AppliedPurchaseFilters } from "@/components/purchases/filters";
+import {
+  ITEM_NATURE_LABELS,
+  PURCHASE_OPERATIONAL_STATUS_LABELS
+} from "@/utils/purchases-normalizer";
+import type { ItemNature } from "@/types/purchases";
+import { countActiveFilters, type AppliedPurchaseFilters } from "@/components/purchases/filters";
 
-const STATUS_LABELS: Record<string, string> = {
-  "sem-pedido": "Sem pedido",
-  "pendente-migo": "Pendente MIGO",
-  "pendente-miro": "Pendente MIRO",
-  atrasado: "Atrasado",
-  "recebido-atraso": "Recebido c/ atraso"
+type Chip = { key: keyof AppliedPurchaseFilters; value?: string; label: string };
+
+type PurchaseActiveChipsProps = {
+  filters: AppliedPurchaseFilters;
+  /** Remove um valor específico de um grupo (value) ou o filtro inteiro (sem value). */
+  onRemove: (key: keyof AppliedPurchaseFilters, value?: string) => void;
 };
 
-type Chip = { key: keyof AppliedPurchaseFilters; label: string };
-
-/** Chips dos filtros ativos, com remoção individual. */
-export function PurchaseActiveChips({
-  filters,
-  onRemove
-}: {
-  filters: AppliedPurchaseFilters;
-  onRemove: (key: keyof AppliedPurchaseFilters) => void;
-}) {
+export function PurchaseActiveChips({ filters, onRemove }: PurchaseActiveChipsProps) {
   const chips: Chip[] = [];
+
+  filters.suppliers.forEach((value) => chips.push({ key: "suppliers", value, label: `Fornecedor: ${value}` }));
+  filters.categories.forEach((value) => chips.push({ key: "categories", value, label: `Categoria: ${value}` }));
+  filters.purchasingGroups.forEach((value) => chips.push({ key: "purchasingGroups", value, label: `Grupo: ${value}` }));
+  filters.itemNatures.forEach((value) =>
+    chips.push({ key: "itemNatures", value, label: `Natureza: ${ITEM_NATURE_LABELS[value as ItemNature] ?? value}` })
+  );
+  filters.operationalStatuses.forEach((value) =>
+    chips.push({ key: "operationalStatuses", value, label: `Status: ${PURCHASE_OPERATIONAL_STATUS_LABELS[value] ?? value}` })
+  );
+  filters.requesters.forEach((value) => chips.push({ key: "requesters", value, label: `Requisitante: ${value}` }));
 
   if (filters.startDate || filters.endDate) {
     chips.push({ key: "startDate", label: `Período: ${filters.startDate || "…"} → ${filters.endDate || "…"}` });
   }
-  if (filters.supplier) chips.push({ key: "supplier", label: `Fornecedor: ${filters.supplier}` });
-  if (filters.category) chips.push({ key: "category", label: `Categoria: ${filters.category}` });
-  if (filters.purchaseType) {
-    chips.push({ key: "purchaseType", label: PURCHASE_TYPE_LABELS[filters.purchaseType as PurchaseType] });
+  if (filters.search.trim()) {
+    chips.push({ key: "search", label: `Busca: ${filters.search.trim()}` });
   }
-  if (filters.nature) chips.push({ key: "nature", label: `Natureza: ${ITEM_NATURE_LABELS[filters.nature as ItemNature]}` });
-  if (filters.requester) chips.push({ key: "requester", label: `Requisitante: ${filters.requester}` });
-  if (filters.pendingStatus) chips.push({ key: "pendingStatus", label: STATUS_LABELS[filters.pendingStatus] ?? filters.pendingStatus });
-  if (filters.requisition) chips.push({ key: "requisition", label: `Requisição: ${filters.requisition}` });
-  if (filters.purchaseOrder) chips.push({ key: "purchaseOrder", label: `Pedido: ${filters.purchaseOrder}` });
-  if (filters.material) chips.push({ key: "material", label: `Material: ${filters.material}` });
-  if (filters.search) chips.push({ key: "search", label: `Busca: ${filters.search}` });
 
+  const total = countActiveFilters(filters);
   if (chips.length === 0) {
     return null;
   }
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Filtros ativos:</span>
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Filtros ativos: {total}</span>
       {chips.map((chip) => (
         <button
-          key={chip.key}
+          key={`${chip.key}:${chip.value ?? "_"}`}
           type="button"
-          onClick={() => onRemove(chip.key)}
+          onClick={() => onRemove(chip.key, chip.value)}
           className="inline-flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-[11px] font-medium text-champagne transition hover:border-gold/60 hover:bg-gold/20"
         >
           {chip.label}
