@@ -15,6 +15,7 @@ import { getLubricantReplenishmentItems } from "@/services/lubricants.service";
 import { resolvePurchaseValue } from "@/utils/purchases-normalizer";
 import { BREAKDOWN_MAINTENANCE_TYPES, OPEN_SERVICE_ORDER_STATUSES } from "@/services/shared/portal-rules";
 import { withinPeriod, type DateRange } from "@/utils/date-range";
+import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
 
 const CONFIG_KEYS = {
   limiteQuebrasMes: "limite_quebras_mes",
@@ -91,7 +92,9 @@ export async function detectRecurrentBreakdowns(
     where: {
       type: { in: BREAKDOWN_MAINTENANCE_TYPES },
       openedAt: withinPeriod(period),
-      equipmentId: { not: null }
+      equipmentId: { not: null },
+      // Quebra recorrente ignora ordens de lubrificação (prefixo PL).
+      ...excludeLubricationOrderWhere()
     },
     _count: { _all: true }
   });

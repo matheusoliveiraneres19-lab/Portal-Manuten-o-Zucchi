@@ -2,6 +2,7 @@ import {
   Criticality,
   LubricantMovementCategory,
   MaintenanceType,
+  Prisma,
   ServiceOrderStatus
 } from "@prisma/client";
 import {
@@ -56,6 +57,7 @@ import type {
 } from "@/types/dashboard";
 import { formatCurrency, formatDate, formatMonthName, formatPercent, formatShortDate, formatVolume } from "@/utils/formatters";
 import { dayKey, isWithinPeriod, toEndOfDay, toStartOfDay, withinPeriod } from "@/utils/date-range";
+import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
 import { calculatePeriodVariation, getPreviousPeriod, type PeriodVariation } from "@/utils/period";
 
 export function getDefaultDashboardPeriod(): DashboardPeriod {
@@ -241,21 +243,19 @@ export async function getTopMachinesBreakIndex(
   limit = 5
 ): Promise<TopMachineBreakIndexData[]> {
   const period = parsePeriod(periodInput);
+  // Índice de QUEBRA: só corretivas e SEM ordens de lubrificação (prefixo PL),
+  // que não representam falha do equipamento. Fonte única do filtro PL.
+  const breakWhere: Prisma.ServiceOrderWhereInput = {
+    type: MaintenanceType.CORRETIVA,
+    openedAt: withinPeriod(period),
+    equipmentId: { not: null },
+    ...excludeLubricationOrderWhere()
+  };
   const [totalCorrective, grouped] = await Promise.all([
-    prisma.serviceOrder.count({
-      where: {
-        type: MaintenanceType.CORRETIVA,
-        openedAt: withinPeriod(period),
-        equipmentId: { not: null }
-      }
-    }),
+    prisma.serviceOrder.count({ where: breakWhere }),
     prisma.serviceOrder.groupBy({
       by: ["equipmentId"],
-      where: {
-        type: MaintenanceType.CORRETIVA,
-        openedAt: withinPeriod(period),
-        equipmentId: { not: null }
-      },
+      where: breakWhere,
       _count: { _all: true },
       orderBy: { _count: { equipmentId: "desc" } },
       take: limit
