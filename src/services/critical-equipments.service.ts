@@ -1,6 +1,7 @@
-import { MaintenanceArea, Prisma, ServiceOrderStatus } from "@prisma/client";
+import { MaintenanceArea, MaintenanceType, Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getServiceOrderFilterOptions } from "@/services/service-orders.service";
+import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
 import {
   ATTENTION_SCORE_THRESHOLD,
   CRITICALITY_SCORE_THRESHOLD,
@@ -116,6 +117,59 @@ export async function getCriticalEquipmentsByOrders(
   const rows = await fetchRows(params);
   const items = analyzeEquipments(rows, params);
   return items.slice(0, normalizeLimit(params.limit));
+}
+
+export type TopBreakEquipment = {
+  equipmentName: string;
+  equipmentCode: string;
+  totalOrders: number;
+  correctiveOrders: number;
+};
+
+/**
+ * Top equipamentos por VOLUME de ordens para as análises de quebra do dashboard
+ * (alertas de alto volume e índice de quebra). Exclui ordens de lubrificação (PL)
+ * — fonte única do filtro. Ignora ordens sem equipamento identificável.
+ */
+export async function getTopEquipmentsByBreakVolume(
+  params: { startDate?: string; endDate?: string } = {},
+  limit = 5
+): Promise<TopBreakEquipment[]> {
+  const and: Prisma.ServiceOrderWhereInput[] = [excludeLubricationOrderWhere()];
+  if (params.startDate || params.endDate) {
+    and.push({
+      openedAt: {
+        ...(params.startDate ? { gte: toStartOfDay(params.startDate) } : {}),
+        ...(params.endDate ? { lte: toEndOfDay(params.endDate) } : {})
+      }
+    });
+  }
+
+  const rows = await prisma.serviceOrder.findMany({
+    where: { AND: and },
+    select: { equipmentName: true, equipmentCode: true, type: true }
+  });
+
+  const groups = new Map<string, TopBreakEquipment>();
+  for (const row of rows) {
+    const name = cleanText(row.equipmentName);
+    const code = cleanText(row.equipmentCode);
+    if (!name && !code) {
+      continue; // sem equipamento identificável — não vira alerta
+    }
+    const key = code || `nome:${name}`;
+    const group =
+      groups.get(key) ?? { equipmentName: name || NO_NAME, equipmentCode: code || NO_CODE, totalOrders: 0, correctiveOrders: 0 };
+    group.totalOrders += 1;
+    if (row.type === MaintenanceType.CORRETIVA) {
+      group.correctiveOrders += 1;
+    }
+    groups.set(key, group);
+  }
+
+  return Array.from(groups.values())
+    .sort((a, b) => b.totalOrders - a.totalOrders || b.correctiveOrders - a.correctiveOrders)
+    .slice(0, Math.max(1, limit));
 }
 
 export async function getCriticalEquipmentsSummary(

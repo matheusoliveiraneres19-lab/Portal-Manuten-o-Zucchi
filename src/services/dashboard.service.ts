@@ -1,8 +1,11 @@
 import {
+  AlertStatus,
+  AlertType,
   Criticality,
   LubricantMovementCategory,
   MaintenanceType,
   Prisma,
+  Priority,
   ServiceOrderStatus
 } from "@prisma/client";
 import {
@@ -28,7 +31,8 @@ import {
   topBreakdownMachines as mockTopBreakdownMachines
 } from "@/data/dashboard";
 import { prisma } from "@/lib/prisma";
-import { getCriticalAlerts, getCriticalAlertsCount } from "@/services/alerts.service";
+import { getCriticalAlertsCount } from "@/services/alerts.service";
+import { getCriticalEquipmentsByOrders, getTopEquipmentsByBreakVolume } from "@/services/critical-equipments.service";
 import { getMostUsedMaterialsCount } from "@/services/materials.service";
 import {
   getPendingPurchases,
@@ -42,6 +46,7 @@ import {
 import { getHoursByCollaborator } from "@/services/time-entries.service";
 import type {
   CorrectivePreventiveChartData,
+  CriticalAlertData,
   DashboardData,
   DatabaseDashboardData,
   DashboardKPI,
@@ -58,7 +63,7 @@ import type {
 import { formatCurrency, formatDate, formatMonthName, formatPercent, formatShortDate, formatVolume } from "@/utils/formatters";
 import { dayKey, isWithinPeriod, toEndOfDay, toStartOfDay, withinPeriod } from "@/utils/date-range";
 import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
-import { calculatePeriodVariation, getPreviousPeriod, type PeriodVariation } from "@/utils/period";
+import { calculatePeriodVariation, getPreviousPeriod, toInputDate, type PeriodVariation } from "@/utils/period";
 
 export function getDefaultDashboardPeriod(): DashboardPeriod {
   return parsePeriod("2024-05");
@@ -209,33 +214,53 @@ export async function getTopCriticalEquipments(
   periodInput: DashboardPeriodInput,
   limit = 5
 ): Promise<TopCriticalEquipmentData[]> {
+  // Usa a MESMA lógica/fonte da aba Equipamentos Críticos (critical-equipments.service)
+  // para o ranking bater exatamente com a aba — sem duplicar a regra no dashboard.
   const period = parsePeriod(periodInput);
-  const grouped = await prisma.serviceOrder.groupBy({
-    by: ["equipmentId"],
-    where: {
-      openedAt: withinPeriod(period),
-      equipmentId: { not: null },
-      equipment: { criticality: { in: CRITICAL_EQUIPMENT_CRITICALITIES } }
-    },
-    _count: { _all: true },
-    orderBy: { _count: { equipmentId: "desc" } },
-    take: limit
+  const items = await getCriticalEquipmentsByOrders({
+    startDate: toInputDate(period.startDate),
+    endDate: toInputDate(period.endDate),
+    limit
   });
-  const equipmentById = await getEquipmentById(grouped.map((item) => item.equipmentId).filter(Boolean) as string[]);
 
-  return grouped.flatMap((item) => {
-    const equipment = item.equipmentId ? equipmentById.get(item.equipmentId) : null;
+  return items.slice(0, limit).map((item) => ({
+    equipmentName: item.equipmentName,
+    totalOrders: item.totalOrders,
+    criticality: labelToCriticality(item.criticalityLabel)
+  }));
+}
 
-    return equipment
-      ? [
-          {
-            equipmentName: equipment.name,
-            totalOrders: item._count._all,
-            criticality: equipment.criticality
-          }
-        ]
-      : [];
-  });
+/** Converte o rótulo de criticidade calculado (aba) no enum Criticality (campo não exibido no gráfico). */
+function labelToCriticality(label: string): Criticality {
+  if (label === "Crítico") {
+    return Criticality.CRITICA;
+  }
+  if (label === "Atenção") {
+    return Criticality.ALTA;
+  }
+  return Criticality.MEDIA;
+}
+
+/**
+ * Alertas do dashboard (TAREFA 4.8): top 5 equipamentos com mais ordens no período,
+ * EXCLUINDO ordens de lubrificação (PL). Motivo fixo "Alto volume de ordens no período".
+ * Substitui os alertas genéricos da tabela Alert na lista do dashboard.
+ */
+export async function getTopEquipmentAlerts(period: DashboardPeriod, limit = 5): Promise<CriticalAlertData[]> {
+  const top = await getTopEquipmentsByBreakVolume(
+    { startDate: toInputDate(period.startDate), endDate: toInputDate(period.endDate) },
+    limit
+  );
+
+  return top.map((equipment) => ({
+    title: "Alto volume de ordens no período",
+    description: `${equipment.totalOrders.toLocaleString("pt-BR")} ordem(ns) no período`,
+    equipmentName: equipment.equipmentName,
+    severity: Priority.ALTA,
+    status: AlertStatus.ABERTO,
+    type: AlertType.QUEBRA_RECORRENTE,
+    createdAt: period.endDate
+  }));
 }
 
 export async function getTopMachinesBreakIndex(
@@ -330,7 +355,7 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     getCorrectivePreventiveChart(period),
     getTopCriticalEquipments(period),
     getPendingPurchases(),
-    getCriticalAlerts(),
+    getTopEquipmentAlerts(period),
     getTopMachinesBreakIndex(period),
     getHoursByCollaborator(period),
     getPurchasesByMonth(period.startDate.getUTCFullYear()),
@@ -615,8 +640,8 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       value: item.totalValue === null ? "-" : formatCurrency(item.totalValue)
     })),
     alerts: data.criticalAlerts.map((item, index) => ({
-      text: `${item.equipmentName ?? "Alerta"} - ${item.title}`,
-      time: index === 0 ? "Agora" : formatShortDate(item.createdAt),
+      text: `${item.equipmentName ?? "Equipamento"} — ${item.description}`,
+      time: item.title,
       icon: index === 0 ? Bell : AlertTriangle
     })),
     collaboratorHours: data.hoursByCollaborator.map((item) => ({
