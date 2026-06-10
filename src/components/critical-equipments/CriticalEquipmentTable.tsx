@@ -101,7 +101,8 @@ function date(value: string | null): string {
   if (!value) {
     return "Não informado";
   }
-  return new Date(value).toLocaleDateString("pt-BR");
+  // timeZone UTC para SSR e cliente renderizarem a mesma data (evita hydration mismatch).
+  return new Date(value).toLocaleDateString("pt-BR", { timeZone: "UTC" });
 }
 
 function display(value: string): string {

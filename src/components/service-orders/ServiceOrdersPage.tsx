@@ -963,7 +963,10 @@ function formatDate(value: string | null) {
     return "-";
   }
 
-  return new Date(value).toLocaleDateString("pt-BR");
+  // timeZone UTC: as datas são armazenadas/serializadas em UTC. Sem fixar o fuso,
+  // o servidor (UTC) e o cliente (fuso local, ex. UTC-3) formatam textos diferentes
+  // → hydration mismatch (React #425). Fixar UTC mantém SSR e cliente idênticos.
+  return new Date(value).toLocaleDateString("pt-BR", { timeZone: "UTC" });
 }
 
 function formatHours(value: number | null) {
@@ -983,7 +986,8 @@ function formatDateTime(value: string) {
     month: "2-digit",
     year: "numeric",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
+    timeZone: "UTC"
   });
 }
 
@@ -1010,7 +1014,7 @@ function exportOrdersToCsv(orders: ServiceOrderListItem[]) {
   const lines = orders.map((order) => [
     order.osNumber,
     order.title,
-    order.openedAt ? new Date(order.openedAt).toLocaleDateString("pt-BR") : "",
+    order.openedAt ? new Date(order.openedAt).toLocaleDateString("pt-BR", { timeZone: "UTC" }) : "",
     order.status,
     order.technicalObject,
     order.equipmentCode ?? "",

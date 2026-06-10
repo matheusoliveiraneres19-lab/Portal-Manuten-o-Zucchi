@@ -112,7 +112,7 @@ function responsible(value: string | null | undefined): string {
 }
 
 function date(value: string | null): string {
-  return value ? new Date(value).toLocaleDateString("pt-BR") : "Não informado";
+  return value ? new Date(value).toLocaleDateString("pt-BR", { timeZone: "UTC" }) : "Não informado";
 }
 
 function hours(value: number | null): string {
