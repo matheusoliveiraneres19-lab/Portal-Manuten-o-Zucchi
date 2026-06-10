@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  AlertTriangle,
   BarChart3,
   ClipboardList,
   FileBarChart,
@@ -11,7 +10,6 @@ import {
   Gauge,
   Home,
   LockKeyhole,
-  Package,
   Settings,
   ShieldCheck,
   ShoppingCart,
@@ -27,10 +25,8 @@ const menu = [
   { label: "Ordens de Serviço", href: "/dashboard/ordens-servico", icon: ClipboardList },
   { label: "Compras Realizadas", href: "/dashboard/compras-realizadas", icon: ShoppingCart },
   { label: "Compras Pendentes", href: "/dashboard/compras-pendentes", icon: FileBarChart },
-  { label: "Materiais Utilizados", href: "/dashboard/materiais-utilizados", icon: Package },
   { label: "Lubrificantes", href: "/dashboard/lubrificantes", icon: LockKeyhole },
   { label: "Equipamentos Críticos", href: "/dashboard/equipamentos-criticos", icon: ShieldCheck },
-  { label: "Alertas", href: "/dashboard/alertas", icon: AlertTriangle, danger: true },
   { label: "Procedimentos", href: "/dashboard/procedimentos", icon: FileText },
   { label: "Equipe e Horas", href: "/dashboard/equipe-horas", icon: UsersRound },
   { label: "Relatórios", href: "/dashboard/relatorios", icon: BarChart3 },
@@ -74,7 +70,6 @@ export function Sidebar() {
             >
               <Icon className={`h-5 w-5 ${isActive ? "text-champagne" : "text-gold"}`} />
               <span className="flex-1">{item.label}</span>
-              {item.danger ? <span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> : null}
             </Link>
           );
         })}
