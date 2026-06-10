@@ -215,6 +215,19 @@ export function computeProcessTimes(input: ProcessTimeInput): ProcessTimes {
 /* Valor da compra (TAREFA 10)                                        */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Data de referência do registro para análises mensais/anuais.
+ * Prioridade: Data do Pedido → Data da Requisição → Previsão de Entrega.
+ * Garante que registros sem pedido (só requisição) ainda apareçam nos gráficos.
+ */
+export function getPurchaseRecordReferenceDate(record: {
+  purchaseOrderDate?: Date | null;
+  requisitionDate?: Date | null;
+  expectedDeliveryDate?: Date | null;
+}): Date | null {
+  return record.purchaseOrderDate ?? record.requisitionDate ?? record.expectedDeliveryDate ?? null;
+}
+
 /** Valor preferencial: Total líquido; se vazio ou zero, cai para Total bruto. */
 export function resolvePurchaseValue(netTotal: number | null, grossTotal: number | null): number | null {
   if (netTotal !== null && netTotal !== 0) {

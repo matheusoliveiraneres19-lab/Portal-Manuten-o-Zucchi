@@ -92,6 +92,13 @@ export type PurchaseImportError = {
   mensagem: string;
 };
 
+/** Período detectado na planilha (confirma se todos os meses foram lidos). */
+export type PurchaseImportPeriod = {
+  start: string | null; // yyyy-mm-dd (menor data de referência)
+  end: string | null; // yyyy-mm-dd (maior data de referência)
+  months: string[]; // yyyy-mm distintos, ordenados
+};
+
 /** Resumo retornado pela importação (TAREFA 3). */
 export type PurchaseImportResult = {
   totalRows: number;
@@ -112,6 +119,12 @@ export type PurchaseImportResult = {
   totalMaterials: number;
   totalValue: number;
   errors: PurchaseImportError[];
+  /** Período detectado na planilha (menor/maior data + meses encontrados). */
+  periodDetected?: PurchaseImportPeriod;
+  /** Avisos de qualidade da importação (ex.: registros sem data do pedido). */
+  warnings?: string[];
+  /** Colunas obrigatórias não reconhecidas (vazio quando tudo certo). */
+  missingColumns?: string[];
 };
 
 /* ------------------------------------------------------------------ */

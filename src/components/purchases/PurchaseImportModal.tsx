@@ -39,19 +39,48 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
       return;
     }
     setUploading(true);
+    setResult(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
       const response = await fetch("/api/purchases/import", { method: "POST", body: formData });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error ?? "request failed");
+
+      // A resposta pode não ser JSON (ex.: timeout do Netlify devolve HTML/erro genérico).
+      const raw = await response.text();
+      let data: (PurchaseImportResult & { success?: boolean; message?: string; details?: string }) | null = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = null;
       }
+
+      if (!response.ok || !data?.success) {
+        const timedOut = response.status === 502 || response.status === 504 || !data;
+        const friendly =
+          data?.message ??
+          (timedOut
+            ? "A importação excedeu o tempo do servidor. Para planilhas grandes, use a importação via CLI (npm run import:purchases)."
+            : "Não foi possível importar a planilha. Verifique a aba \"Data\" e as colunas, e tente novamente.");
+        if (process.env.NODE_ENV === "development") {
+          console.error("[import compras] falha:", response.status, data?.details ?? raw.slice(0, 300));
+        }
+        toast.error(friendly);
+        return;
+      }
+
       setResult(data as PurchaseImportResult);
-      toast.success(`Importação concluída: ${data.importedRows} registros`);
+      const meses = data.periodDetected?.months?.length ?? 0;
+      toast.success(
+        `Importação concluída: ${Number(data.importedRows).toLocaleString("pt-BR")} registros · ${meses} mês(es)`
+      );
       onImported();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao importar a planilha.");
+      if (process.env.NODE_ENV === "development") {
+        console.error("[import compras] erro inesperado:", error);
+      }
+      toast.error(
+        "Não foi possível importar a planilha. Verifique sua conexão e o arquivo, ou use a importação via CLI para planilhas grandes."
+      );
     } finally {
       setUploading(false);
     }
@@ -103,7 +132,26 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
             <dt className="text-zinc-400">Valor total importado</dt>
             <dd className="font-semibold text-gold">{formatCurrency(result.totalValue)}</dd>
           </div>
+          {result.periodDetected?.start ? (
+            <div className="col-span-2 border-t border-gold/10 pt-2">
+              <dt className="text-zinc-400">Período detectado na planilha</dt>
+              <dd className="mt-0.5 font-semibold text-champagne">
+                {formatIsoDate(result.periodDetected.start)} → {formatIsoDate(result.periodDetected.end)}
+                <span className="ml-2 font-normal text-zinc-400">
+                  ({result.periodDetected.months.length} mês(es): {result.periodDetected.months.join(", ")})
+                </span>
+              </dd>
+            </div>
+          ) : null}
         </dl>
+      ) : null}
+
+      {result?.warnings?.length ? (
+        <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 p-2 text-[11px] text-amber-200">
+          {result.warnings.map((warning, index) => (
+            <p key={index}>• {warning}</p>
+          ))}
+        </div>
       ) : null}
 
       {result?.errors.length ? (
@@ -122,7 +170,7 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
         </button>
         <button type="button" onClick={handleUpload} disabled={uploading || !file} className={purchasePrimaryButtonClass}>
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-          Importar
+          {uploading ? "Importando e validando dados..." : "Importar"}
         </button>
       </div>
     </PurchaseModalShell>
@@ -138,4 +186,13 @@ function Summary({ label, value, tone = "default" }: { label: string; value: num
       </dd>
     </div>
   );
+}
+
+/** Formata "yyyy-mm-dd" para dd/mm/aaaa sem deslocamento de fuso. */
+function formatIsoDate(value: string | null): string {
+  if (!value) {
+    return "—";
+  }
+  const [year, month, day] = value.split("-");
+  return day && month && year ? `${day}/${month}/${year}` : value;
 }

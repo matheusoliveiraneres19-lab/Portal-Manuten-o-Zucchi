@@ -25,6 +25,17 @@ async function main() {
   console.log(`- Serviços: ${result.totalServices} | Materiais: ${result.totalMaterials}`);
   console.log(`- Valor total: ${result.totalValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`);
 
+  if (result.periodDetected?.start) {
+    console.log(`- Período detectado: ${result.periodDetected.start} → ${result.periodDetected.end}`);
+    console.log(`- Meses encontrados (${result.periodDetected.months.length}): ${result.periodDetected.months.join(", ")}`);
+  }
+  if (result.warnings?.length) {
+    console.log("Avisos:");
+    for (const warning of result.warnings) {
+      console.log(`- ${warning}`);
+    }
+  }
+
   if (result.errors.length) {
     console.log("Erros encontrados:");
     for (const error of result.errors.slice(0, 20)) {

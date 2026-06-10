@@ -9,6 +9,7 @@ import {
   computeProcessTimes,
   computeStatusFlags,
   detectBlockedReason,
+  getPurchaseRecordReferenceDate,
   optionalText,
   parsePurchaseDate,
   parsePurchaseNumber,
@@ -18,6 +19,7 @@ import type {
   ParsedPurchaseRecord,
   PurchaseExcelRow,
   PurchaseImportError,
+  PurchaseImportPeriod,
   PurchaseImportResult
 } from "@/types/purchases";
 
@@ -48,8 +50,12 @@ const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   unidade: "unit",
   data_do_pedido: "purchaseOrderDate",
   data_pedido: "purchaseOrderDate",
+  dt_pedido: "purchaseOrderDate",
+  dt_requisicao: "requisitionDate",
   previsao_de_entrega: "expectedDeliveryDate",
   previsao_entrega: "expectedDeliveryDate",
+  previsao: "expectedDeliveryDate",
+  dt_entrega: "expectedDeliveryDate",
   preco_brut: "grossPrice",
   preco_bruto: "grossPrice",
   preco_liq: "netPrice",
@@ -86,7 +92,13 @@ export function readPurchaseRows(source: string | Buffer | ArrayBuffer, sheetNam
       ? XLSX.readFile(source, { cellDates: true })
       : XLSX.read(source, { type: "buffer", cellDates: true });
 
-  const worksheet = workbook.Sheets[sheetName] ?? workbook.Sheets[workbook.SheetNames[0]];
+  // Casa "Data" de forma tolerante (espaços/acentos/maiúsculas); senão, usa a 1ª aba.
+  const target = normalizarNomeColuna(sheetName);
+  const matchedName =
+    workbook.SheetNames.find((name) => name === sheetName) ??
+    workbook.SheetNames.find((name) => normalizarNomeColuna(name) === target) ??
+    workbook.SheetNames[0];
+  const worksheet = matchedName ? workbook.Sheets[matchedName] : undefined;
   if (!worksheet) {
     throw new Error(`A aba "${sheetName}" não foi encontrada na planilha.`);
   }
@@ -146,7 +158,17 @@ function emptyResult(totalRows: number): PurchaseImportResult {
   };
 }
 
-/** Importa registros de compra a partir de linhas já lidas/mapeadas. */
+const DB_IN_CHUNK = 1000; // chunk para consultas "IN" (limite de parâmetros)
+const CREATE_CHUNK = 500; // chunk para createMany (limite de parâmetros do Postgres)
+const UPDATE_CONCURRENCY = 20; // updates paralelos por lote
+
+/**
+ * Importa registros de compra em LOTE — sem consulta 1-por-linha.
+ *  1) parse + dedupe em memória; 2) descobre chaves existentes numa consulta;
+ *  3) createMany dos novos + updates dos existentes em chunks paralelos.
+ * Isso evita o timeout da função serverless do Netlify em planilhas grandes
+ * (antes eram ~2 queries por linha, o que estourava o limite e importava parcial).
+ */
 export async function importPurchaseRows(
   rows: PurchaseExcelRow[],
   options: ImportOptions = {}
@@ -156,55 +178,141 @@ export async function importPurchaseRows(
   const result = emptyResult(rows.length);
   const importBatch = options.importBatch ?? `COMPRAS-${new Date().toISOString()}`;
   const now = options.now ?? new Date();
-  // Evita colisão de chave técnica dentro do mesmo lote (linhas idênticas na planilha).
-  const seenKeys = new Set<string>();
 
+  // 1) Parse + dedupe por technicalKey (em memória; não toca o banco).
+  const parsedByKey = new Map<string, ParsedPurchaseRecord>();
   for (let index = 0; index < rows.length; index += 1) {
     const line = index + 2; // +1 cabeçalho, +1 base 1
-
     try {
       const parsed = parseRow(rows[index], line, now);
       if (!parsed) {
-        // Linha vazia — não conta como importada nem como erro.
+        continue; // linha vazia — não conta como importada nem erro
+      }
+      if (parsedByKey.has(parsed.technicalKey)) {
+        result.ignoredRows += 1; // duplicada na própria planilha
         continue;
       }
-
-      if (seenKeys.has(parsed.technicalKey)) {
-        result.ignoredRows += 1;
-        continue;
-      }
-      seenKeys.add(parsed.technicalKey);
-
-      const existing = await prisma.purchaseRecord.findUnique({
-        where: { technicalKey: parsed.technicalKey },
-        select: { id: true }
-      });
-
-      const data = {
-        ...parsed,
-        source: PurchaseRecordSource.EXCEL,
-        importBatch
-      };
-
-      if (existing) {
-        await prisma.purchaseRecord.update({ where: { id: existing.id }, data });
-        result.updatedRows += 1;
-      } else {
-        await prisma.purchaseRecord.create({ data });
-        result.createdRows += 1;
-      }
-
-      accumulate(result, parsed);
-      result.importedRows += 1;
+      parsedByKey.set(parsed.technicalKey, parsed);
     } catch (error) {
       result.errorRows += 1;
       result.errors.push(toImportError(error, line));
     }
   }
 
+  const parsedList = Array.from(parsedByKey.values());
+
+  // 2) Quais chaves já existem (consulta em lote, sem 1-por-linha).
+  const existingKeys = await loadExistingKeys(parsedList.map((parsed) => parsed.technicalKey));
+  const toCreate = parsedList.filter((parsed) => !existingKeys.has(parsed.technicalKey));
+  const toUpdate = parsedList.filter((parsed) => existingKeys.has(parsed.technicalKey));
+
+  // 3) Grava em lote.
+  result.createdRows = await createInChunks(toCreate, importBatch);
+  result.updatedRows = await updateInChunks(toUpdate, importBatch);
+  result.importedRows = result.createdRows + result.updatedRows;
+
+  // 4) Indicadores do resumo (todas as linhas válidas; bloqueados só como ignorados).
+  for (const parsed of parsedList) {
+    accumulate(result, parsed);
+  }
   result.totalValue = round(result.totalValue);
+
+  // 5) Qualidade dos dados: período detectado e avisos.
+  result.periodDetected = detectPeriod(parsedList);
+  result.warnings = buildWarnings(parsedList);
+  result.missingColumns = [];
+
   await createImportHistory(result, options);
   return result;
+}
+
+function toRecordData(parsed: ParsedPurchaseRecord, importBatch: string) {
+  return { ...parsed, source: PurchaseRecordSource.EXCEL, importBatch };
+}
+
+/** Conjunto de technicalKeys já existentes (consultas "IN" em chunks). */
+async function loadExistingKeys(keys: string[]): Promise<Set<string>> {
+  const existing = new Set<string>();
+  for (let i = 0; i < keys.length; i += DB_IN_CHUNK) {
+    const chunk = keys.slice(i, i + DB_IN_CHUNK);
+    const found = await prisma.purchaseRecord.findMany({
+      where: { technicalKey: { in: chunk } },
+      select: { technicalKey: true }
+    });
+    for (const row of found) {
+      existing.add(row.technicalKey);
+    }
+  }
+  return existing;
+}
+
+/** Insere novos registros em lote (createMany), respeitando o limite de parâmetros. */
+async function createInChunks(toCreate: ParsedPurchaseRecord[], importBatch: string): Promise<number> {
+  let created = 0;
+  for (let i = 0; i < toCreate.length; i += CREATE_CHUNK) {
+    const chunk = toCreate.slice(i, i + CREATE_CHUNK).map((parsed) => toRecordData(parsed, importBatch));
+    const res = await prisma.purchaseRecord.createMany({ data: chunk, skipDuplicates: true });
+    created += res.count;
+  }
+  return created;
+}
+
+/** Atualiza registros existentes (por technicalKey) em chunks paralelos. */
+async function updateInChunks(toUpdate: ParsedPurchaseRecord[], importBatch: string): Promise<number> {
+  let updated = 0;
+  for (let i = 0; i < toUpdate.length; i += UPDATE_CONCURRENCY) {
+    const chunk = toUpdate.slice(i, i + UPDATE_CONCURRENCY);
+    await Promise.all(
+      chunk.map((parsed) =>
+        prisma.purchaseRecord.update({
+          where: { technicalKey: parsed.technicalKey },
+          data: toRecordData(parsed, importBatch)
+        })
+      )
+    );
+    updated += chunk.length;
+  }
+  return updated;
+}
+
+/** Período detectado na planilha: menor/maior data de referência + meses distintos. */
+function detectPeriod(parsedList: ParsedPurchaseRecord[]): PurchaseImportPeriod {
+  const dates = parsedList
+    .map((parsed) => getPurchaseRecordReferenceDate(parsed))
+    .filter((date): date is Date => date !== null)
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  if (!dates.length) {
+    return { start: null, end: null, months: [] };
+  }
+
+  const months = Array.from(
+    new Set(dates.map((date) => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`))
+  ).sort();
+
+  return {
+    start: dates[0].toISOString().slice(0, 10),
+    end: dates[dates.length - 1].toISOString().slice(0, 10),
+    months
+  };
+}
+
+/** Avisos de qualidade da importação. */
+function buildWarnings(parsedList: ParsedPurchaseRecord[]): string[] {
+  const warnings: string[] = [];
+  const semPedidoComReferencia = parsedList.filter(
+    (parsed) => !parsed.purchaseOrderDate && (parsed.requisitionDate || parsed.expectedDeliveryDate)
+  ).length;
+  if (semPedidoComReferencia > 0) {
+    warnings.push(
+      `${semPedidoComReferencia} registro(s) sem Data do Pedido foram posicionados pela Data da Requisição/Previsão nos gráficos mensais.`
+    );
+  }
+  const semData = parsedList.filter((parsed) => getPurchaseRecordReferenceDate(parsed) === null).length;
+  if (semData > 0) {
+    warnings.push(`${semData} registro(s) sem nenhuma data entram nos totais, mas não aparecem nos gráficos mensais.`);
+  }
+  return warnings;
 }
 
 /** Lê o arquivo Excel e importa. Atalho usado pelo script CLI e pela API. */

@@ -11,7 +11,12 @@
  */
 import { ItemNature, Prisma, PurchaseStatus, PurchaseType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { resolvePurchaseValue, purchaseStatusLabel, ITEM_NATURE_LABELS } from "@/utils/purchases-normalizer";
+import {
+  getPurchaseRecordReferenceDate,
+  resolvePurchaseValue,
+  purchaseStatusLabel,
+  ITEM_NATURE_LABELS
+} from "@/utils/purchases-normalizer";
 import { toInputDate } from "@/utils/period";
 import type { PendingPurchaseData, PurchasesByMonthData } from "@/types/dashboard";
 import type {
@@ -58,9 +63,15 @@ function buildBaseWhere(params: PurchaseQueryParams = {}): Prisma.PurchaseRecord
     if (params.endDate) {
       range.lte = new Date(`${params.endDate}T23:59:59.999Z`);
     }
-    // Período sobre a data do pedido; sem pedido, cai para a data da requisição.
+    // Período sobre a data de referência: pedido → requisição → previsão de entrega
+    // (mesma prioridade de getPurchaseRecordReferenceDate). Garante que registros
+    // sem pedido (só requisição/previsão) ainda entrem no período.
     and.push({
-      OR: [{ purchaseOrderDate: range }, { purchaseOrderDate: null, requisitionDate: range }]
+      OR: [
+        { purchaseOrderDate: range },
+        { purchaseOrderDate: null, requisitionDate: range },
+        { purchaseOrderDate: null, requisitionDate: null, expectedDeliveryDate: range }
+      ]
     });
   }
 
@@ -208,15 +219,22 @@ export async function getPurchasesByMonth(year: number): Promise<PurchasesByMont
     where: mergeWhere(buildBaseWhere(), {
       OR: [
         { purchaseOrderDate: { gte: start, lte: end } },
-        { purchaseOrderDate: null, requisitionDate: { gte: start, lte: end } }
+        { purchaseOrderDate: null, requisitionDate: { gte: start, lte: end } },
+        { purchaseOrderDate: null, requisitionDate: null, expectedDeliveryDate: { gte: start, lte: end } }
       ]
     }),
-    select: { purchaseOrderDate: true, requisitionDate: true, netTotal: true, grossTotal: true }
+    select: {
+      purchaseOrderDate: true,
+      requisitionDate: true,
+      expectedDeliveryDate: true,
+      netTotal: true,
+      grossTotal: true
+    }
   });
 
   const totals = Array.from({ length: 12 }, (_, index) => ({ month: index + 1, value: 0 }));
   for (const record of records) {
-    const reference = record.purchaseOrderDate ?? record.requisitionDate;
+    const reference = getPurchaseRecordReferenceDate(record);
     if (reference) {
       totals[reference.getUTCMonth()].value += resolvePurchaseValue(record.netTotal, record.grossTotal) ?? 0;
     }
@@ -749,12 +767,18 @@ export async function getPurchaseProcessTimes(params: PurchaseQueryParams = {}):
 async function getMonthlyPurchaseValue(params: PurchaseQueryParams = {}): Promise<PurchaseMonthlyPoint[]> {
   const records = await prisma.purchaseRecord.findMany({
     where: buildBaseWhere(params),
-    select: { purchaseOrderDate: true, requisitionDate: true, netTotal: true, grossTotal: true }
+    select: {
+      purchaseOrderDate: true,
+      requisitionDate: true,
+      expectedDeliveryDate: true,
+      netTotal: true,
+      grossTotal: true
+    }
   });
 
   const totals = new Map<string, number>();
   for (const record of records) {
-    const reference = record.purchaseOrderDate ?? record.requisitionDate;
+    const reference = getPurchaseRecordReferenceDate(record);
     if (!reference) {
       continue;
     }
