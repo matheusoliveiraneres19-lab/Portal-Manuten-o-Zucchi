@@ -2,19 +2,7 @@
 
 import { useEffect } from "react";
 import { AnimatePresence, m } from "framer-motion";
-import {
-  AlertTriangle,
-  CircleGauge,
-  Info,
-  Loader2,
-  OctagonPause,
-  Timer,
-  TimerReset,
-  TrendingUp,
-  Wrench,
-  X
-} from "lucide-react";
-import { PC_FACTORY_STATUS_LABELS } from "@/utils/pc-factory-normalizer";
+import { AlarmClock, AlertTriangle, CircleGauge, Cog, Info, Loader2, Timer, Wrench, X, Zap } from "lucide-react";
 import type { PcFactoryRecommendation, PcFactoryResourceDetails } from "@/types/pc-factory";
 
 type PcFactoryDetailsDrawerProps = {
@@ -38,14 +26,7 @@ export function PcFactoryDetailsDrawer({ open, loading, error, details, onClose 
   return (
     <AnimatePresence>
       {open ? (
-        <m.div
-          key="pc-factory-drawer"
-          className="fixed inset-0 z-50"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-        >
+        <m.div key="pcf-drawer" className="fixed inset-0 z-50" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
           <button type="button" aria-label="Fechar detalhes" onClick={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
           <m.aside
@@ -90,34 +71,31 @@ export function PcFactoryDetailsDrawer({ open, loading, error, details, onClose 
                 </div>
               ) : (
                 <div className="space-y-5">
-                  {/* Cabeçalho de indicadores */}
                   <div className="grid grid-cols-2 gap-3">
                     <Metric icon={CircleGauge} label="Disponibilidade" value={percent(details.availabilityPercent)} />
-                    <Metric icon={TrendingUp} label="Utilização" value={percent(details.utilizationPercent)} />
-                    <Metric icon={TimerReset} label="MTBF" value={metric(details.mtbf)} />
-                    <Metric icon={Wrench} label="MTTR" value={metric(details.mttr)} />
-                    <Metric icon={Timer} label="MTTF" value={metric(details.mttf)} />
-                    <Metric icon={OctagonPause} label="Horas paradas" value={hours(details.stoppedHours)} />
+                    <Metric icon={AlarmClock} label="MTTR gerencial" value={metric(details.mttr)} />
+                    <Metric icon={Wrench} label="Horas de manutenção" value={hours(details.maintenanceHours)} />
+                    <Metric icon={Timer} label="Tempo planejado" value={hours(details.plannedHours)} />
+                    <Metric icon={Cog} label="Manut. Mecânica" value={hours(details.mechanicalHours)} />
+                    <Metric icon={Zap} label="Manut. Elétrica" value={hours(details.electricalHours)} />
                   </div>
 
-                  {/* Resumo operacional */}
                   <Section title="Resumo operacional">
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-gold/10 bg-black/20 px-3 py-2 text-xs">
-                      <InlineInfo label="Horas totais" value={hours(details.totalHours)} />
-                      <InlineInfo label="Horas em produção" value={hours(details.productionHours)} />
-                      <InlineInfo label="Horas em manutenção" value={hours(details.maintenanceHours)} />
-                      <InlineInfo label="Horas paradas" value={hours(details.stoppedHours)} />
+                      <InlineInfo label="Aguardando manutenção" value={hours(details.waitingHours)} />
+                      <InlineInfo label="Eventos de manutenção" value={String(details.maintenanceEvents)} />
+                      <InlineInfo label="Horas paradas (perda)" value={hours(details.stoppedHours)} />
+                      <InlineInfo label="Tempo planejado" value={hours(details.plannedHours)} />
                     </div>
                   </Section>
 
-                  {/* Distribuição por status */}
-                  <Section title="Distribuição por status">
-                    {details.statusDistribution.length ? (
+                  <Section title="Distribuição por classificação">
+                    {details.categoryDistribution.length ? (
                       <div className="space-y-1.5">
-                        {details.statusDistribution.map((slice) => (
-                          <div key={slice.status} className="flex items-center gap-2 text-[11px]">
+                        {details.categoryDistribution.map((slice) => (
+                          <div key={slice.category} className="flex items-center gap-2 text-[11px]">
                             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: slice.color }} />
-                            <span className="w-32 shrink-0 truncate text-zinc-300">{slice.label}</span>
+                            <span className="w-40 shrink-0 truncate text-zinc-300">{slice.label}</span>
                             <div className="h-2 flex-1 overflow-hidden rounded-full bg-black/40">
                               <div className="h-full rounded-full" style={{ width: `${slice.percent}%`, background: slice.color }} />
                             </div>
@@ -128,22 +106,18 @@ export function PcFactoryDetailsDrawer({ open, loading, error, details, onClose 
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-zinc-500">Sem distribuição de status.</p>
+                      <p className="text-xs text-zinc-500">Sem distribuição.</p>
                     )}
                   </Section>
 
-                  {/* Eventos de parada/manutenção */}
-                  <Section title={`Eventos de manutenção (${details.maintenanceEvents.length})`}>
-                    {details.maintenanceEvents.length ? (
-                      <div className="max-h-[200px] space-y-1.5 overflow-y-auto pr-1">
-                        {details.maintenanceEvents.map((event) => (
-                          <div
-                            key={event.id}
-                            className="flex items-center justify-between gap-2 rounded-md border border-gold/10 bg-black/25 px-3 py-1.5 text-[11px]"
-                          >
+                  <Section title={`Eventos de manutenção (${details.maintenanceTimeline.length})`}>
+                    {details.maintenanceTimeline.length ? (
+                      <div className="max-h-[220px] space-y-1.5 overflow-y-auto pr-1">
+                        {details.maintenanceTimeline.map((event) => (
+                          <div key={event.id} className="flex items-center justify-between gap-2 rounded-md border border-gold/10 bg-black/25 px-3 py-1.5 text-[11px]">
                             <span className="text-zinc-400">{formatDateTime(event.startDateTime)}</span>
-                            <span className="flex-1 truncate text-zinc-300" title={event.observation ?? ""}>
-                              {event.observation ?? PC_FACTORY_STATUS_LABELS[event.status]}
+                            <span className="flex-1 truncate text-zinc-300" title={event.statusRaw ?? ""}>
+                              {event.statusRaw ?? event.classificationLabel}
                             </span>
                             <span className="font-semibold text-amber-400">
                               {event.durationHours.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h
@@ -156,17 +130,15 @@ export function PcFactoryDetailsDrawer({ open, loading, error, details, onClose 
                     )}
                   </Section>
 
-                  {/* Histórico/timeline */}
                   <Section title={`Histórico recente (${details.recentRecords.length})`}>
-                    <div className="max-h-[240px] space-y-1.5 overflow-y-auto pr-1">
+                    <div className="max-h-[220px] space-y-1.5 overflow-y-auto pr-1">
                       {details.recentRecords.length ? (
                         details.recentRecords.map((record) => (
-                          <div
-                            key={record.id}
-                            className="flex items-center justify-between gap-2 rounded-md border border-gold/10 bg-black/25 px-3 py-1.5 text-[11px]"
-                          >
+                          <div key={record.id} className="flex items-center justify-between gap-2 rounded-md border border-gold/10 bg-black/25 px-3 py-1.5 text-[11px]">
                             <span className="text-zinc-400">{formatDateTime(record.startDateTime)}</span>
-                            <span className="flex-1 truncate text-zinc-300">{PC_FACTORY_STATUS_LABELS[record.status]}</span>
+                            <span className="flex-1 truncate text-zinc-300" title={record.statusRaw ?? ""}>
+                              {record.statusRaw ?? record.classificationLabel}
+                            </span>
                             <span className="font-semibold text-zinc-200">
                               {record.durationHours.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h
                             </span>
@@ -178,7 +150,6 @@ export function PcFactoryDetailsDrawer({ open, loading, error, details, onClose 
                     </div>
                   </Section>
 
-                  {/* Recomendações */}
                   <Section title="Recomendações automáticas">
                     <div className="space-y-2">
                       {details.recommendations.map((rec, index) => (

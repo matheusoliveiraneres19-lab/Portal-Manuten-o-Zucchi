@@ -22,9 +22,7 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
     if (open) {
       setFile(null);
       setResult(null);
-      if (inputRef.current) {
-        inputRef.current.value = "";
-      }
+      if (inputRef.current) inputRef.current.value = "";
     }
   }, [open]);
 
@@ -39,11 +37,9 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
       formData.append("file", file);
       const response = await fetch("/api/pc-factory/import", { method: "POST", body: formData });
       const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error ?? "request failed");
-      }
+      if (!response.ok) throw new Error(data?.error ?? "request failed");
       setResult(data as PcFactoryImportResult);
-      toast.success(`Importação concluída: ${data.createdRecords} registros`);
+      toast.success(`Importação concluída: ${data.createdRows} criados, ${data.updatedRows} atualizados`);
       onImported();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao importar a planilha.");
@@ -56,35 +52,52 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
     <PcFactoryModalShell
       open={open}
       title="Importar relatório do PC-Factory"
-      subtitle="Planilha Excel (.xlsx) com status e tempos das máquinas"
+      subtitle='Planilha Excel (.xlsx) — campo obrigatório "Nome Status Recurso"'
       onClose={onClose}
     >
       <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gold/35 bg-black/25 px-4 py-8 text-center transition hover:border-gold/55">
         <FileSpreadsheet className="h-8 w-8 text-gold" />
-        <span className="text-sm font-semibold text-champagne">
-          {file ? file.name : "Clique para selecionar o arquivo .xlsx"}
-        </span>
+        <span className="text-sm font-semibold text-champagne">{file ? file.name : "Clique para selecionar o arquivo .xlsx"}</span>
         <span className="text-[11px] text-zinc-500">
-          Colunas reconhecidas: Recurso/Máquina, Status, Data início, Data fim, Duração, Linha, Setor, Turno, Ordem,
-          Produto, Observação...
+          Reconhece: Recurso, Nome Status Recurso, Linha, Setor, Data início/fim, Hora início/fim, Duração, Ordem,
+          Produto, Turno, Observação...
         </span>
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".xlsx,.xls"
-          className="hidden"
-          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-        />
+        <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
       </label>
 
       {result ? (
-        <dl className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-gold/15 bg-black/25 p-3 text-xs">
-          <Summary label="Total de linhas" value={result.totalRows} />
-          <Summary label="Importadas" value={result.importedRows} />
-          <Summary label="Registros criados" value={result.createdRecords} />
-          <Summary label="Ignoradas" value={result.ignoredRows} />
-          <Summary label="Com erro" value={result.errorRows} tone={result.errorRows > 0 ? "danger" : "default"} />
-        </dl>
+        <div className="mt-4 space-y-3">
+          <dl className="grid grid-cols-2 gap-2 rounded-lg border border-gold/15 bg-black/25 p-3 text-xs">
+            <Summary label="Total de linhas" value={result.totalRows} />
+            <Summary label="Importadas" value={result.importedRows} />
+            <Summary label="Criadas" value={result.createdRows} />
+            <Summary label="Atualizadas" value={result.updatedRows} />
+            <Summary label="Ignoradas" value={result.ignoredRows} />
+            <Summary label="Com erro" value={result.errorRows} tone={result.errorRows > 0 ? "danger" : "default"} />
+          </dl>
+
+          <div className="rounded-lg border border-gold/15 bg-black/25 p-3 text-xs">
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-gold">Classificação (auditoria da regra)</p>
+            <dl className="grid grid-cols-2 gap-2">
+              <Summary label="Manutenção (total)" value={result.maintenanceRows} tone="gold" />
+              <Summary label="Manut. Mecânica" value={result.mechanicalMaintenanceRows} />
+              <Summary label="Manut. Elétrica" value={result.electricalMaintenanceRows} />
+              <Summary label="Aguardando manut." value={result.waitingMaintenanceRows} />
+              <Summary label="Produção" value={result.productionRows} />
+              <Summary label="Setup" value={result.setupRows} />
+              <Summary label="Parada/perda" value={result.operationalLossRows} />
+              <Summary label="Fora do planejado" value={result.excludedFromPlannedTimeRows} />
+              <Summary label="Outros" value={result.otherRows} />
+              <Summary label="Recursos detectados" value={result.resourcesDetected} />
+            </dl>
+          </div>
+
+          {result.statusDetected.length ? (
+            <p className="text-[11px] text-zinc-500">
+              <span className="font-semibold text-gold">Status detectados:</span> {result.statusDetected.join(" · ")}
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       {result?.errors.length ? (
@@ -110,13 +123,12 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
   );
 }
 
-function Summary({ label, value, tone = "default" }: { label: string; value: number; tone?: "default" | "danger" }) {
+function Summary({ label, value, tone = "default" }: { label: string; value: number; tone?: "default" | "danger" | "gold" }) {
+  const valueClass = tone === "danger" ? "text-danger" : tone === "gold" ? "text-gold" : "text-champagne";
   return (
     <div className="flex items-center justify-between gap-2">
       <dt className="text-zinc-400">{label}</dt>
-      <dd className={`font-semibold ${tone === "danger" ? "text-danger" : "text-champagne"}`}>
-        {value.toLocaleString("pt-BR")}
-      </dd>
+      <dd className={`font-semibold ${valueClass}`}>{value.toLocaleString("pt-BR")}</dd>
     </div>
   );
 }

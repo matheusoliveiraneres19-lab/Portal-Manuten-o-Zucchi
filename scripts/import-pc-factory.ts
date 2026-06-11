@@ -15,9 +15,14 @@ async function main() {
   console.log("Importação do PC-Factory concluída:");
   console.log(`- Total de linhas: ${result.totalRows}`);
   console.log(`- Importadas: ${result.importedRows}`);
-  console.log(`- Registros criados: ${result.createdRecords}`);
-  console.log(`- Ignoradas (duplicadas/sem recurso): ${result.ignoredRows}`);
+  console.log(`- Criadas: ${result.createdRows} | Atualizadas: ${result.updatedRows}`);
+  console.log(`- Ignoradas (duplicadas/sem recurso/sem status): ${result.ignoredRows}`);
   console.log(`- Com erro: ${result.errorRows}`);
+  console.log(
+    `- Manutenção: ${result.maintenanceRows} (mecânica ${result.mechanicalMaintenanceRows}, elétrica ${result.electricalMaintenanceRows}, aguardando ${result.waitingMaintenanceRows})`
+  );
+  console.log(`- Fora do tempo planejado: ${result.excludedFromPlannedTimeRows}`);
+  console.log(`- Recursos detectados: ${result.resourcesDetected} | Status detectados: ${result.statusDetected.join(", ")}`);
 
   if (result.errors.length) {
     console.log("Erros encontrados:");

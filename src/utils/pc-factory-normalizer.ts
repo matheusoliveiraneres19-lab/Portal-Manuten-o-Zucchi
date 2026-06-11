@@ -1,138 +1,188 @@
 /**
- * Funções puras de normalização da planilha do PC-Factory.
+ * Funções puras de classificação do "Nome Status Recurso" do PC-Factory.
  * Sem dependência de Prisma ou React — testáveis isoladamente.
  *
- * O importador é flexível de propósito: a planilha real do PC-Factory ainda
- * pode mudar de layout, então o mapeamento de status e colunas é tolerante.
+ * REGRA DE NEGÓCIO CENTRAL (manutenção): entram como manutenção SOMENTE os três
+ * status exatos abaixo. A comparação é por valor EXATO normalizado — NUNCA por
+ * `contains("Manutenção")` — para que "Manutenção Automação" e "Manutenção de
+ * Terceiros" NÃO sejam contabilizados como manutenção:
+ *   - Manutenção Mecânica
+ *   - Manutenção Elétrica
+ *   - Aguardando Manutenção
  */
-import { PcFactoryStatus } from "@prisma/client";
-import { converterDataExcel, converterNumeroBrasileiro, limparTexto } from "@/utils/importacao";
+import { PcFactoryStatusCategory } from "@prisma/client";
 
-/** Status considerados "parada" (indisponibilidade que não é manutenção). */
-export const STOPPED_STATUSES: PcFactoryStatus[] = [
-  PcFactoryStatus.PARADA,
-  PcFactoryStatus.AGUARDANDO,
-  PcFactoryStatus.FALTA_MATERIAL,
-  PcFactoryStatus.SEM_OPERADOR,
-  PcFactoryStatus.INATIVO
-];
+/* ------------------------------------------------------------------ */
+/* Normalização de texto para comparação                              */
+/* ------------------------------------------------------------------ */
 
-/** Status que contam como "falha" para MTBF (parada + manutenção). */
-export const FAILURE_STATUSES: PcFactoryStatus[] = [PcFactoryStatus.PARADA, PcFactoryStatus.MANUTENCAO];
-
-/** Rótulos amigáveis dos status. */
-export const PC_FACTORY_STATUS_LABELS: Record<PcFactoryStatus, string> = {
-  PRODUCAO: "Produção",
-  PARADA: "Parada",
-  MANUTENCAO: "Manutenção",
-  SETUP: "Setup",
-  AGUARDANDO: "Aguardando",
-  SEM_OPERADOR: "Sem operador",
-  FALTA_MATERIAL: "Falta de material",
-  LIMPEZA: "Limpeza",
-  QUALIDADE: "Qualidade",
-  INATIVO: "Inativo",
-  OUTROS: "Outros"
-};
-
-/** Cores premium dos status (paleta Zucchi: verde produção, vermelho parada, dourado manutenção). */
-export const PC_FACTORY_STATUS_COLORS: Record<PcFactoryStatus, string> = {
-  PRODUCAO: "#3f8f6b",
-  PARADA: "#a6192e",
-  MANUTENCAO: "#c49a45",
-  SETUP: "#0f4d68",
-  AGUARDANDO: "#8a6d3b",
-  SEM_OPERADOR: "#6b7280",
-  FALTA_MATERIAL: "#b45309",
-  LIMPEZA: "#2563eb",
-  QUALIDADE: "#7c3aed",
-  INATIVO: "#4b5563",
-  OUTROS: "#9ca3af"
-};
-
-/** Ordem canônica de exibição (produção primeiro, depois indisponibilidades). */
-export const PC_FACTORY_STATUS_ORDER: PcFactoryStatus[] = [
-  PcFactoryStatus.PRODUCAO,
-  PcFactoryStatus.MANUTENCAO,
-  PcFactoryStatus.SETUP,
-  PcFactoryStatus.PARADA,
-  PcFactoryStatus.AGUARDANDO,
-  PcFactoryStatus.FALTA_MATERIAL,
-  PcFactoryStatus.SEM_OPERADOR,
-  PcFactoryStatus.LIMPEZA,
-  PcFactoryStatus.QUALIDADE,
-  PcFactoryStatus.INATIVO,
-  PcFactoryStatus.OUTROS
-];
-
-function normalizeKey(value: unknown): string {
-  return limparTexto(value)
+/**
+ * Normaliza o "Nome Status Recurso" para comparação:
+ * remove espaços extras, trata acentos e caixa. NÃO altera o valor gravado em
+ * statusRaw (esse é preservado na íntegra na importação).
+ */
+export function normalizePcFactoryStatusName(value: unknown): string {
+  return String(value ?? "")
+    .replace(/ /g, " ")
+    .trim()
+    .replace(/\s+/g, " ")
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-zA-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
     .toLowerCase();
 }
 
+/* ------------------------------------------------------------------ */
+/* Chaves normalizadas dos status reais da planilha                   */
+/* ------------------------------------------------------------------ */
+
+const KEY = {
+  MANUTENCAO_MECANICA: "manutencao mecanica",
+  MANUTENCAO_ELETRICA: "manutencao eletrica",
+  AGUARDANDO_MANUTENCAO: "aguardando manutencao",
+  FORA_DE_TURNO: "fora de turno",
+  RECURSO_NAO_PROGRAMADO: "recurso nao programado",
+  PRODUCAO: "producao",
+  SETUP: "setup",
+  FALTA_DE_MATERIAL: "falta de material",
+  PARADA_NAO_IDENTIFICADA: "parada nao identificada",
+  REFEICAO: "refeicao",
+  AGUARDANDO_LANCAMENTO: "aguardando lancamento",
+  MANUTENCAO_AUTOMACAO: "manutencao automacao",
+  MANUTENCAO_TERCEIROS: "manutencao de terceiros"
+} as const;
+
+/** Os três (e apenas três) status que contam como manutenção. */
+const MAINTENANCE_KEYS = new Set<string>([
+  KEY.MANUTENCAO_MECANICA,
+  KEY.MANUTENCAO_ELETRICA,
+  KEY.AGUARDANDO_MANUTENCAO
+]);
+
+const EXCLUDED_PLANNED_KEYS = new Set<string>([KEY.FORA_DE_TURNO, KEY.RECURSO_NAO_PROGRAMADO]);
+
+/** Status de parada/perda operacional (não-manutenção) para o cálculo. */
+const OPERATIONAL_LOSS_KEYS = new Set<string>([
+  KEY.SETUP,
+  KEY.FALTA_DE_MATERIAL,
+  KEY.PARADA_NAO_IDENTIFICADA
+]);
+
+/* ------------------------------------------------------------------ */
+/* Classificação gerencial                                            */
+/* ------------------------------------------------------------------ */
+
+const CATEGORY_BY_KEY: Record<string, PcFactoryStatusCategory> = {
+  [KEY.MANUTENCAO_MECANICA]: PcFactoryStatusCategory.MANUTENCAO,
+  [KEY.MANUTENCAO_ELETRICA]: PcFactoryStatusCategory.MANUTENCAO,
+  [KEY.AGUARDANDO_MANUTENCAO]: PcFactoryStatusCategory.MANUTENCAO,
+  [KEY.FORA_DE_TURNO]: PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO,
+  [KEY.RECURSO_NAO_PROGRAMADO]: PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO,
+  [KEY.PRODUCAO]: PcFactoryStatusCategory.PRODUCAO,
+  [KEY.SETUP]: PcFactoryStatusCategory.SETUP,
+  [KEY.FALTA_DE_MATERIAL]: PcFactoryStatusCategory.PARADA_PERDA,
+  [KEY.PARADA_NAO_IDENTIFICADA]: PcFactoryStatusCategory.PARADA_PERDA,
+  [KEY.REFEICAO]: PcFactoryStatusCategory.OPERACIONAL,
+  [KEY.AGUARDANDO_LANCAMENTO]: PcFactoryStatusCategory.OUTROS,
+  [KEY.MANUTENCAO_AUTOMACAO]: PcFactoryStatusCategory.OUTROS,
+  [KEY.MANUTENCAO_TERCEIROS]: PcFactoryStatusCategory.OUTROS
+};
+
 /**
- * Mapeia o status bruto da planilha para o enum normalizado.
- * Aceita variações de grafia e acentuação. Desconhecido → OUTROS.
+ * Classifica o "Nome Status Recurso" em categoria gerencial.
+ * Status desconhecido → OUTROS. Note que "Manutenção Automação" e
+ * "Manutenção de Terceiros" caem explicitamente em OUTROS (não em MANUTENCAO).
  */
-export function normalizePcFactoryStatus(value: unknown): PcFactoryStatus {
-  const key = normalizeKey(value);
-  if (!key) {
-    return PcFactoryStatus.OUTROS;
-  }
-
-  const map: Record<string, PcFactoryStatus> = {
-    producao: PcFactoryStatus.PRODUCAO,
-    produzindo: PcFactoryStatus.PRODUCAO,
-    em_producao: PcFactoryStatus.PRODUCAO,
-    operando: PcFactoryStatus.PRODUCAO,
-    rodando: PcFactoryStatus.PRODUCAO,
-    parado: PcFactoryStatus.PARADA,
-    parada: PcFactoryStatus.PARADA,
-    maquina_parada: PcFactoryStatus.PARADA,
-    manutencao: PcFactoryStatus.MANUTENCAO,
-    em_manutencao: PcFactoryStatus.MANUTENCAO,
-    manutencao_corretiva: PcFactoryStatus.MANUTENCAO,
-    manutencao_preventiva: PcFactoryStatus.MANUTENCAO,
-    setup: PcFactoryStatus.SETUP,
-    preparacao: PcFactoryStatus.SETUP,
-    troca: PcFactoryStatus.SETUP,
-    aguardando: PcFactoryStatus.AGUARDANDO,
-    espera: PcFactoryStatus.AGUARDANDO,
-    em_espera: PcFactoryStatus.AGUARDANDO,
-    sem_operador: PcFactoryStatus.SEM_OPERADOR,
-    falta_operador: PcFactoryStatus.SEM_OPERADOR,
-    falta_material: PcFactoryStatus.FALTA_MATERIAL,
-    sem_material: PcFactoryStatus.FALTA_MATERIAL,
-    limpeza: PcFactoryStatus.LIMPEZA,
-    qualidade: PcFactoryStatus.QUALIDADE,
-    controle_qualidade: PcFactoryStatus.QUALIDADE,
-    inativo: PcFactoryStatus.INATIVO,
-    desligado: PcFactoryStatus.INATIVO,
-    desligada: PcFactoryStatus.INATIVO
-  };
-
-  if (map[key]) {
-    return map[key];
-  }
-
-  // Heurística por substring (planilha pode trazer texto livre).
-  if (key.includes("manuten")) return PcFactoryStatus.MANUTENCAO;
-  if (key.includes("setup") || key.includes("prepar") || key.includes("troca")) return PcFactoryStatus.SETUP;
-  if (key.includes("material")) return PcFactoryStatus.FALTA_MATERIAL;
-  if (key.includes("operador")) return PcFactoryStatus.SEM_OPERADOR;
-  if (key.includes("limpez")) return PcFactoryStatus.LIMPEZA;
-  if (key.includes("qualidade")) return PcFactoryStatus.QUALIDADE;
-  if (key.includes("aguard") || key.includes("espera")) return PcFactoryStatus.AGUARDANDO;
-  if (key.includes("inativ") || key.includes("deslig")) return PcFactoryStatus.INATIVO;
-  if (key.includes("produ") || key.includes("operand") || key.includes("rodand")) return PcFactoryStatus.PRODUCAO;
-  if (key.includes("parad")) return PcFactoryStatus.PARADA;
-
-  return PcFactoryStatus.OUTROS;
+export function classifyPcFactoryStatus(statusRaw: unknown): PcFactoryStatusCategory {
+  const key = normalizePcFactoryStatusName(statusRaw);
+  return CATEGORY_BY_KEY[key] ?? PcFactoryStatusCategory.OUTROS;
 }
+
+/* ------------------------------------------------------------------ */
+/* Funções booleanas (regras explícitas, por valor exato)            */
+/* ------------------------------------------------------------------ */
+
+/** true SOMENTE para Manutenção Mecânica, Manutenção Elétrica e Aguardando Manutenção. */
+export function isMaintenanceStatus(statusRaw: unknown): boolean {
+  return MAINTENANCE_KEYS.has(normalizePcFactoryStatusName(statusRaw));
+}
+
+export function isMechanicalMaintenance(statusRaw: unknown): boolean {
+  return normalizePcFactoryStatusName(statusRaw) === KEY.MANUTENCAO_MECANICA;
+}
+
+export function isElectricalMaintenance(statusRaw: unknown): boolean {
+  return normalizePcFactoryStatusName(statusRaw) === KEY.MANUTENCAO_ELETRICA;
+}
+
+export function isWaitingMaintenance(statusRaw: unknown): boolean {
+  return normalizePcFactoryStatusName(statusRaw) === KEY.AGUARDANDO_MANUTENCAO;
+}
+
+/** true para Fora de Turno e Recurso Não Programado (saem do tempo planejado). */
+export function isExcludedFromPlannedTime(statusRaw: unknown): boolean {
+  return EXCLUDED_PLANNED_KEYS.has(normalizePcFactoryStatusName(statusRaw));
+}
+
+/** true para Produção. */
+export function isProductiveStatus(statusRaw: unknown): boolean {
+  return normalizePcFactoryStatusName(statusRaw) === KEY.PRODUCAO;
+}
+
+/** true para Setup, Falta de Material e Parada não Identificada. */
+export function isOperationalLossStatus(statusRaw: unknown): boolean {
+  return OPERATIONAL_LOSS_KEYS.has(normalizePcFactoryStatusName(statusRaw));
+}
+
+/** Sub-tipo de manutenção do registro, ou null se não for manutenção. */
+export type MaintenanceKind = "MECANICA" | "ELETRICA" | "AGUARDANDO";
+
+export function maintenanceKind(statusRaw: unknown): MaintenanceKind | null {
+  const key = normalizePcFactoryStatusName(statusRaw);
+  if (key === KEY.MANUTENCAO_MECANICA) return "MECANICA";
+  if (key === KEY.MANUTENCAO_ELETRICA) return "ELETRICA";
+  if (key === KEY.AGUARDANDO_MANUTENCAO) return "AGUARDANDO";
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Rótulos e cores das categorias (UI premium)                        */
+/* ------------------------------------------------------------------ */
+
+export const PC_FACTORY_CATEGORY_LABELS: Record<PcFactoryStatusCategory, string> = {
+  MANUTENCAO: "Manutenção",
+  PRODUCAO: "Produção",
+  SETUP: "Setup",
+  PARADA_PERDA: "Parada/perda",
+  OPERACIONAL: "Operacional",
+  EXCLUIR_TEMPO_PLANEJADO: "Fora do tempo planejado",
+  OUTROS: "Outros"
+};
+
+export const PC_FACTORY_CATEGORY_COLORS: Record<PcFactoryStatusCategory, string> = {
+  MANUTENCAO: "#c49a45",
+  PRODUCAO: "#3f8f6b",
+  SETUP: "#0f4d68",
+  PARADA_PERDA: "#a6192e",
+  OPERACIONAL: "#6b7280",
+  EXCLUIR_TEMPO_PLANEJADO: "#4b5563",
+  OUTROS: "#9ca3af"
+};
+
+export const PC_FACTORY_CATEGORY_ORDER: PcFactoryStatusCategory[] = [
+  PcFactoryStatusCategory.PRODUCAO,
+  PcFactoryStatusCategory.MANUTENCAO,
+  PcFactoryStatusCategory.SETUP,
+  PcFactoryStatusCategory.PARADA_PERDA,
+  PcFactoryStatusCategory.OPERACIONAL,
+  PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO,
+  PcFactoryStatusCategory.OUTROS
+];
+
+/* ------------------------------------------------------------------ */
+/* Datas e duração (inalterado — conversões da planilha)              */
+/* ------------------------------------------------------------------ */
+
+import { converterDataExcel, converterNumeroBrasileiro, limparTexto } from "@/utils/importacao";
 
 /** Converte data/hora da planilha (serial Excel, dd/mm/aaaa hh:mm, ISO, Date). */
 export function parsePcFactoryDate(value: unknown): Date | null {
@@ -149,7 +199,6 @@ export function parsePcFactoryDate(value: unknown): Date | null {
     return null;
   }
 
-  // dd/mm/aaaa hh:mm(:ss) — formato comum em exportações industriais brasileiras.
   const br = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
   if (br) {
     const day = Number(br[1]);
@@ -165,17 +214,37 @@ export function parsePcFactoryDate(value: unknown): Date | null {
   return converterDataExcel(text);
 }
 
-/**
- * Converte a duração para minutos. Aceita:
- *  - número (assumido em minutos, salvo fração do dia Excel < 1 → horas do dia);
- *  - "hh:mm" / "hh:mm:ss";
- *  - "1,5h" / "90 min" / "2 h";
- *  - número brasileiro ("1.234,5" minutos).
- * Quando há início e fim, o chamador pode preferir o delta — ver computeDurationMinutes.
- */
+/** Combina uma data (Date) com um horário textual ("HH:MM"/"HH:MM:SS" ou fração Excel). */
+export function combineDateAndTime(date: Date | null, timeValue: unknown): Date | null {
+  if (!date) return null;
+  if (timeValue === undefined || timeValue === null || timeValue === "") return date;
+
+  let hours = 0;
+  let minutes = 0;
+  let seconds = 0;
+
+  if (typeof timeValue === "number" && Number.isFinite(timeValue)) {
+    const fraction = timeValue >= 1 ? timeValue - Math.floor(timeValue) : timeValue;
+    const total = Math.round(fraction * 24 * 60 * 60);
+    hours = Math.floor(total / 3600) % 24;
+    minutes = Math.floor((total % 3600) / 60);
+    seconds = total % 60;
+  } else {
+    const match = limparTexto(timeValue).match(/^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?/);
+    if (!match) return date;
+    hours = Number(match[1]);
+    minutes = Number(match[2]);
+    seconds = Number(match[3] ?? 0);
+  }
+
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), hours, minutes, seconds)
+  );
+}
+
+/** Converte a duração para minutos (número em minutos, fração do dia Excel, hh:mm, "1,5h", "90 min"). */
 export function parseDurationToMinutes(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
-    // Fração do dia Excel (0–1) → horas; caso contrário, minutos.
     if (value > 0 && value < 1) {
       return round(value * 24 * 60);
     }
@@ -187,38 +256,27 @@ export function parseDurationToMinutes(value: unknown): number | null {
     return null;
   }
 
-  // hh:mm:ss ou hh:mm
   const clock = text.match(/^(\d{1,4}):([0-5]?\d)(?::([0-5]?\d))?$/);
   if (clock) {
-    const hours = Number(clock[1]);
-    const minutes = Number(clock[2]);
-    const seconds = Number(clock[3] ?? 0);
-    return round(hours * 60 + minutes + seconds / 60);
+    return round(Number(clock[1]) * 60 + Number(clock[2]) + Number(clock[3] ?? 0) / 60);
   }
 
-  // "1,5 h" / "2h" / "0.5 hora(s)"
   const hoursMatch = text.match(/^(\d+(?:[.,]\d+)?)\s*(?:h|hora|horas|hr|hrs)$/);
   if (hoursMatch) {
     const hours = converterNumeroBrasileiro(hoursMatch[1]);
     return hours === null ? null : round(hours * 60);
   }
 
-  // "90 min" / "90 minutos" / "90m"
   const minutesMatch = text.match(/^(\d+(?:[.,]\d+)?)\s*(?:m|min|minuto|minutos)$/);
   if (minutesMatch) {
     return converterNumeroBrasileiro(minutesMatch[1]);
   }
 
-  // Número puro (brasileiro) → minutos.
   return converterNumeroBrasileiro(text);
 }
 
 /** Calcula a duração em minutos a partir do delta início→fim, com fallback no valor da coluna. */
-export function computeDurationMinutes(
-  start: Date | null,
-  end: Date | null,
-  fallback: number | null
-): number {
+export function computeDurationMinutes(start: Date | null, end: Date | null, fallback: number | null): number {
   if (start && end) {
     const deltaMs = end.getTime() - start.getTime();
     if (deltaMs > 0) {
@@ -228,33 +286,28 @@ export function computeDurationMinutes(
   return fallback !== null && fallback >= 0 ? round(fallback) : 0;
 }
 
-/** Normaliza o nome do recurso/máquina (texto limpo). */
 export function normalizeResourceName(value: unknown): string {
   return limparTexto(value);
 }
 
-/** Normaliza o nome da linha de produção (texto limpo). */
 export function normalizeProductionLine(value: unknown): string | null {
   const text = limparTexto(value);
   return text || null;
 }
 
-/**
- * Chave técnica para deduplicação na reimportação.
- * Combina recurso + início + status + duração (+ ordem quando houver).
- */
+/** Chave técnica para deduplicação na reimportação. */
 export function buildPcFactoryTechnicalKey(parts: {
   resourceName: string;
   resourceCode: string | null;
   startDateTime: Date | null;
-  statusNormalized: string;
+  statusRaw: string | null;
   durationMinutes: number;
   orderNumber: string | null;
 }): string {
   return [
     parts.resourceCode || parts.resourceName,
     parts.startDateTime ? parts.startDateTime.toISOString() : "",
-    parts.statusNormalized,
+    normalizePcFactoryStatusName(parts.statusRaw),
     parts.durationMinutes,
     parts.orderNumber ?? ""
   ].join("|");

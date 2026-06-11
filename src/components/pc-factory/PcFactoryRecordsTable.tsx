@@ -2,17 +2,22 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, Table2 } from "lucide-react";
-import { PC_FACTORY_STATUS_LABELS } from "@/utils/pc-factory-normalizer";
-import type { PcFactoryRecordsResult, PcFactoryStatus } from "@/types/pc-factory";
+import type { PcFactoryRecordsResult, PcFactoryStatusCategory } from "@/types/pc-factory";
 
 export type RecordsTableFilters = {
   startDate: string;
   endDate: string;
   resources: string[];
   productionLines: string[];
-  statuses: string[];
   sectors: string[];
   shifts: string[];
+  statusNames: string[];
+  categories: string[];
+  onlyMaintenance: boolean;
+  onlyMechanical: boolean;
+  onlyElectrical: boolean;
+  onlyWaiting: boolean;
+  excludeOutOfPlanned: boolean;
   search: string;
 };
 
@@ -24,17 +29,13 @@ type PcFactoryRecordsTableProps = {
 
 const PAGE_SIZES = [25, 50, 100];
 
-const statusBadge: Record<PcFactoryStatus, string> = {
+const categoryBadge: Record<PcFactoryStatusCategory, string> = {
+  MANUTENCAO: "bg-amber-100 text-amber-800",
   PRODUCAO: "bg-emerald-100 text-emerald-700",
-  PARADA: "bg-rose-100 text-rose-700",
-  MANUTENCAO: "bg-amber-100 text-amber-700",
   SETUP: "bg-sky-100 text-sky-700",
-  AGUARDANDO: "bg-yellow-100 text-yellow-800",
-  SEM_OPERADOR: "bg-zinc-200 text-zinc-700",
-  FALTA_MATERIAL: "bg-orange-100 text-orange-700",
-  LIMPEZA: "bg-blue-100 text-blue-700",
-  QUALIDADE: "bg-violet-100 text-violet-700",
-  INATIVO: "bg-zinc-200 text-zinc-600",
+  PARADA_PERDA: "bg-rose-100 text-rose-700",
+  OPERACIONAL: "bg-zinc-200 text-zinc-700",
+  EXCLUIR_TEMPO_PLANEJADO: "bg-zinc-200 text-zinc-600",
   OUTROS: "bg-zinc-100 text-zinc-600"
 };
 
@@ -59,11 +60,17 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
     const params = new URLSearchParams();
     if (filters.startDate) params.set("startDate", filters.startDate);
     if (filters.endDate) params.set("endDate", filters.endDate);
-    filters.resources.forEach((value) => params.append("resource", value));
-    filters.productionLines.forEach((value) => params.append("line", value));
-    filters.statuses.forEach((value) => params.append("status", value));
-    filters.sectors.forEach((value) => params.append("sector", value));
-    filters.shifts.forEach((value) => params.append("shift", value));
+    filters.resources.forEach((v) => params.append("resource", v));
+    filters.productionLines.forEach((v) => params.append("line", v));
+    filters.sectors.forEach((v) => params.append("sector", v));
+    filters.shifts.forEach((v) => params.append("shift", v));
+    filters.statusNames.forEach((v) => params.append("statusName", v));
+    filters.categories.forEach((v) => params.append("category", v));
+    if (filters.onlyMaintenance) params.set("onlyMaintenance", "1");
+    if (filters.onlyMechanical) params.set("onlyMechanical", "1");
+    if (filters.onlyElectrical) params.set("onlyElectrical", "1");
+    if (filters.onlyWaiting) params.set("onlyWaiting", "1");
+    if (filters.excludeOutOfPlanned) params.set("excludeOutOfPlanned", "1");
     if (filters.search) params.set("search", filters.search);
     params.set("page", String(nextPage));
     params.set("pageSize", String(nextSize));
@@ -76,9 +83,7 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
       .then((payload) => {
         if (requestRef.current === requestId) setResult(payload);
       })
-      .catch(() => {
-        /* mantém o resultado atual em caso de erro */
-      })
+      .catch(() => {})
       .finally(() => {
         if (requestRef.current === requestId) setLoading(false);
       });
@@ -126,18 +131,18 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
             <Loader2 className="h-5 w-5 animate-spin text-gold" />
           </div>
         ) : null}
-        <table className="w-full min-w-[920px] border-collapse text-left text-xs">
+        <table className="w-full min-w-[1100px] border-collapse text-left text-xs">
           <thead>
             <tr className="border-b border-zinc-200 bg-zinc-50 text-[10px] uppercase tracking-wide text-zinc-500">
               <Th>Início</Th>
               <Th>Fim</Th>
               <Th>Máquina / Recurso</Th>
               <Th>Linha</Th>
-              <Th>Status</Th>
+              <Th>Nome Status Recurso</Th>
+              <Th>Classificação</Th>
               <Th className="text-right">Duração</Th>
-              <Th>Setor</Th>
-              <Th>Turno</Th>
-              <Th>Ordem / Produto</Th>
+              <Th className="text-center">Manutenção?</Th>
+              <Th className="text-center">Tempo planejado?</Th>
               <Th>Observação</Th>
             </tr>
           </thead>
@@ -162,17 +167,17 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
                     {row.resourceCode ? <span className="ml-1 font-mono text-[10px] text-zinc-400">{row.resourceCode}</span> : null}
                   </Td>
                   <Td>{orDash(row.productionLine)}</Td>
+                  <Td className="text-zinc-700">{orDash(row.statusRaw)}</Td>
                   <Td>
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadge[row.status]}`}>
-                      {PC_FACTORY_STATUS_LABELS[row.status]}
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${categoryBadge[row.statusCategory]}`}>
+                      {row.classificationLabel}
                     </span>
                   </Td>
                   <Td className="text-right font-semibold text-zinc-700">
                     {row.durationHours.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} h
                   </Td>
-                  <Td>{orDash(row.sector)}</Td>
-                  <Td>{orDash(row.shift)}</Td>
-                  <Td>{orDash(row.orderNumber ?? row.productDescription)}</Td>
+                  <Td className="text-center">{row.isMaintenance ? <Yes /> : <No />}</Td>
+                  <Td className="text-center">{row.isInPlannedTime ? <Yes /> : <No />}</Td>
                   <Td className="max-w-[200px] truncate" title={row.observation ?? ""}>
                     {orDash(row.observation)}
                   </Td>
@@ -198,6 +203,14 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
       </div>
     </article>
   );
+}
+
+function Yes() {
+  return <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Sim</span>;
+}
+
+function No() {
+  return <span className="inline-flex rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-500">Não</span>;
 }
 
 function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {

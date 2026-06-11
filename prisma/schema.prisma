@@ -172,18 +172,16 @@ enum DataSource {
   SISTEMA
 }
 
-/// Status operacional normalizado de uma máquina/recurso no PC-Factory.
-enum PcFactoryStatus {
-  PRODUCAO
-  PARADA
+/// Classificação gerencial do "Nome Status Recurso" do PC-Factory.
+/// O valor textual original é preservado em PcFactoryRecord.statusRaw (auditoria);
+/// esta categoria deriva dele por match EXATO (ver pc-factory-normalizer.ts).
+enum PcFactoryStatusCategory {
   MANUTENCAO
+  PRODUCAO
   SETUP
-  AGUARDANDO
-  SEM_OPERADOR
-  FALTA_MATERIAL
-  LIMPEZA
-  QUALIDADE
-  INATIVO
+  PARADA_PERDA
+  OPERACIONAL
+  EXCLUIR_TEMPO_PLANEJADO
   OUTROS
 }
 
@@ -572,7 +570,7 @@ model Procedure {
 /// Registro operacional importado do PC-Factory (status/tempo de máquinas e linhas).
 /// Fonte ÚNICA da página /dashboard/pc-factory e dos indicadores de produção.
 model PcFactoryRecord {
-  id                 String          @id @default(cuid())
+  id                 String                  @id @default(cuid())
   /// Código do recurso/máquina no PC-Factory.
   resourceCode       String?
   /// Nome do recurso/máquina (obrigatório — identidade do registro).
@@ -580,9 +578,10 @@ model PcFactoryRecord {
   /// Linha de produção e setor onde o recurso opera.
   productionLine     String?
   sector             String?
-  /// Status original da planilha e status normalizado para análise.
+  /// Valor exato de "Nome Status Recurso" vindo da planilha (auditoria, nunca substituído).
   statusRaw          String?
-  statusNormalized   PcFactoryStatus
+  /// Classificação gerencial derivada de statusRaw por match exato.
+  statusCategory     PcFactoryStatusCategory @default(OUTROS)
   /// Janela do evento.
   startDateTime      DateTime?
   endDateTime        DateTime?
@@ -596,18 +595,18 @@ model PcFactoryRecord {
   operatorName       String?
   shift              String?
   observation        String?
-  source             PcFactorySource @default(EXCEL)
+  source             PcFactorySource         @default(EXCEL)
   importBatch        String?
   /// Chave de deduplicação na reimportação.
-  technicalKey       String?         @unique
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  technicalKey       String?                 @unique
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
 
   @@index([resourceName])
   @@index([resourceCode])
   @@index([productionLine])
   @@index([sector])
-  @@index([statusNormalized])
+  @@index([statusCategory])
   @@index([startDateTime])
   @@index([endDateTime])
   @@index([importBatch])

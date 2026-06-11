@@ -4,7 +4,12 @@ import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YA
 import { EmptyState } from "@/components/EmptyState";
 import type { PcFactoryResourceRow } from "@/types/pc-factory";
 
-export type RankingMetric = "stoppedHours" | "maintenanceHours" | "utilizationPercent" | "mtbf";
+export type RankingMetric =
+  | "maintenanceHours"
+  | "mechanicalHours"
+  | "electricalHours"
+  | "waitingHours"
+  | "availabilityPercent";
 
 type PcFactoryRankingChartProps = {
   title: string;
@@ -18,13 +23,14 @@ type PcFactoryRankingChartProps = {
 };
 
 const SUFFIX: Record<RankingMetric, string> = {
-  stoppedHours: " h",
   maintenanceHours: " h",
-  utilizationPercent: "%",
-  mtbf: " h"
+  mechanicalHours: " h",
+  electricalHours: " h",
+  waitingHours: " h",
+  availabilityPercent: "%"
 };
 
-/** Barras horizontais — top máquinas por uma métrica (parada, manutenção, utilização, MTBF). */
+/** Barras horizontais — top máquinas por uma métrica de manutenção/disponibilidade. */
 export function PcFactoryRankingChart({
   title,
   subtitle,
@@ -36,10 +42,7 @@ export function PcFactoryRankingChart({
   onSelect
 }: PcFactoryRankingChartProps) {
   const data = rows
-    .map((row) => ({
-      resourceName: row.resourceName,
-      value: metric === "utilizationPercent" || metric === "mtbf" ? row[metric] ?? null : row[metric]
-    }))
+    .map((row) => ({ resourceName: row.resourceName, value: row[metric] }))
     .filter((item): item is { resourceName: string; value: number } => item.value !== null && item.value > 0)
     .sort((a, b) => b.value - a.value)
     .slice(0, 10);
@@ -62,10 +65,7 @@ export function PcFactoryRankingChart({
               <YAxis type="category" dataKey="resourceName" width={170} tick={{ fontSize: 11 }} tickFormatter={truncate} />
               <Tooltip
                 cursor={{ fill: "rgba(196,154,69,0.08)" }}
-                formatter={(value: number) => [
-                  `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}${suffix}`,
-                  "Valor"
-                ]}
+                formatter={(value: number) => [`${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}${suffix}`, "Valor"]}
               />
               <Bar
                 dataKey="value"

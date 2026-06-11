@@ -1,80 +1,93 @@
 import { cache } from "react";
-import { PcFactoryStatus, Prisma } from "@prisma/client";
+import { PcFactoryStatusCategory, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
-  FAILURE_STATUSES,
-  PC_FACTORY_STATUS_COLORS,
-  PC_FACTORY_STATUS_LABELS,
-  PC_FACTORY_STATUS_ORDER,
-  STOPPED_STATUSES
+  PC_FACTORY_CATEGORY_COLORS,
+  PC_FACTORY_CATEGORY_LABELS,
+  PC_FACTORY_CATEGORY_ORDER,
+  maintenanceKind
 } from "@/utils/pc-factory-normalizer";
 import type {
+  PcFactoryCategorySlice,
   PcFactoryDashboardSummary,
   PcFactoryFilterOptions,
   PcFactoryKpis,
+  PcFactoryMaintenanceSplit,
   PcFactoryPageData,
   PcFactoryProductionLineRow,
   PcFactoryQueryParams,
+  PcFactoryRecommendation,
   PcFactoryRecordRow,
   PcFactoryRecordsResult,
   PcFactoryReferencePeriod,
-  PcFactoryRecommendation,
   PcFactoryResourceDetails,
   PcFactoryResourceRow,
-  PcFactoryStatusSlice,
   PcFactoryTopResource,
   PcFactoryTrendPoint
 } from "@/types/pc-factory";
 
 const DEFAULT_PAGE_SIZE = 50;
-const STOPPED_SET = new Set<PcFactoryStatus>(STOPPED_STATUSES);
-const FAILURE_SET = new Set<PcFactoryStatus>(FAILURE_STATUSES);
+
+/**
+ * Decisão de negócio (confirmada): Setup conta como parada/perda operacional e,
+ * portanto, reduz a disponibilidade. Para tratar Setup como tempo neutro, basta
+ * mudar esta constante para false.
+ */
+const SETUP_COUNTS_AS_LOSS = true;
 
 /* ------------------------------------------------------------------ */
-/* Where + carregamento de registros para análise                    */
+/* Where + carregamento de registros                                  */
 /* ------------------------------------------------------------------ */
 
 function buildWhere(params: PcFactoryQueryParams): Prisma.PcFactoryRecordWhereInput {
-  const where: Prisma.PcFactoryRecordWhereInput = {};
+  const and: Prisma.PcFactoryRecordWhereInput[] = [];
 
-  if (params.resources?.length) {
-    where.resourceName = { in: params.resources };
+  if (params.resources?.length) and.push({ resourceName: { in: params.resources } });
+  if (params.productionLines?.length) and.push({ productionLine: { in: params.productionLines } });
+  if (params.sectors?.length) and.push({ sector: { in: params.sectors } });
+  if (params.shifts?.length) and.push({ shift: { in: params.shifts } });
+  if (params.statusNames?.length) and.push({ statusRaw: { in: params.statusNames } });
+  if (params.categories?.length) and.push({ statusCategory: { in: params.categories } });
+
+  // Toggles de manutenção (escopados à categoria MANUTENCAO, que contém só os 3 status).
+  if (params.onlyMaintenance) and.push({ statusCategory: PcFactoryStatusCategory.MANUTENCAO });
+  if (params.onlyMechanical) {
+    and.push({ statusCategory: PcFactoryStatusCategory.MANUTENCAO, statusRaw: { contains: "mec", mode: "insensitive" } });
   }
-  if (params.productionLines?.length) {
-    where.productionLine = { in: params.productionLines };
+  if (params.onlyElectrical) {
+    and.push({ statusCategory: PcFactoryStatusCategory.MANUTENCAO, statusRaw: { contains: "trica", mode: "insensitive" } });
   }
-  if (params.sectors?.length) {
-    where.sector = { in: params.sectors };
+  if (params.onlyWaiting) {
+    and.push({ statusCategory: PcFactoryStatusCategory.MANUTENCAO, statusRaw: { contains: "guard", mode: "insensitive" } });
   }
-  if (params.shifts?.length) {
-    where.shift = { in: params.shifts };
+  if (params.excludeOutOfPlanned) {
+    and.push({ NOT: { statusCategory: PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO } });
   }
-  if (params.statuses?.length) {
-    where.statusNormalized = { in: params.statuses };
-  }
+
   if (params.startDate || params.endDate) {
-    where.startDateTime = {};
-    if (params.startDate) {
-      where.startDateTime.gte = new Date(`${params.startDate}T00:00:00.000Z`);
-    }
-    if (params.endDate) {
-      where.startDateTime.lte = new Date(`${params.endDate}T23:59:59.999Z`);
-    }
+    const range: Prisma.DateTimeNullableFilter = {};
+    if (params.startDate) range.gte = new Date(`${params.startDate}T00:00:00.000Z`);
+    if (params.endDate) range.lte = new Date(`${params.endDate}T23:59:59.999Z`);
+    and.push({ startDateTime: range });
   }
+
   if (params.search) {
     const term = params.search.trim();
     if (term) {
-      where.OR = [
-        { resourceName: { contains: term, mode: "insensitive" } },
-        { resourceCode: { contains: term, mode: "insensitive" } },
-        { productionLine: { contains: term, mode: "insensitive" } },
-        { orderNumber: { contains: term, mode: "insensitive" } },
-        { productDescription: { contains: term, mode: "insensitive" } }
-      ];
+      and.push({
+        OR: [
+          { resourceName: { contains: term, mode: "insensitive" } },
+          { resourceCode: { contains: term, mode: "insensitive" } },
+          { productionLine: { contains: term, mode: "insensitive" } },
+          { orderNumber: { contains: term, mode: "insensitive" } },
+          { productDescription: { contains: term, mode: "insensitive" } },
+          { statusRaw: { contains: term, mode: "insensitive" } }
+        ]
+      });
     }
   }
 
-  return where;
+  return and.length ? { AND: and } : {};
 }
 
 type AnalyticsRecord = {
@@ -82,14 +95,14 @@ type AnalyticsRecord = {
   resourceCode: string | null;
   productionLine: string | null;
   sector: string | null;
-  statusNormalized: PcFactoryStatus;
+  statusRaw: string | null;
+  statusCategory: PcFactoryStatusCategory;
   durationHours: number;
   startDateTime: Date | null;
 };
 
-// `cache` deduplica a carga de registros filtrados dentro do MESMO render. O
-// orquestrador da página cria UM objeto `params` e o repassa a todas as
-// sub-funções; assim a varredura roda uma única vez (padrão dos Lubrificantes).
+// `cache` deduplica a carga de registros filtrados no MESMO render — o orquestrador
+// cria UM objeto `params` e o repassa a todas as sub-funções.
 const loadRecords = cache(async (params: PcFactoryQueryParams): Promise<AnalyticsRecord[]> => {
   return prisma.pcFactoryRecord.findMany({
     where: buildWhere(params),
@@ -98,7 +111,8 @@ const loadRecords = cache(async (params: PcFactoryQueryParams): Promise<Analytic
       resourceCode: true,
       productionLine: true,
       sector: true,
-      statusNormalized: true,
+      statusRaw: true,
+      statusCategory: true,
       durationHours: true,
       startDateTime: true
     }
@@ -106,120 +120,143 @@ const loadRecords = cache(async (params: PcFactoryQueryParams): Promise<Analytic
 });
 
 /* ------------------------------------------------------------------ */
-/* Agregações puras                                                   */
+/* Agregação pura                                                     */
 /* ------------------------------------------------------------------ */
 
 type HoursAggregate = {
-  byStatus: Map<PcFactoryStatus, number>;
-  total: number;
-  production: number;
-  stopped: number;
-  maintenance: number;
-  setup: number;
-  waiting: number;
-  failureCount: number;
+  byCategory: Map<PcFactoryStatusCategory, number>;
+  totalHours: number;
+  plannedHours: number;
+  productionHours: number;
+  maintenanceHours: number;
+  mechanicalHours: number;
+  electricalHours: number;
+  waitingHours: number;
+  setupHours: number;
+  lossHours: number;
+  operationalHours: number;
+  excludedHours: number;
+  stoppedHours: number;
   maintenanceEvents: number;
+  mechanicalEvents: number;
+  electricalEvents: number;
+  waitingEvents: number;
 };
 
 function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
-  const byStatus = new Map<PcFactoryStatus, number>();
-  let total = 0;
-  let production = 0;
-  let stopped = 0;
-  let maintenance = 0;
-  let setup = 0;
-  let waiting = 0;
-  let failureCount = 0;
+  const byCategory = new Map<PcFactoryStatusCategory, number>();
+  let totalHours = 0;
+  let plannedHours = 0;
+  let productionHours = 0;
+  let maintenanceHours = 0;
+  let mechanicalHours = 0;
+  let electricalHours = 0;
+  let waitingHours = 0;
+  let setupHours = 0;
+  let paradaPerdaHours = 0;
+  let operationalHours = 0;
+  let excludedHours = 0;
   let maintenanceEvents = 0;
+  let mechanicalEvents = 0;
+  let electricalEvents = 0;
+  let waitingEvents = 0;
 
   for (const record of records) {
     const hours = Number.isFinite(record.durationHours) ? record.durationHours : 0;
-    total += hours;
-    byStatus.set(record.statusNormalized, (byStatus.get(record.statusNormalized) ?? 0) + hours);
+    const cat = record.statusCategory;
+    totalHours += hours;
+    byCategory.set(cat, (byCategory.get(cat) ?? 0) + hours);
 
-    switch (record.statusNormalized) {
-      case PcFactoryStatus.PRODUCAO:
-        production += hours;
-        break;
-      case PcFactoryStatus.MANUTENCAO:
-        maintenance += hours;
+    if (cat === PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO) {
+      excludedHours += hours;
+      continue; // fora do tempo planejado — não entra em nenhum cálculo de planejado/parada
+    }
+
+    plannedHours += hours;
+
+    switch (cat) {
+      case PcFactoryStatusCategory.MANUTENCAO: {
+        maintenanceHours += hours;
         maintenanceEvents += 1;
+        const kind = maintenanceKind(record.statusRaw);
+        if (kind === "MECANICA") {
+          mechanicalHours += hours;
+          mechanicalEvents += 1;
+        } else if (kind === "ELETRICA") {
+          electricalHours += hours;
+          electricalEvents += 1;
+        } else if (kind === "AGUARDANDO") {
+          waitingHours += hours;
+          waitingEvents += 1;
+        }
         break;
-      case PcFactoryStatus.SETUP:
-        setup += hours;
+      }
+      case PcFactoryStatusCategory.PRODUCAO:
+        productionHours += hours;
+        break;
+      case PcFactoryStatusCategory.SETUP:
+        setupHours += hours;
+        break;
+      case PcFactoryStatusCategory.PARADA_PERDA:
+        paradaPerdaHours += hours;
+        break;
+      case PcFactoryStatusCategory.OPERACIONAL:
+      case PcFactoryStatusCategory.OUTROS:
+        operationalHours += hours;
         break;
       default:
         break;
     }
-
-    if (STOPPED_SET.has(record.statusNormalized)) {
-      stopped += hours;
-    }
-    if (record.statusNormalized === PcFactoryStatus.AGUARDANDO) {
-      waiting += hours;
-    }
-    if (FAILURE_SET.has(record.statusNormalized)) {
-      failureCount += 1;
-    }
   }
 
+  const lossHours = paradaPerdaHours + (SETUP_COUNTS_AS_LOSS ? setupHours : 0);
+  const stoppedHours = maintenanceHours + lossHours;
+
   return {
-    byStatus,
-    total: round(total),
-    production: round(production),
-    stopped: round(stopped),
-    maintenance: round(maintenance),
-    setup: round(setup),
-    waiting: round(waiting),
-    failureCount,
-    maintenanceEvents
+    byCategory,
+    totalHours: round(totalHours),
+    plannedHours: round(plannedHours),
+    productionHours: round(productionHours),
+    maintenanceHours: round(maintenanceHours),
+    mechanicalHours: round(mechanicalHours),
+    electricalHours: round(electricalHours),
+    waitingHours: round(waitingHours),
+    setupHours: round(setupHours),
+    lossHours: round(lossHours),
+    operationalHours: round(operationalHours),
+    excludedHours: round(excludedHours),
+    stoppedHours: round(stoppedHours),
+    maintenanceEvents,
+    mechanicalEvents,
+    electricalEvents,
+    waitingEvents
   };
 }
 
-function availability(total: number, stopped: number, maintenance: number): number | null {
-  if (total <= 0) return null;
-  return clampPercent(((total - stopped - maintenance) / total) * 100);
+function availability(plannedHours: number, stoppedHours: number): number | null {
+  if (plannedHours <= 0) return null;
+  return clampPercent(((plannedHours - stoppedHours) / plannedHours) * 100);
 }
 
-function utilization(total: number, production: number): number | null {
-  if (total <= 0) return null;
-  return clampPercent((production / total) * 100);
-}
-
-function maintenanceImpact(total: number, maintenance: number): number | null {
-  if (total <= 0) return null;
-  return clampPercent((maintenance / total) * 100);
-}
-
-/** MTBF = tempo operacional (produção) / nº de eventos de falha (parada+manutenção). */
-function mtbf(productionHours: number, failureCount: number): number | null {
-  return failureCount > 0 ? safeRound(productionHours / failureCount) : null;
-}
-
-/** MTTR = horas em manutenção / nº de eventos de manutenção. */
 function mttr(maintenanceHours: number, maintenanceEvents: number): number | null {
   return maintenanceEvents > 0 ? safeRound(maintenanceHours / maintenanceEvents) : null;
 }
 
-/** MTTF = tempo em produção / nº de eventos de manutenção (tempo médio até falha). */
-function mttf(productionHours: number, maintenanceEvents: number): number | null {
-  return maintenanceEvents > 0 ? safeRound(productionHours / maintenanceEvents) : null;
+function maintenancePercent(plannedHours: number, maintenanceHours: number): number | null {
+  if (plannedHours <= 0) return null;
+  return clampPercent((maintenanceHours / plannedHours) * 100);
 }
 
 /* ------------------------------------------------------------------ */
-/* Agrupamento por recurso                                            */
+/* Ranking por recurso                                                */
 /* ------------------------------------------------------------------ */
 
 function buildResourceRanking(records: AnalyticsRecord[]): PcFactoryResourceRow[] {
   const groups = new Map<string, AnalyticsRecord[]>();
   for (const record of records) {
-    const key = record.resourceName;
-    const list = groups.get(key);
-    if (list) {
-      list.push(record);
-    } else {
-      groups.set(key, [record]);
-    }
+    const list = groups.get(record.resourceName);
+    if (list) list.push(record);
+    else groups.set(record.resourceName, [record]);
   }
 
   const rows: PcFactoryResourceRow[] = [];
@@ -227,39 +264,32 @@ function buildResourceRanking(records: AnalyticsRecord[]): PcFactoryResourceRow[
     const agg = aggregateHours(list);
     const sample = list.find((item) => item.resourceCode) ?? list[0];
     const line = list.find((item) => item.productionLine)?.productionLine ?? null;
-
     rows.push({
       resourceName,
       resourceCode: sample.resourceCode ?? null,
       productionLine: line,
-      productionHours: agg.production,
-      stoppedHours: agg.stopped,
-      maintenanceHours: agg.maintenance,
-      totalHours: agg.total,
-      availabilityPercent: availability(agg.total, agg.stopped, agg.maintenance),
-      utilizationPercent: utilization(agg.total, agg.production),
-      mtbf: mtbf(agg.production, agg.failureCount),
-      mttr: mttr(agg.maintenance, agg.maintenanceEvents),
-      failureCount: agg.failureCount
+      plannedHours: agg.plannedHours,
+      productionHours: agg.productionHours,
+      maintenanceHours: agg.maintenanceHours,
+      mechanicalHours: agg.mechanicalHours,
+      electricalHours: agg.electricalHours,
+      waitingHours: agg.waitingHours,
+      lossHours: agg.lossHours,
+      stoppedHours: agg.stoppedHours,
+      maintenanceEvents: agg.maintenanceEvents,
+      mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
+      availabilityPercent: availability(agg.plannedHours, agg.stoppedHours)
     });
   }
-
-  return rows.sort((a, b) => b.totalHours - a.totalHours);
+  return rows;
 }
 
-function topResource(rows: PcFactoryResourceRow[], pick: (row: PcFactoryResourceRow) => number): PcFactoryTopResource {
+function topByMaintenance(rows: PcFactoryResourceRow[]): PcFactoryTopResource {
   let best: PcFactoryResourceRow | null = null;
-  let bestValue = 0;
   for (const row of rows) {
-    const value = pick(row);
-    if (value > bestValue) {
-      bestValue = value;
-      best = row;
-    }
+    if (row.maintenanceHours > 0 && (!best || row.maintenanceHours > best.maintenanceHours)) best = row;
   }
-  return best && bestValue > 0
-    ? { resourceName: best.resourceName, resourceCode: best.resourceCode, hours: round(bestValue) }
-    : null;
+  return best ? { resourceName: best.resourceName, resourceCode: best.resourceCode, hours: best.maintenanceHours } : null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -271,156 +301,147 @@ export async function getPcFactoryDashboardKPIs(params: PcFactoryQueryParams): P
   const agg = aggregateHours(records);
   const ranking = buildResourceRanking(records);
 
-  const resourceNames = new Set(records.map((record) => record.resourceName));
-  const productionLines = new Set(records.map((record) => record.productionLine).filter(Boolean) as string[]);
+  const resourceNames = new Set(records.map((r) => r.resourceName));
+  const lines = new Set(records.map((r) => r.productionLine).filter(Boolean) as string[]);
 
   return {
     totalRecords: records.length,
     totalResources: resourceNames.size,
-    totalProductionLines: productionLines.size,
-    totalAnalyzedHours: agg.total,
-    productionHours: agg.production,
-    stoppedHours: agg.stopped,
-    maintenanceHours: agg.maintenance,
-    setupHours: agg.setup,
-    waitingHours: agg.waiting,
-    availabilityPercent: availability(agg.total, agg.stopped, agg.maintenance),
-    utilizationPercent: utilization(agg.total, agg.production),
-    maintenanceImpactPercent: maintenanceImpact(agg.total, agg.maintenance),
-    mtbf: mtbf(agg.production, agg.failureCount),
-    mttr: mttr(agg.maintenance, agg.maintenanceEvents),
-    mttf: mttf(agg.production, agg.maintenanceEvents),
-    topStoppedResource: topResource(ranking, (row) => row.stoppedHours),
-    topMaintenanceResource: topResource(ranking, (row) => row.maintenanceHours),
-    topFailureResource: topResource(ranking, (row) => row.failureCount)
+    totalProductionLines: lines.size,
+    totalHours: agg.totalHours,
+    plannedHours: agg.plannedHours,
+    productionHours: agg.productionHours,
+    maintenanceHours: agg.maintenanceHours,
+    mechanicalMaintenanceHours: agg.mechanicalHours,
+    electricalMaintenanceHours: agg.electricalHours,
+    waitingMaintenanceHours: agg.waitingHours,
+    setupHours: agg.setupHours,
+    lossHours: agg.lossHours,
+    operationalHours: agg.operationalHours,
+    excludedHours: agg.excludedHours,
+    stoppedHours: agg.stoppedHours,
+    maintenanceEvents: agg.maintenanceEvents,
+    mechanicalEvents: agg.mechanicalEvents,
+    electricalEvents: agg.electricalEvents,
+    waitingEvents: agg.waitingEvents,
+    mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
+    maintenancePercentOfPlanned: maintenancePercent(agg.plannedHours, agg.maintenanceHours),
+    availabilityPercent: availability(agg.plannedHours, agg.stoppedHours),
+    topMaintenanceResource: topByMaintenance(ranking)
   };
 }
 
 /* ------------------------------------------------------------------ */
-/* 2. Distribuição por status                                         */
+/* 2. Distribuição por categoria                                      */
 /* ------------------------------------------------------------------ */
 
-export async function getPcFactoryStatusDistribution(params: PcFactoryQueryParams): Promise<PcFactoryStatusSlice[]> {
+export async function getPcFactoryCategoryDistribution(params: PcFactoryQueryParams): Promise<PcFactoryCategorySlice[]> {
   const records = await loadRecords(params);
-  return statusDistributionFromAggregate(aggregateHours(records));
+  return categoryDistributionFromAggregate(aggregateHours(records));
 }
 
-function statusDistributionFromAggregate(agg: HoursAggregate): PcFactoryStatusSlice[] {
-  return PC_FACTORY_STATUS_ORDER.map((status) => {
-    const totalHours = round(agg.byStatus.get(status) ?? 0);
+function categoryDistributionFromAggregate(agg: HoursAggregate): PcFactoryCategorySlice[] {
+  return PC_FACTORY_CATEGORY_ORDER.map((category) => {
+    const totalHours = round(agg.byCategory.get(category) ?? 0);
     return {
-      status,
-      label: PC_FACTORY_STATUS_LABELS[status],
-      color: PC_FACTORY_STATUS_COLORS[status],
+      category,
+      label: PC_FACTORY_CATEGORY_LABELS[category],
+      color: PC_FACTORY_CATEGORY_COLORS[category],
       totalHours,
-      percent: agg.total > 0 ? clampPercent((totalHours / agg.total) * 100) ?? 0 : 0
+      percent: agg.totalHours > 0 ? clampPercent((totalHours / agg.totalHours) * 100) ?? 0 : 0
     };
   }).filter((slice) => slice.totalHours > 0);
 }
 
-/* ------------------------------------------------------------------ */
-/* 3. Ranking por recurso                                             */
-/* ------------------------------------------------------------------ */
-
-export async function getPcFactoryResourceRanking(params: PcFactoryQueryParams): Promise<PcFactoryResourceRow[]> {
-  const records = await loadRecords(params);
-  return buildResourceRanking(records);
+function maintenanceSplitFromAggregate(agg: HoursAggregate): PcFactoryMaintenanceSplit[] {
+  return [
+    { key: "MECANICA" as const, label: "Manutenção Mecânica", hours: agg.mechanicalHours, events: agg.mechanicalEvents, color: "#c49a45" },
+    { key: "ELETRICA" as const, label: "Manutenção Elétrica", hours: agg.electricalHours, events: agg.electricalEvents, color: "#0f4d68" },
+    { key: "AGUARDANDO" as const, label: "Aguardando Manutenção", hours: agg.waitingHours, events: agg.waitingEvents, color: "#a6192e" }
+  ].filter((item) => item.hours > 0);
 }
 
 /* ------------------------------------------------------------------ */
-/* 4. Resumo por linha de produção                                    */
+/* 3-4. Rankings e linhas                                             */
 /* ------------------------------------------------------------------ */
 
-export async function getPcFactoryProductionLineSummary(
-  params: PcFactoryQueryParams
-): Promise<PcFactoryProductionLineRow[]> {
+export async function getPcFactoryResourceRanking(params: PcFactoryQueryParams): Promise<PcFactoryResourceRow[]> {
+  return buildResourceRanking(await loadRecords(params)).sort((a, b) => b.maintenanceHours - a.maintenanceHours);
+}
+
+export async function getPcFactoryProductionLineSummary(params: PcFactoryQueryParams): Promise<PcFactoryProductionLineRow[]> {
   const records = await loadRecords(params);
   const groups = new Map<string, AnalyticsRecord[]>();
-
   for (const record of records) {
     const key = record.productionLine?.trim() || "Sem linha";
     const list = groups.get(key);
-    if (list) {
-      list.push(record);
-    } else {
-      groups.set(key, [record]);
-    }
+    if (list) list.push(record);
+    else groups.set(key, [record]);
   }
 
   const rows: PcFactoryProductionLineRow[] = [];
   for (const [productionLine, list] of Array.from(groups.entries())) {
     const agg = aggregateHours(list);
-    const resources = new Set(list.map((item) => item.resourceName));
-
-    // Status (≠ produção) com maior impacto de horas.
-    let mainImpact: PcFactoryProductionLineRow["mainImpactStatus"] = null;
-    let bestHours = 0;
-    for (const [status, hours] of Array.from(agg.byStatus.entries())) {
-      if (status === PcFactoryStatus.PRODUCAO) continue;
-      if (hours > bestHours) {
-        bestHours = hours;
-        mainImpact = { status, label: PC_FACTORY_STATUS_LABELS[status], hours: round(hours) };
-      }
-    }
-
     rows.push({
       productionLine,
-      resourcesCount: resources.size,
-      productionHours: agg.production,
-      stoppedHours: agg.stopped,
-      maintenanceHours: agg.maintenance,
-      totalHours: agg.total,
-      availabilityPercent: availability(agg.total, agg.stopped, agg.maintenance),
-      utilizationPercent: utilization(agg.total, agg.production),
-      mainImpactStatus: mainImpact
+      resourcesCount: new Set(list.map((item) => item.resourceName)).size,
+      plannedHours: agg.plannedHours,
+      productionHours: agg.productionHours,
+      maintenanceHours: agg.maintenanceHours,
+      lossHours: agg.lossHours,
+      stoppedHours: agg.stoppedHours,
+      availabilityPercent: availability(agg.plannedHours, agg.stoppedHours)
     });
   }
-
-  return rows.sort((a, b) => b.totalHours - a.totalHours);
+  return rows.sort((a, b) => b.maintenanceHours - a.maintenanceHours);
 }
 
 /* ------------------------------------------------------------------ */
-/* 5. Evolução por período (tendência mensal)                         */
+/* 5. Tendência (dia se curto, mês se longo)                          */
 /* ------------------------------------------------------------------ */
 
 export async function getPcFactoryTrend(params: PcFactoryQueryParams): Promise<PcFactoryTrendPoint[]> {
-  const records = await loadRecords(params);
-  const buckets = new Map<string, AnalyticsRecord[]>();
+  const records = (await loadRecords(params)).filter((r) => r.startDateTime);
+  if (records.length === 0) return [];
 
-  for (const record of records) {
-    if (!record.startDateTime) continue;
-    const date = record.startDateTime;
-    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  let min = records[0].startDateTime as Date;
+  let max = records[0].startDateTime as Date;
+  for (const r of records) {
+    const d = r.startDateTime as Date;
+    if (d < min) min = d;
+    if (d > max) max = d;
+  }
+  const spanDays = (max.getTime() - min.getTime()) / 86_400_000;
+  const daily = spanDays <= 62;
+
+  const buckets = new Map<string, AnalyticsRecord[]>();
+  for (const r of records) {
+    const d = r.startDateTime as Date;
+    const key = daily
+      ? `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
+      : `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
     const list = buckets.get(key);
-    if (list) {
-      list.push(record);
-    } else {
-      buckets.set(key, [record]);
-    }
+    if (list) list.push(r);
+    else buckets.set(key, [r]);
   }
 
   return Array.from(buckets.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([period, list]) => {
       const agg = aggregateHours(list);
-      const [year, month] = period.split("-").map(Number);
-      const label = new Date(Date.UTC(year, month - 1, 1))
-        .toLocaleDateString("pt-BR", { month: "short", year: "2-digit", timeZone: "UTC" })
-        .replace(".", "");
+      const label = daily ? period.slice(8) + "/" + period.slice(5, 7) : monthLabel(period);
       return {
         period,
         label,
-        availabilityPercent: availability(agg.total, agg.stopped, agg.maintenance),
-        utilizationPercent: utilization(agg.total, agg.production),
-        productionHours: agg.production,
-        stoppedHours: agg.stopped,
-        maintenanceHours: agg.maintenance
+        maintenanceHours: agg.maintenanceHours,
+        plannedHours: agg.plannedHours,
+        availabilityPercent: availability(agg.plannedHours, agg.stoppedHours)
       };
     });
 }
 
 /* ------------------------------------------------------------------ */
-/* 6. Registros paginados (tabela detalhada)                          */
+/* 6. Registros paginados                                             */
 /* ------------------------------------------------------------------ */
 
 export async function getPcFactoryRecords(params: PcFactoryQueryParams): Promise<PcFactoryRecordsResult> {
@@ -454,8 +475,8 @@ const recordSelect = {
   resourceCode: true,
   productionLine: true,
   sector: true,
-  statusNormalized: true,
   statusRaw: true,
+  statusCategory: true,
   startDateTime: true,
   endDateTime: true,
   durationHours: true,
@@ -474,8 +495,11 @@ function toRecordRow(record: RecordPayload): PcFactoryRecordRow {
     resourceCode: record.resourceCode,
     productionLine: record.productionLine,
     sector: record.sector,
-    status: record.statusNormalized,
     statusRaw: record.statusRaw,
+    statusCategory: record.statusCategory,
+    classificationLabel: PC_FACTORY_CATEGORY_LABELS[record.statusCategory],
+    isMaintenance: record.statusCategory === PcFactoryStatusCategory.MANUTENCAO,
+    isInPlannedTime: record.statusCategory !== PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO,
     startDateTime: record.startDateTime ? record.startDateTime.toISOString() : null,
     endDateTime: record.endDateTime ? record.endDateTime.toISOString() : null,
     durationHours: round(record.durationHours),
@@ -499,9 +523,7 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
   const term = resourceCodeOrName.trim();
   if (!term) return null;
 
-  const where: Prisma.PcFactoryRecordWhereInput = {
-    OR: [{ resourceName: term }, { resourceCode: term }]
-  };
+  const where: Prisma.PcFactoryRecordWhereInput = { OR: [{ resourceName: term }, { resourceCode: term }] };
 
   const [analytics, recent, maintenance] = await Promise.all([
     prisma.pcFactoryRecord.findMany({
@@ -511,7 +533,8 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
         resourceCode: true,
         productionLine: true,
         sector: true,
-        statusNormalized: true,
+        statusRaw: true,
+        statusCategory: true,
         durationHours: true,
         startDateTime: true
       }
@@ -523,67 +546,58 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
       select: recordSelect
     }),
     prisma.pcFactoryRecord.findMany({
-      where: { ...where, statusNormalized: PcFactoryStatus.MANUTENCAO },
+      where: { ...where, statusCategory: PcFactoryStatusCategory.MANUTENCAO },
       orderBy: [{ startDateTime: "desc" }, { createdAt: "desc" }],
       take: 25,
       select: recordSelect
     })
   ]);
 
-  if (analytics.length === 0) {
-    return null;
-  }
+  if (analytics.length === 0) return null;
 
   const agg = aggregateHours(analytics);
   const sample = analytics.find((item) => item.resourceCode) ?? analytics[0];
-  const productionLine = analytics.find((item) => item.productionLine)?.productionLine ?? null;
-  const sector = analytics.find((item) => item.sector)?.sector ?? null;
-
-  const availabilityPercent = availability(agg.total, agg.stopped, agg.maintenance);
-  const utilizationPercent = utilization(agg.total, agg.production);
+  const availabilityPercent = availability(agg.plannedHours, agg.stoppedHours);
 
   return {
     resourceName: sample.resourceName,
     resourceCode: sample.resourceCode ?? null,
-    productionLine,
-    sector,
-    totalHours: agg.total,
-    productionHours: agg.production,
-    stoppedHours: agg.stopped,
-    maintenanceHours: agg.maintenance,
+    productionLine: analytics.find((i) => i.productionLine)?.productionLine ?? null,
+    sector: analytics.find((i) => i.sector)?.sector ?? null,
+    plannedHours: agg.plannedHours,
+    maintenanceHours: agg.maintenanceHours,
+    mechanicalHours: agg.mechanicalHours,
+    electricalHours: agg.electricalHours,
+    waitingHours: agg.waitingHours,
+    stoppedHours: agg.stoppedHours,
+    maintenanceEvents: agg.maintenanceEvents,
+    mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
     availabilityPercent,
-    utilizationPercent,
-    mtbf: mtbf(agg.production, agg.failureCount),
-    mttr: mttr(agg.maintenance, agg.maintenanceEvents),
-    mttf: mttf(agg.production, agg.maintenanceEvents),
-    statusDistribution: statusDistributionFromAggregate(agg),
+    categoryDistribution: categoryDistributionFromAggregate(agg),
+    maintenanceTimeline: maintenance.map(toRecordRow),
     recentRecords: recent.map(toRecordRow),
-    maintenanceEvents: maintenance.map(toRecordRow),
     recommendations: buildRecommendations(agg, availabilityPercent)
   };
 }
 
 function buildRecommendations(agg: HoursAggregate, availabilityPercent: number | null): PcFactoryRecommendation[] {
-  const recommendations: PcFactoryRecommendation[] = [];
-  const stoppedShare = agg.total > 0 ? (agg.stopped / agg.total) * 100 : 0;
-  const maintenanceShare = agg.total > 0 ? (agg.maintenance / agg.total) * 100 : 0;
-
-  if (stoppedShare >= 25) {
-    recommendations.push({ tone: "danger", message: "Máquina com alto tempo parado." });
+  const recs: PcFactoryRecommendation[] = [];
+  if (agg.maintenanceHours > 0 && agg.mechanicalHours >= agg.maintenanceHours * 0.5) {
+    recs.push({ tone: "danger", message: "Máquina com alto impacto de manutenção mecânica." });
+  }
+  if (agg.waitingHours > 0 && agg.waitingHours >= agg.maintenanceHours * 0.3) {
+    recs.push({ tone: "warning", message: "Máquina aguardando manutenção por tempo elevado." });
   }
   if (availabilityPercent !== null && availabilityPercent < 70) {
-    recommendations.push({ tone: "warning", message: "Recurso com baixa disponibilidade." });
+    recs.push({ tone: "warning", message: "Máquina com baixa disponibilidade estimada." });
   }
-  if (maintenanceShare >= 15) {
-    recommendations.push({ tone: "warning", message: "Recurso com alto impacto de manutenção." });
+  if (agg.maintenanceEvents >= 5) {
+    recs.push({ tone: "info", message: "Priorizar análise de causa raiz para recorrência de manutenção." });
   }
-  if (agg.failureCount >= 5) {
-    recommendations.push({ tone: "info", message: "Monitorar recorrência de paradas." });
+  if (recs.length === 0) {
+    recs.push({ tone: "info", message: "Operação dentro dos parâmetros no período analisado." });
   }
-  if (recommendations.length === 0) {
-    recommendations.push({ tone: "info", message: "Operação dentro dos parâmetros no período analisado." });
-  }
-  return recommendations;
+  return recs;
 }
 
 /* ------------------------------------------------------------------ */
@@ -591,28 +605,27 @@ function buildRecommendations(agg: HoursAggregate, availabilityPercent: number |
 /* ------------------------------------------------------------------ */
 
 export async function getPcFactoryFilterOptions(): Promise<PcFactoryFilterOptions> {
-  const [resources, lines, sectors, shifts] = await Promise.all([
+  const [resources, lines, sectors, shifts, statusNames] = await Promise.all([
     prisma.pcFactoryRecord.findMany({ select: { resourceName: true }, distinct: ["resourceName"], orderBy: { resourceName: "asc" } }),
     prisma.pcFactoryRecord.findMany({ select: { productionLine: true }, distinct: ["productionLine"], orderBy: { productionLine: "asc" } }),
     prisma.pcFactoryRecord.findMany({ select: { sector: true }, distinct: ["sector"], orderBy: { sector: "asc" } }),
-    prisma.pcFactoryRecord.findMany({ select: { shift: true }, distinct: ["shift"], orderBy: { shift: "asc" } })
+    prisma.pcFactoryRecord.findMany({ select: { shift: true }, distinct: ["shift"], orderBy: { shift: "asc" } }),
+    prisma.pcFactoryRecord.findMany({ select: { statusRaw: true }, distinct: ["statusRaw"], orderBy: { statusRaw: "asc" } })
   ]);
 
+  const clean = (rows: Array<{ [k: string]: string | null }>, key: string) =>
+    rows
+      .map((row) => row[key])
+      .filter((value): value is string => Boolean(value && value.trim()))
+      .map((value) => ({ value, label: value }));
+
   return {
-    resources: resources.map((item) => ({ value: item.resourceName, label: item.resourceName })),
-    productionLines: lines
-      .map((item) => item.productionLine)
-      .filter((value): value is string => Boolean(value))
-      .map((value) => ({ value, label: value })),
-    sectors: sectors
-      .map((item) => item.sector)
-      .filter((value): value is string => Boolean(value))
-      .map((value) => ({ value, label: value })),
-    shifts: shifts
-      .map((item) => item.shift)
-      .filter((value): value is string => Boolean(value))
-      .map((value) => ({ value, label: value })),
-    statuses: PC_FACTORY_STATUS_ORDER.map((status) => ({ value: status, label: PC_FACTORY_STATUS_LABELS[status] }))
+    resources: resources.map((r) => ({ value: r.resourceName, label: r.resourceName })),
+    productionLines: clean(lines, "productionLine"),
+    sectors: clean(sectors, "sector"),
+    shifts: clean(shifts, "shift"),
+    statusNames: clean(statusNames, "statusRaw"),
+    categories: PC_FACTORY_CATEGORY_ORDER.map((category) => ({ value: category, label: PC_FACTORY_CATEGORY_LABELS[category] }))
   };
 }
 
@@ -623,38 +636,37 @@ export async function getPcFactoryFilterOptions(): Promise<PcFactoryFilterOption
 export async function getPcFactoryPageData(params: PcFactoryQueryParams = {}): Promise<PcFactoryPageData> {
   const reference = resolveReference(params);
   const totalRecords = await prisma.pcFactoryRecord.count();
+  if (totalRecords === 0) return emptyPageData(reference);
 
-  if (totalRecords === 0) {
-    return emptyPageData(reference);
-  }
+  const records = await loadRecords(params);
+  const agg = aggregateHours(records);
+  const ranking = buildResourceRanking(records);
 
-  const [kpis, statusDistribution, ranking, productionLines, trend, records, filterOptions] = await Promise.all([
+  const [kpis, productionLines, trend, records_, filterOptions] = await Promise.all([
     getPcFactoryDashboardKPIs(params),
-    getPcFactoryStatusDistribution(params),
-    getPcFactoryResourceRanking(params),
     getPcFactoryProductionLineSummary(params),
     getPcFactoryTrend(params),
     getPcFactoryRecords(params),
     getPcFactoryFilterOptions()
   ]);
 
-  // Caso os filtros zerem o resultado, ainda renderizamos a estrutura (não "empty").
-  const topStopped = [...ranking].filter((row) => row.stoppedHours > 0).sort((a, b) => b.stoppedHours - a.stoppedHours).slice(0, 10);
-  const topMaintenance = [...ranking]
-    .filter((row) => row.maintenanceHours > 0)
-    .sort((a, b) => b.maintenanceHours - a.maintenanceHours)
-    .slice(0, 10);
+  const criticalResources = [...ranking].filter((r) => r.maintenanceHours > 0).sort((a, b) => b.maintenanceHours - a.maintenanceHours).slice(0, 10);
+  const topMechanical = [...ranking].filter((r) => r.mechanicalHours > 0).sort((a, b) => b.mechanicalHours - a.mechanicalHours).slice(0, 10);
+  const topElectrical = [...ranking].filter((r) => r.electricalHours > 0).sort((a, b) => b.electricalHours - a.electricalHours).slice(0, 10);
+  const topWaiting = [...ranking].filter((r) => r.waitingHours > 0).sort((a, b) => b.waitingHours - a.waitingHours).slice(0, 10);
 
   return {
     reference,
     kpis,
-    statusDistribution,
-    topStopped,
-    topMaintenance,
-    resourceRanking: ranking.slice(0, 20),
+    categoryDistribution: categoryDistributionFromAggregate(agg),
+    maintenanceSplit: maintenanceSplitFromAggregate(agg),
+    criticalResources,
+    topMechanical,
+    topElectrical,
+    topWaiting,
     productionLines,
     trend,
-    records,
+    records: records_,
     filterOptions,
     source: "database"
   };
@@ -662,11 +674,7 @@ export async function getPcFactoryPageData(params: PcFactoryQueryParams = {}): P
 
 function resolveReference(params: PcFactoryQueryParams): PcFactoryReferencePeriod {
   if (params.startDate && params.endDate) {
-    return {
-      startDate: params.startDate,
-      endDate: params.endDate,
-      label: `${formatBr(params.startDate)} a ${formatBr(params.endDate)}`
-    };
+    return { startDate: params.startDate, endDate: params.endDate, label: `${formatBr(params.startDate)} a ${formatBr(params.endDate)}` };
   }
   return { startDate: "", endDate: "", label: "Todo o período importado" };
 }
@@ -675,28 +683,26 @@ function resolveReference(params: PcFactoryQueryParams): PcFactoryReferencePerio
 export async function getPcFactoryDashboardSummary(): Promise<PcFactoryDashboardSummary> {
   const totalRecords = await prisma.pcFactoryRecord.count();
   if (totalRecords === 0) {
-    return {
-      hasData: false,
-      availabilityPercent: null,
-      utilizationPercent: null,
-      maintenanceImpactPercent: null,
-      topStoppedResources: [],
-      topMaintenanceResources: []
-    };
+    return { hasData: false, maintenanceHours: 0, availabilityPercent: null, mttr: null, topMaintenanceResources: [], waitingMaintenanceResources: [] };
   }
-
-  const kpis = await getPcFactoryDashboardKPIs({});
+  const records = await loadRecords({});
+  const agg = aggregateHours(records);
+  const ranking = buildResourceRanking(records);
   return {
     hasData: true,
-    availabilityPercent: kpis.availabilityPercent,
-    utilizationPercent: kpis.utilizationPercent,
-    maintenanceImpactPercent: kpis.maintenanceImpactPercent,
-    topStoppedResources: kpis.topStoppedResource
-      ? [{ resourceName: kpis.topStoppedResource.resourceName, hours: kpis.topStoppedResource.hours }]
-      : [],
-    topMaintenanceResources: kpis.topMaintenanceResource
-      ? [{ resourceName: kpis.topMaintenanceResource.resourceName, hours: kpis.topMaintenanceResource.hours }]
-      : []
+    maintenanceHours: agg.maintenanceHours,
+    availabilityPercent: availability(agg.plannedHours, agg.stoppedHours),
+    mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
+    topMaintenanceResources: [...ranking]
+      .filter((r) => r.maintenanceHours > 0)
+      .sort((a, b) => b.maintenanceHours - a.maintenanceHours)
+      .slice(0, 5)
+      .map((r) => ({ resourceName: r.resourceName, hours: r.maintenanceHours })),
+    waitingMaintenanceResources: [...ranking]
+      .filter((r) => r.waitingHours > 0)
+      .sort((a, b) => b.waitingHours - a.waitingHours)
+      .slice(0, 5)
+      .map((r) => ({ resourceName: r.resourceName, hours: r.waitingHours }))
   };
 }
 
@@ -707,26 +713,33 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
       totalRecords: 0,
       totalResources: 0,
       totalProductionLines: 0,
-      totalAnalyzedHours: 0,
+      totalHours: 0,
+      plannedHours: 0,
       productionHours: 0,
-      stoppedHours: 0,
       maintenanceHours: 0,
+      mechanicalMaintenanceHours: 0,
+      electricalMaintenanceHours: 0,
+      waitingMaintenanceHours: 0,
       setupHours: 0,
-      waitingHours: 0,
-      availabilityPercent: null,
-      utilizationPercent: null,
-      maintenanceImpactPercent: null,
-      mtbf: null,
+      lossHours: 0,
+      operationalHours: 0,
+      excludedHours: 0,
+      stoppedHours: 0,
+      maintenanceEvents: 0,
+      mechanicalEvents: 0,
+      electricalEvents: 0,
+      waitingEvents: 0,
       mttr: null,
-      mttf: null,
-      topStoppedResource: null,
-      topMaintenanceResource: null,
-      topFailureResource: null
+      maintenancePercentOfPlanned: null,
+      availabilityPercent: null,
+      topMaintenanceResource: null
     },
-    statusDistribution: [],
-    topStopped: [],
-    topMaintenance: [],
-    resourceRanking: [],
+    categoryDistribution: [],
+    maintenanceSplit: [],
+    criticalResources: [],
+    topMechanical: [],
+    topElectrical: [],
+    topWaiting: [],
     productionLines: [],
     trend: [],
     records: { data: [], total: 0, page: 1, pageSize: DEFAULT_PAGE_SIZE, totalPages: 1 },
@@ -735,7 +748,8 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
       productionLines: [],
       sectors: [],
       shifts: [],
-      statuses: PC_FACTORY_STATUS_ORDER.map((status) => ({ value: status, label: PC_FACTORY_STATUS_LABELS[status] }))
+      statusNames: [],
+      categories: PC_FACTORY_CATEGORY_ORDER.map((category) => ({ value: category, label: PC_FACTORY_CATEGORY_LABELS[category] }))
     },
     source: "empty"
   };
@@ -749,15 +763,24 @@ function round(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-/** Arredonda garantindo número finito (nunca NaN/Infinity). */
 function safeRound(value: number): number | null {
   return Number.isFinite(value) ? round(value) : null;
 }
 
-/** Mantém o percentual finito e dentro de [0, 100]. */
 function clampPercent(value: number): number | null {
   if (!Number.isFinite(value)) return null;
   return round(Math.min(100, Math.max(0, value)));
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function monthLabel(period: string): string {
+  const [year, month] = period.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, 1))
+    .toLocaleDateString("pt-BR", { month: "short", year: "2-digit", timeZone: "UTC" })
+    .replace(".", "");
 }
 
 function formatBr(iso: string): string {

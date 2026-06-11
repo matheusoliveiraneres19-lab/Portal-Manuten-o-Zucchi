@@ -1,18 +1,7 @@
 "use client";
 
 import { m } from "framer-motion";
-import {
-  Activity,
-  AlarmClock,
-  CircleGauge,
-  Factory,
-  Hammer,
-  OctagonPause,
-  Timer,
-  TimerReset,
-  TrendingUp,
-  Wrench
-} from "lucide-react";
+import { AlarmClock, CalendarClock, CircleGauge, Cog, Crown, Hammer, Percent, Timer, Wrench, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { PcFactoryKpis } from "@/types/pc-factory";
 
@@ -30,76 +19,78 @@ const toneClass: Record<Tone, string> = {
 };
 
 export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
+  const top = kpis.topMaintenanceResource;
+
   const cards: Array<{ title: string; value: string; description: string; icon: LucideIcon; tone: Tone }> = [
     {
-      title: "Máquinas analisadas",
-      value: int(kpis.totalResources),
-      description: `${int(kpis.totalRecords)} registros operacionais`,
-      icon: Factory,
+      title: "Tempo planejado",
+      value: hours(kpis.plannedHours),
+      description: `Total ${hours(kpis.totalHours)} − fora do planejado ${hours(kpis.excludedHours)}`,
+      icon: CalendarClock,
       tone: "blue"
     },
     {
-      title: "Linhas de produção",
-      value: int(kpis.totalProductionLines),
-      description: "Linhas com registros no período",
-      icon: Activity,
-      tone: "blue"
-    },
-    {
-      title: "Disponibilidade geral",
-      value: percent(kpis.availabilityPercent),
-      description: "Percentual de tempo disponível no período.",
-      icon: CircleGauge,
-      tone: "green"
-    },
-    {
-      title: "Utilização produtiva",
-      value: percent(kpis.utilizationPercent),
-      description: "Tempo em produção sobre o total analisado.",
-      icon: TrendingUp,
-      tone: "green"
-    },
-    {
-      title: "Horas em produção",
-      value: hours(kpis.productionHours),
-      description: `${hours(kpis.totalAnalyzedHours)} analisadas no total`,
-      icon: Timer,
-      tone: "green"
-    },
-    {
-      title: "Horas paradas",
-      value: hours(kpis.stoppedHours),
-      description: "Parada, aguardando, sem operador, falta de material e inativo.",
-      icon: OctagonPause,
-      tone: "red"
-    },
-    {
-      title: "Horas em manutenção",
+      title: "Horas de manutenção",
       value: hours(kpis.maintenanceHours),
-      description: `Impacto de ${percent(kpis.maintenanceImpactPercent)} no período.`,
+      description: "Mecânica + Elétrica + Aguardando Manutenção.",
       icon: Wrench,
       tone: "gold"
     },
     {
-      title: "MTBF",
-      value: hoursMetric(kpis.mtbf),
-      description: "Tempo médio entre falhas/paradas.",
-      icon: TimerReset,
+      title: "Eventos de manutenção",
+      value: int(kpis.maintenanceEvents),
+      description: "Registros dos 3 status de manutenção.",
+      icon: Hammer,
       tone: "blue"
     },
     {
-      title: "MTTR",
-      value: hoursMetric(kpis.mttr),
-      description: "Tempo médio para recuperação/manutenção.",
+      title: "MTTR gerencial",
+      value: metric(kpis.mttr),
+      description: "Horas de manutenção / eventos.",
       icon: AlarmClock,
       tone: "gold"
     },
     {
-      title: "MTTF",
-      value: hoursMetric(kpis.mttf),
-      description: "Tempo médio até falha.",
-      icon: Hammer,
+      title: "% manutenção no planejado",
+      value: percent(kpis.maintenancePercentOfPlanned),
+      description: "Horas de manutenção sobre o tempo planejado.",
+      icon: Percent,
       tone: "red"
+    },
+    {
+      title: "Disponibilidade estimada",
+      value: percent(kpis.availabilityPercent),
+      description: "(Planejado − paradas) / planejado.",
+      icon: CircleGauge,
+      tone: "green"
+    },
+    {
+      title: "Manutenção Mecânica",
+      value: hours(kpis.mechanicalMaintenanceHours),
+      description: `${int(kpis.mechanicalEvents)} eventos no período.`,
+      icon: Cog,
+      tone: "gold"
+    },
+    {
+      title: "Manutenção Elétrica",
+      value: hours(kpis.electricalMaintenanceHours),
+      description: `${int(kpis.electricalEvents)} eventos no período.`,
+      icon: Zap,
+      tone: "blue"
+    },
+    {
+      title: "Aguardando manutenção",
+      value: hours(kpis.waitingMaintenanceHours),
+      description: `${int(kpis.waitingEvents)} eventos no período.`,
+      icon: Timer,
+      tone: "red"
+    },
+    {
+      title: "Máquina mais crítica",
+      value: top ? top.resourceName : "—",
+      description: top ? `${hours(top.hours)} de manutenção` : "Sem manutenção no período",
+      icon: Crown,
+      tone: "gold"
     }
   ];
 
@@ -115,9 +106,7 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
             transition={{ duration: 0.3, delay: index * 0.04, ease: "easeOut" }}
             className="panel flex min-h-[112px] items-center gap-4 rounded-lg p-4 transition hover:-translate-y-0.5 hover:shadow-premium"
           >
-            <div
-              className={`grid h-14 w-14 shrink-0 place-items-center rounded-full shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] ${toneClass[card.tone]}`}
-            >
+            <div className={`grid h-14 w-14 shrink-0 place-items-center rounded-full shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] ${toneClass[card.tone]}`}>
               <Icon className="h-7 w-7" strokeWidth={1.8} />
             </div>
             <div className="min-w-0">
@@ -144,8 +133,7 @@ function hours(value: number): string {
   return `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h`;
 }
 
-/** Métricas que podem ser nulas (MTBF/MTTR/MTTF) — exibem "Dados insuficientes". */
-function hoursMetric(value: number | null): string {
+function metric(value: number | null): string {
   return value === null ? "Dados insuficientes" : `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h`;
 }
 

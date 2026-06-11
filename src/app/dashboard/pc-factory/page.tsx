@@ -1,4 +1,4 @@
-import { PcFactoryStatus } from "@prisma/client";
+import { PcFactoryStatusCategory } from "@prisma/client";
 import { PcFactoryPage, type AppliedPcFactoryFilters } from "@/components/pc-factory/PcFactoryPage";
 import { getPcFactoryPageData } from "@/services/pc-factory.service";
 
@@ -15,9 +15,15 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
   const endDate = firstParam(searchParams.endDate);
   const productionLines = listParam(searchParams.line);
   const resources = listParam(searchParams.resource);
-  const statuses = parseStatuses(listParam(searchParams.status));
   const sectors = listParam(searchParams.sector);
   const shifts = listParam(searchParams.shift);
+  const statusNames = listParam(searchParams.statusName);
+  const categories = parseCategories(listParam(searchParams.category));
+  const onlyMaintenance = isTrue(searchParams.onlyMaintenance);
+  const onlyMechanical = isTrue(searchParams.onlyMechanical);
+  const onlyElectrical = isTrue(searchParams.onlyElectrical);
+  const onlyWaiting = isTrue(searchParams.onlyWaiting);
+  const excludeOutOfPlanned = isTrue(searchParams.excludeOutOfPlanned);
   const search = firstParam(searchParams.q);
 
   const data = await getPcFactoryPageData({
@@ -25,9 +31,15 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
     endDate,
     productionLines,
     resources,
-    statuses,
     sectors,
     shifts,
+    statusNames,
+    categories,
+    onlyMaintenance,
+    onlyMechanical,
+    onlyElectrical,
+    onlyWaiting,
+    excludeOutOfPlanned,
     search
   });
 
@@ -36,9 +48,15 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
     endDate: endDate ?? "",
     productionLines,
     resources,
-    statuses,
     sectors,
     shifts,
+    statusNames,
+    categories,
+    onlyMaintenance,
+    onlyMechanical,
+    onlyElectrical,
+    onlyWaiting,
+    excludeOutOfPlanned,
     search: search ?? ""
   };
 
@@ -51,12 +69,14 @@ function firstParam(value: string | string[] | undefined): string | undefined {
 }
 
 function listParam(value: string | string[] | undefined): string[] {
-  if (Array.isArray(value)) {
-    return value.map((item) => item.trim()).filter(Boolean);
-  }
+  if (Array.isArray(value)) return value.map((item) => item.trim()).filter(Boolean);
   return value && value.trim() ? [value.trim()] : [];
 }
 
-function parseStatuses(values: string[]): PcFactoryStatus[] {
-  return values.filter((value) => value in PcFactoryStatus) as PcFactoryStatus[];
+function parseCategories(values: string[]): PcFactoryStatusCategory[] {
+  return values.filter((value) => value in PcFactoryStatusCategory) as PcFactoryStatusCategory[];
+}
+
+function isTrue(value: string | string[] | undefined): boolean {
+  return firstParam(value) === "1";
 }

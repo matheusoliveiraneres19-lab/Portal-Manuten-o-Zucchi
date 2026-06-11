@@ -15,6 +15,14 @@ type PcFactoryFiltersProps = {
   onClear: () => void;
 };
 
+const TOGGLES: Array<{ key: keyof AppliedPcFactoryFilters; label: string }> = [
+  { key: "onlyMaintenance", label: "Somente manutenção" },
+  { key: "onlyMechanical", label: "Só mecânica" },
+  { key: "onlyElectrical", label: "Só elétrica" },
+  { key: "onlyWaiting", label: "Só aguardando" },
+  { key: "excludeOutOfPlanned", label: "Excluir fora de turno / não programado" }
+];
+
 export function PcFactoryFilters({ draft, options, isPending, onChange, onApply, onClear }: PcFactoryFiltersProps) {
   return (
     <div className="rounded-lg border border-gold/20 bg-[#080909] p-4 shadow-premium sm:p-5">
@@ -31,8 +39,8 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
           onChange={(values) => onChange("productionLines", values)}
           placeholder="Todas as linhas"
           searchPlaceholder="Buscar linha..."
+          disabled={options.productionLines.length === 0}
         />
-
         <MultiSelectFilter
           label="Máquina / recurso"
           options={options.resources}
@@ -40,17 +48,25 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
           onChange={(values) => onChange("resources", values)}
           placeholder="Todas as máquinas"
           searchPlaceholder="Buscar máquina..."
+          disabled={options.resources.length === 0}
         />
-
         <MultiSelectFilter
-          label="Status operacional"
-          options={options.statuses.map((status) => ({ value: status.value, label: status.label }))}
-          selectedValues={draft.statuses}
-          onChange={(values) => onChange("statuses", values)}
+          label="Nome Status Recurso"
+          options={options.statusNames}
+          selectedValues={draft.statusNames}
+          onChange={(values) => onChange("statusNames", values)}
           placeholder="Todos os status"
           searchPlaceholder="Buscar status..."
+          disabled={options.statusNames.length === 0}
         />
-
+        <MultiSelectFilter
+          label="Classificação"
+          options={options.categories.map((c) => ({ value: c.value, label: c.label }))}
+          selectedValues={draft.categories}
+          onChange={(values) => onChange("categories", values)}
+          placeholder="Todas as classificações"
+          searchPlaceholder="Buscar classificação..."
+        />
         <MultiSelectFilter
           label="Setor"
           options={options.sectors}
@@ -60,7 +76,6 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
           searchPlaceholder="Buscar setor..."
           disabled={options.sectors.length === 0}
         />
-
         <MultiSelectFilter
           label="Turno"
           options={options.shifts}
@@ -70,7 +85,6 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
           searchPlaceholder="Buscar turno..."
           disabled={options.shifts.length === 0}
         />
-
         <DateRangeFilter
           label="Período (início do evento)"
           startDate={draft.startDate}
@@ -80,23 +94,44 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
             onChange("endDate", endDate);
           }}
         />
-
-        <label className="block xl:col-span-3">
+        <label className="block xl:col-span-2">
           <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-            Busca livre (máquina, linha, ordem, produto)
+            Busca livre (máquina, linha, status, ordem, produto)
           </span>
           <input
             value={draft.search}
             onChange={(event) => onChange("search", event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                onApply();
-              }
+              if (event.key === "Enter") onApply();
             }}
-            placeholder="Ex.: Linha 02, Prensa, OP 12345..."
+            placeholder="Ex.: Linha 02, Prensa, Manutenção Mecânica..."
             className="h-10 w-full rounded-lg border border-gold/15 bg-black/35 px-3 text-sm text-zinc-100 outline-none transition [color-scheme:dark] focus:border-gold/55 focus:bg-black/50"
           />
         </label>
+      </div>
+
+      {/* Toggles de manutenção */}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {TOGGLES.map((toggle) => {
+          const active = Boolean(draft[toggle.key]);
+          return (
+            <button
+              key={toggle.key}
+              type="button"
+              onClick={() => onChange(toggle.key, (!active) as never)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition ${
+                active
+                  ? "border-gold/55 bg-gold/15 text-gold"
+                  : "border-gold/20 text-zinc-400 hover:border-gold/40 hover:text-zinc-200"
+              }`}
+            >
+              <span className={`grid h-3.5 w-3.5 place-items-center rounded border ${active ? "border-gold bg-gold/25" : "border-zinc-600"}`}>
+                {active ? <Check className="h-2.5 w-2.5 text-gold" /> : null}
+              </span>
+              {toggle.label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="mt-5 flex flex-col gap-2 border-t border-gold/10 pt-4 sm:flex-row sm:items-center sm:justify-end">

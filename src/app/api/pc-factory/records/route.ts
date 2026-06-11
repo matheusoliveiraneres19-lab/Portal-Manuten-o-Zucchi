@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { PcFactoryStatus } from "@prisma/client";
+import { PcFactoryStatusCategory } from "@prisma/client";
 import { getPcFactoryRecords } from "@/services/pc-factory.service";
 import type { PcFactoryQueryParams } from "@/types/pc-factory";
 
@@ -16,7 +16,13 @@ export async function GET(request: NextRequest) {
       productionLines: list(sp.getAll("line")),
       sectors: list(sp.getAll("sector")),
       shifts: list(sp.getAll("shift")),
-      statuses: parseStatuses(sp.getAll("status")),
+      statusNames: list(sp.getAll("statusName")),
+      categories: parseCategories(sp.getAll("category")),
+      onlyMaintenance: sp.get("onlyMaintenance") === "1",
+      onlyMechanical: sp.get("onlyMechanical") === "1",
+      onlyElectrical: sp.get("onlyElectrical") === "1",
+      onlyWaiting: sp.get("onlyWaiting") === "1",
+      excludeOutOfPlanned: sp.get("excludeOutOfPlanned") === "1",
       search: optional(sp.get("search")),
       page: parseNumber(sp.get("page")),
       pageSize: parseNumber(sp.get("pageSize"))
@@ -39,8 +45,8 @@ function list(values: string[]): string[] | undefined {
   return cleaned.length ? cleaned : undefined;
 }
 
-function parseStatuses(values: string[]): PcFactoryStatus[] | undefined {
-  const cleaned = values.filter((value) => value in PcFactoryStatus) as PcFactoryStatus[];
+function parseCategories(values: string[]): PcFactoryStatusCategory[] | undefined {
+  const cleaned = values.filter((value) => value in PcFactoryStatusCategory) as PcFactoryStatusCategory[];
   return cleaned.length ? cleaned : undefined;
 }
 
