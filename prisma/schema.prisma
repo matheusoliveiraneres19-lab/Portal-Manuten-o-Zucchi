@@ -155,6 +155,7 @@ enum ImportType {
   HORAS_APONTADAS
   EQUIPAMENTOS
   PROCEDIMENTOS
+  PC_FACTORY
 }
 
 enum ImportStatus {
@@ -169,6 +170,28 @@ enum DataSource {
   SAP
   EXCEL
   SISTEMA
+}
+
+/// Status operacional normalizado de uma máquina/recurso no PC-Factory.
+enum PcFactoryStatus {
+  PRODUCAO
+  PARADA
+  MANUTENCAO
+  SETUP
+  AGUARDANDO
+  SEM_OPERADOR
+  FALTA_MATERIAL
+  LIMPEZA
+  QUALIDADE
+  INATIVO
+  OUTROS
+}
+
+/// Origem do registro de PC-Factory importado.
+enum PcFactorySource {
+  EXCEL
+  PC_FACTORY
+  MANUAL
 }
 
 model User {
@@ -544,6 +567,50 @@ model Procedure {
   @@index([category])
   @@index([active])
   @@index([title])
+}
+
+/// Registro operacional importado do PC-Factory (status/tempo de máquinas e linhas).
+/// Fonte ÚNICA da página /dashboard/pc-factory e dos indicadores de produção.
+model PcFactoryRecord {
+  id                 String          @id @default(cuid())
+  /// Código do recurso/máquina no PC-Factory.
+  resourceCode       String?
+  /// Nome do recurso/máquina (obrigatório — identidade do registro).
+  resourceName       String
+  /// Linha de produção e setor onde o recurso opera.
+  productionLine     String?
+  sector             String?
+  /// Status original da planilha e status normalizado para análise.
+  statusRaw          String?
+  statusNormalized   PcFactoryStatus
+  /// Janela do evento.
+  startDateTime      DateTime?
+  endDateTime        DateTime?
+  /// Duração do evento (sempre positiva), em minutos e horas.
+  durationMinutes    Float
+  durationHours      Float
+  /// Ordem de produção / produto associado ao evento.
+  orderNumber        String?
+  productCode        String?
+  productDescription String?
+  operatorName       String?
+  shift              String?
+  observation        String?
+  source             PcFactorySource @default(EXCEL)
+  importBatch        String?
+  /// Chave de deduplicação na reimportação.
+  technicalKey       String?         @unique
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([resourceName])
+  @@index([resourceCode])
+  @@index([productionLine])
+  @@index([sector])
+  @@index([statusNormalized])
+  @@index([startDateTime])
+  @@index([endDateTime])
+  @@index([importBatch])
 }
 
 model ImportHistory {

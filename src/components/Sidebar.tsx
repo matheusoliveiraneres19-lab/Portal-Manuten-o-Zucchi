@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   ClipboardList,
+  Factory,
   FileBarChart,
   FileText,
   Gauge,
@@ -27,6 +28,7 @@ const menu = [
   { label: "Compras Pendentes", href: "/dashboard/compras-pendentes", icon: FileBarChart },
   { label: "Lubrificantes", href: "/dashboard/lubrificantes", icon: LockKeyhole },
   { label: "Equipamentos Críticos", href: "/dashboard/equipamentos-criticos", icon: ShieldCheck },
+  { label: "PC-Factory", href: "/dashboard/pc-factory", icon: Factory },
   { label: "Procedimentos", href: "/dashboard/procedimentos", icon: FileText },
   { label: "Equipe e Horas", href: "/dashboard/equipe-horas", icon: UsersRound },
   { label: "Relatórios", href: "/dashboard/relatorios", icon: BarChart3 },

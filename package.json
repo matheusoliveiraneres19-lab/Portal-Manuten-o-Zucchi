@@ -15,6 +15,7 @@
     "import:service-orders": "tsx scripts/import-service-orders.ts",
     "import:lubricants": "tsx scripts/import-lubricants.ts",
     "import:purchases": "tsx scripts/import-purchases.ts",
+    "import:pc-factory": "tsx scripts/import-pc-factory.ts",
     "capture": "node scripts/capture-portal.mjs",
     "video": "remotion studio remotion/index.ts",
     "video:render": "remotion render remotion/index.ts PortalDemo out/portal-demo.mp4"
