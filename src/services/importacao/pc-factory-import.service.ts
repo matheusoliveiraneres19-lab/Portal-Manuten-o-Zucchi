@@ -136,8 +136,33 @@ const COLUMN_MAP: Record<string, keyof PcFactoryExcelRow> = {
   comentarios: "observation", // ag-grid: "Comentários" / Import: comments
   comments: "observation",
   causa_raiz: "rootCause", // ag-grid: "Causa Raiz"
-  rootcause: "rootCause"
+  rootcause: "rootCause",
+  // Colunas pré-calculadas da aba ajustada (usadas como fallback / chave / lote)
+  statuscategory: "statusCategory",
+  maintenancetype: "maintenanceType",
+  ismaintenancekpi: "isMaintenanceKpi",
+  excludeplannedtime: "excludePlannedTime",
+  includeplannedtime: "includePlannedTime",
+  isdowntimeforavailability: "isDowntimeForAvailability",
+  technicalkey: "technicalKey",
+  importbatch: "importBatch",
+  dataqualityissue: "dataQualityIssue"
 };
+
+/** Normaliza booleanos vindos da planilha: true/false, TRUE, Sim/Não, 1/0, S/N. */
+function normalizeBool(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  const text = limparTexto(value)
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim()
+    .toLowerCase();
+  if (!text) return null;
+  if (["true", "sim", "s", "1", "verdadeiro", "yes", "y"].includes(text)) return true;
+  if (["false", "nao", "n", "0", "falso", "no"].includes(text)) return false;
+  return null;
+}
 
 type ImportOptions = {
   fileName?: string;
@@ -210,7 +235,10 @@ export async function importPcFactoryRecords(
     createdRows: 0,
     updatedRows: 0,
     ignoredRows: 0,
+    ignoredReasons: { noResource: 0, noStatus: 0, noDuration: 0, emptyRow: 0, duplicate: 0, other: 0 },
     errorRows: 0,
+    totalHours: 0,
+    maintenanceHours: 0,
     maintenanceRows: 0,
     mechanicalMaintenanceRows: 0,
     electricalMaintenanceRows: 0,
@@ -242,15 +270,19 @@ export async function importPcFactoryRecords(
     const line = index + 2; // +1 cabeçalho, +1 base 1
 
     try {
-      const parsed = parseRow(rows[index], line);
-      if (!parsed) {
+      const outcome = parseRow(rows[index], line);
+      if ("ignore" in outcome) {
         result.ignoredRows += 1;
+        result.ignoredReasons[outcome.ignore] += 1;
         continue;
       }
+      const parsed = outcome.row;
 
       // Auditoria de classificação (conta TODAS as linhas válidas, inclusive as excluídas do tempo planejado).
       tallyClassification(result, parsed.statusRaw, parsed.statusCategory);
       if (parsed.dataQualityIssue) result.dataQualityRows += 1;
+      result.totalHours = round(result.totalHours + parsed.durationHours);
+      if (parsed.isMaintenanceKpi) result.maintenanceHours = round(result.maintenanceHours + parsed.durationHours);
       resources.add(parsed.resourceName);
       if (parsed.groupPortal) groups.add(parsed.groupPortal);
       if (parsed.statusRaw) statuses.add(parsed.statusRaw);
@@ -262,6 +294,7 @@ export async function importPcFactoryRecords(
       // Dedup dentro do lote.
       if (seenKeys.has(parsed.technicalKey)) {
         result.ignoredRows += 1;
+        result.ignoredReasons.duplicate += 1;
         continue;
       }
       seenKeys.add(parsed.technicalKey);
@@ -371,75 +404,96 @@ type ParsedRow = {
   technicalKey: string;
 };
 
-function parseRow(row: PcFactoryExcelRow, line: number): ParsedRow | null {
+type IgnoreReason = "noResource" | "noStatus" | "noDuration" | "emptyRow";
+type ParseOutcome = { row: ParsedRow } | { ignore: IgnoreReason };
+
+function parseRow(row: PcFactoryExcelRow, line: number): ParseOutcome {
   const resourceName = normalizeResourceName(row.resourceName) || normalizeResourceName(row.resourceCode);
-  if (!resourceName) {
-    return null; // linha sem recurso — ignorada
-  }
-
   const statusRaw = optionalText(row.status);
-  if (!statusRaw) {
-    return null; // linha sem status — ignorada (regra: não importar sem status)
-  }
-
-  // Classificação derivada de statusRaw (fonte da verdade — independe de colunas pré-calculadas).
-  const statusCategory = classifyPcFactoryStatus(statusRaw);
-  const kind = maintenanceKind(statusRaw);
-  const isMaintenanceKpi = isMaintenanceStatus(statusRaw);
-  const excludePlannedTime = isExcludedFromPlannedTime(statusRaw);
-  const downtimeForAvailability = isDowntimeForAvailability(statusRaw);
 
   const startDateTime = combineDateAndTime(parsePcFactoryDate(row.startDate), row.startTime);
   const endDateTime = combineDateAndTime(parsePcFactoryDate(row.endDate), row.endTime);
   const durationFallback = resolveFallbackMinutes(row);
-
   const durationMinutes = computeDurationMinutes(startDateTime, endDateTime, durationFallback);
-  if (durationMinutes <= 0 && !startDateTime && durationFallback === null) {
-    throw rowError(line, "Duração", row.duration, "Registro sem duração nem datas de início/fim válidas.");
-  }
+  const hasDuration = durationMinutes > 0;
+  const hasDates = Boolean(startDateTime || endDateTime);
+
+  // Regras de ignorar (TAREFA 3): só ignora por campo OBRIGATÓRIO ausente.
+  if (!resourceName && !statusRaw && !hasDuration && !hasDates) return { ignore: "emptyRow" };
+  if (!resourceName) return { ignore: "noResource" };
+  if (!statusRaw) return { ignore: "noStatus" };
+  if (!hasDuration && !hasDates) return { ignore: "noDuration" }; // sem duração E sem datas
+  if (!hasDuration) return { ignore: "noDuration" }; // duração inválida/zero
+
+  // Classificação derivada de statusRaw (fonte da verdade). Para status NÃO reconhecido
+  // pela regra (OUTROS), aceita os valores pré-calculados da planilha como fallback (TAREFA 5).
+  const ruleCategory = classifyPcFactoryStatus(statusRaw);
+  const sheetCategory = coerceStatusCategory(row.statusCategory);
+  const statusCategory = ruleCategory === PcFactoryStatusCategory.OUTROS && sheetCategory ? sheetCategory : ruleCategory;
+
+  const kind = maintenanceKind(statusRaw);
+  const isMaintenanceKpi = isMaintenanceStatus(statusRaw);
+  const isUnknown = ruleCategory === PcFactoryStatusCategory.OUTROS;
+  const excludePlannedTime = isExcludedFromPlannedTime(statusRaw) || (isUnknown && normalizeBool(row.excludePlannedTime) === true);
+  const downtimeForAvailability =
+    isDowntimeForAvailability(statusRaw) || (isUnknown && normalizeBool(row.isDowntimeForAvailability) === true);
 
   const resourceCode = optionalText(row.resourceCode);
   const orderNumber = optionalText(row.orderNumber);
   const operationCode = optionalText(row.operationCode);
+  const sheetKey = optionalText(row.technicalKey);
 
   return {
-    resourceCode,
-    resourceName,
-    productionLine: normalizeProductionLine(row.productionLine),
-    groupPortal: optionalText(row.groupPortal),
-    sector: optionalText(row.sector),
-    statusRaw,
-    statusDetails: optionalText(row.statusDetails),
-    statusCategory,
-    maintenanceType: kind,
-    isMaintenanceKpi,
-    excludePlannedTime,
-    isDowntimeForAvailability: downtimeForAvailability,
-    startDateTime,
-    endDateTime,
-    durationMinutes,
-    durationHours: Math.round((durationMinutes / 60) * 100) / 100,
-    initialResponsible: optionalText(row.initialResponsible),
-    finalResponsible: optionalText(row.finalResponsible),
-    operatorName: optionalText(row.operatorName),
-    orderNumber,
-    operationCode,
-    operationName: optionalText(row.operationName),
-    productCode: optionalText(row.productCode),
-    productDescription: optionalText(row.productDescription),
-    shift: optionalText(row.shift),
-    observation: optionalText(row.observation),
-    rootCause: optionalText(row.rootCause),
-    dataQualityIssue: detectDataQualityIssue(statusCategory, startDateTime, endDateTime, durationMinutes),
-    technicalKey: buildPcFactoryTechnicalKey({
-      resourceName,
+    row: {
       resourceCode,
-      startDateTime,
+      resourceName,
+      productionLine: normalizeProductionLine(row.productionLine),
+      groupPortal: optionalText(row.groupPortal),
+      sector: optionalText(row.sector),
       statusRaw,
+      statusDetails: optionalText(row.statusDetails),
+      statusCategory,
+      maintenanceType: kind,
+      isMaintenanceKpi,
+      excludePlannedTime,
+      isDowntimeForAvailability: downtimeForAvailability,
+      startDateTime,
+      endDateTime,
       durationMinutes,
-      orderNumber: orderNumber ?? operationCode
-    })
+      durationHours: Math.round((durationMinutes / 60) * 100) / 100,
+      initialResponsible: optionalText(row.initialResponsible),
+      finalResponsible: optionalText(row.finalResponsible),
+      operatorName: optionalText(row.operatorName),
+      orderNumber,
+      operationCode,
+      operationName: optionalText(row.operationName),
+      productCode: optionalText(row.productCode),
+      productDescription: optionalText(row.productDescription),
+      shift: optionalText(row.shift),
+      observation: optionalText(row.observation),
+      rootCause: optionalText(row.rootCause),
+      dataQualityIssue: detectDataQualityIssue(statusCategory, startDateTime, endDateTime, durationMinutes),
+      // TAREFA 7: usa a technicalKey da planilha quando presente; senão gera uma única por linha.
+      technicalKey:
+        sheetKey ??
+        buildPcFactoryTechnicalKey({
+          resourceName,
+          resourceCode,
+          startDateTime,
+          statusRaw,
+          durationMinutes,
+          orderNumber: [orderNumber ?? operationCode ?? "", endDateTime ? endDateTime.toISOString() : "", String(line)].join("#")
+        })
+    }
   };
+}
+
+/** Converte um texto da planilha para um PcFactoryStatusCategory válido, ou null. */
+function coerceStatusCategory(value: unknown): PcFactoryStatusCategory | null {
+  const text = limparTexto(value).toUpperCase();
+  return (Object.values(PcFactoryStatusCategory) as string[]).includes(text)
+    ? (text as PcFactoryStatusCategory)
+    : null;
 }
 
 /**
@@ -476,6 +530,7 @@ function detectDataQualityIssue(
   end: Date | null,
   durationMinutes: number
 ): string | null {
+  if (!start && !end) return "Sem data de início/fim (importado pela duração)";
   if (start && end && end.getTime() < start.getTime()) return "Término anterior ao início";
   if (durationMinutes <= 0) return "Duração ausente ou zero";
   if (category === PcFactoryStatusCategory.OUTROS) return "Status não reconhecido pela regra do portal";
@@ -542,10 +597,6 @@ function optionalText(value: unknown): string | null {
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-function rowError(line: number, campo: string, valor: unknown, mensagem: string): PcFactoryImportError {
-  return { linha: line, campo, valor, mensagem };
 }
 
 function toImportError(error: unknown, line: number): PcFactoryImportError {

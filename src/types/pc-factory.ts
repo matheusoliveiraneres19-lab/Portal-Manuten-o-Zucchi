@@ -288,13 +288,27 @@ export type PcFactoryImportError = {
   mensagem: string;
 };
 
+/** Motivos pelos quais uma linha foi ignorada (auditoria — TAREFA 9). */
+export type PcFactoryIgnoredReasons = {
+  noResource: number;
+  noStatus: number;
+  noDuration: number;
+  emptyRow: number;
+  duplicate: number;
+  other: number;
+};
+
 export type PcFactoryImportResult = {
   totalRows: number;
   importedRows: number;
   createdRows: number;
   updatedRows: number;
   ignoredRows: number;
+  ignoredReasons: PcFactoryIgnoredReasons;
   errorRows: number;
+  /** Horas somadas dos registros importados (auditoria). */
+  totalHours: number;
+  maintenanceHours: number;
   /** Contagens por classificação (auditoria da regra de manutenção). */
   maintenanceRows: number;
   mechanicalMaintenanceRows: number;
@@ -328,6 +342,16 @@ export type PcFactoryExcelRow = {
   sector?: unknown;
   status?: unknown;
   statusDetails?: unknown;
+  /** Colunas pré-calculadas da aba ajustada (usadas como fallback p/ status desconhecido). */
+  statusCategory?: unknown;
+  maintenanceType?: unknown;
+  isMaintenanceKpi?: unknown;
+  excludePlannedTime?: unknown;
+  includePlannedTime?: unknown;
+  isDowntimeForAvailability?: unknown;
+  technicalKey?: unknown;
+  importBatch?: unknown;
+  dataQualityIssue?: unknown;
   /** Início/Término — podem vir como data+hora num único campo ou separados. */
   startDate?: unknown;
   endDate?: unknown;

@@ -70,12 +70,26 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
         <div className="mt-4 space-y-3">
           <dl className="grid grid-cols-2 gap-2 rounded-lg border border-gold/15 bg-black/25 p-3 text-xs">
             <Summary label="Total de linhas" value={result.totalRows} />
-            <Summary label="Importadas" value={result.importedRows} />
+            <Summary label="Importadas" value={result.importedRows} tone="gold" />
             <Summary label="Criadas" value={result.createdRows} />
             <Summary label="Atualizadas" value={result.updatedRows} />
-            <Summary label="Ignoradas" value={result.ignoredRows} />
+            <Summary label="Ignoradas" value={result.ignoredRows} tone={result.ignoredRows > 0 ? "danger" : "default"} />
             <Summary label="Com erro" value={result.errorRows} tone={result.errorRows > 0 ? "danger" : "default"} />
           </dl>
+
+          {result.ignoredRows > 0 ? (
+            <div className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs">
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-rose-300">Motivos das linhas ignoradas</p>
+              <dl className="grid grid-cols-2 gap-2">
+                <Summary label="Sem recurso" value={result.ignoredReasons.noResource} />
+                <Summary label="Sem status" value={result.ignoredReasons.noStatus} />
+                <Summary label="Sem duração/data" value={result.ignoredReasons.noDuration} />
+                <Summary label="Linha vazia" value={result.ignoredReasons.emptyRow} />
+                <Summary label="Duplicada" value={result.ignoredReasons.duplicate} />
+                <Summary label="Outro" value={result.ignoredReasons.other} />
+              </dl>
+            </div>
+          ) : null}
 
           <div className="rounded-lg border border-gold/15 bg-black/25 p-3 text-xs">
             <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-gold">Classificação (auditoria da regra)</p>
@@ -93,6 +107,8 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
               <Summary label="Recursos detectados" value={result.resourcesDetected} />
               <Summary label="Grupos detectados" value={result.groupsDetected.length} />
               <Summary label="Com problema de dados" value={result.dataQualityRows} tone={result.dataQualityRows > 0 ? "danger" : "default"} />
+              <Summary label="Horas totais" value={result.totalHours} suffix=" h" />
+              <Summary label="Horas de manutenção" value={result.maintenanceHours} suffix=" h" tone="gold" />
             </dl>
           </div>
 
@@ -137,12 +153,25 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
   );
 }
 
-function Summary({ label, value, tone = "default" }: { label: string; value: number; tone?: "default" | "danger" | "gold" }) {
+function Summary({
+  label,
+  value,
+  tone = "default",
+  suffix = ""
+}: {
+  label: string;
+  value: number;
+  tone?: "default" | "danger" | "gold";
+  suffix?: string;
+}) {
   const valueClass = tone === "danger" ? "text-danger" : tone === "gold" ? "text-gold" : "text-champagne";
   return (
     <div className="flex items-center justify-between gap-2">
       <dt className="text-zinc-400">{label}</dt>
-      <dd className={`font-semibold ${valueClass}`}>{value.toLocaleString("pt-BR")}</dd>
+      <dd className={`font-semibold ${valueClass}`}>
+        {value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
+        {suffix}
+      </dd>
     </div>
   );
 }
