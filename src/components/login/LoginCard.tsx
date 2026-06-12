@@ -32,7 +32,7 @@ export function LoginCard() {
           <span className="-rotate-45 font-serif text-[1.55rem] italic leading-none text-gold">Z</span>
         </div>
         <p className="text-[0.66rem] font-semibold uppercase tracking-[0.42em] text-gold/85">
-          Zucchi Stones Luxury
+          Zucchi Luxury Stones
         </p>
         <p className="mt-2 text-sm text-champagne/68">Excelência que transforma</p>
       </footer>

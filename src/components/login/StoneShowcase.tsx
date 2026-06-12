@@ -86,7 +86,7 @@ function HeroSlabBrand() {
           Zucchi
         </div>
         <div className="mt-2 text-xs font-semibold uppercase tracking-[0.32em] text-champagne/88">
-          Stones Luxury
+          Luxury Stones
         </div>
       </div>
     </div>

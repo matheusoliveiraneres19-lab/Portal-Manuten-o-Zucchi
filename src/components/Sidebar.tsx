@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -14,10 +15,7 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
-  UsersRound,
-  Wrench,
-  Crown,
-  Gem
+  UsersRound
 } from "lucide-react";
 
 const menu = [
@@ -41,17 +39,16 @@ export function Sidebar() {
   return (
     <aside className="marble-dark fixed inset-y-0 left-0 z-40 hidden w-80 border-r border-gold/20 p-5 text-champagne shadow-2xl lg:flex lg:flex-col">
       <div className="flex flex-col items-center border-b border-gold/20 pb-5">
-        <div className="relative grid h-32 w-32 place-items-center">
-          <Crown className="absolute -top-1 h-9 w-9 text-gold drop-shadow" />
-          <div className="crest-shield grid h-28 w-24 place-items-center border border-gold/60 bg-gradient-to-br from-[#102b3b] via-[#17374a] to-[#081014] shadow-premium">
-            <div className="crest-shield grid h-20 w-16 place-items-center border border-gold/50 bg-gradient-to-br from-gold via-[#e9cf8e] to-[#7b551f]">
-              <Wrench className="h-9 w-9 text-ink" />
-            </div>
-          </div>
-          <Gem className="absolute bottom-0 right-2 h-6 w-6 text-gold" />
-        </div>
-        <div className="mt-1 text-center font-serif text-5xl leading-none text-gold drop-shadow">Zucchi</div>
-        <div className="mt-1 text-[11px] font-bold uppercase tracking-[0.32em] text-champagne">Stones Luxury</div>
+        <Image
+          src="/images/brand/zucchi-logo-oficial.png"
+          alt="Brasão oficial Zucchi"
+          width={429}
+          height={508}
+          priority
+          sizes="8rem"
+          className="h-32 w-auto object-contain drop-shadow-[0_12px_30px_rgba(0,0,0,0.5)]"
+        />
+        <div className="mt-2 text-[11px] font-bold uppercase tracking-[0.32em] text-champagne">Luxury Stones</div>
       </div>
 
       <nav className="mt-5 flex-1 space-y-2 overflow-y-auto pr-1">

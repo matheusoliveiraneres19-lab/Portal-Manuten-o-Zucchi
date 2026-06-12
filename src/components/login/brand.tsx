@@ -7,7 +7,7 @@ type BrandMarkProps = {
 /**
  * Marca da tela de login: brasão oficial da Zucchi.
  * A imagem (PNG com fundo transparente) já contém a palavra "Zucchi" na faixa,
- * por isso não há wordmark abaixo — a tagline "Zucchi Stones Luxury" segue no rodapé do card.
+ * por isso não há wordmark abaixo — a tagline "Zucchi Luxury Stones" segue no rodapé do card.
  */
 export function BrandMark({ size = "compact" }: BrandMarkProps) {
   const isLarge = size === "large";

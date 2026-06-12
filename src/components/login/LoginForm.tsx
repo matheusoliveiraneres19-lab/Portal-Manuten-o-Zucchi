@@ -253,7 +253,7 @@ export function LoginForm() {
                 <Loader2 className="h-7 w-7 animate-spin" strokeWidth={1.6} />
               </span>
               <p className="font-serif text-2xl text-gold">Preparando seu ambiente de manutenção...</p>
-              <p className="text-sm text-zinc-400">Zucchi Stones Luxury</p>
+              <p className="text-sm text-zinc-400">Zucchi Luxury Stones</p>
             </m.div>
           </m.div>
         ) : null}

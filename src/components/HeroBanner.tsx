@@ -22,7 +22,7 @@ export function HeroBanner() {
         <p className="mt-5 max-w-2xl text-base leading-relaxed text-zinc-100/90">
           Centralize indicadores, ordens de serviço, compras, materiais, lubrificantes e alertas de
           equipamentos em um só lugar. Mais controle, eficiência e performance para a manutenção da
-          Zucchi Stones Luxury.
+          Zucchi Luxury Stones.
         </p>
 
         <div className="mt-7 flex max-w-xl items-center gap-4">
