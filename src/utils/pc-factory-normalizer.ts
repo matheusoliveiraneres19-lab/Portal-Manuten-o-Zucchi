@@ -2,13 +2,18 @@
  * Funções puras de classificação do "Nome Status Recurso" do PC-Factory.
  * Sem dependência de Prisma ou React — testáveis isoladamente.
  *
- * REGRA DE NEGÓCIO CENTRAL (manutenção): entram como manutenção SOMENTE os três
+ * REGRA DE NEGÓCIO CENTRAL (manutenção): entram como manutenção SOMENTE os quatro
  * status exatos abaixo. A comparação é por valor EXATO normalizado — NUNCA por
- * `contains("Manutenção")` — para que "Manutenção Automação" e "Manutenção de
- * Terceiros" NÃO sejam contabilizados como manutenção:
- *   - Manutenção Mecânica
- *   - Manutenção Elétrica
- *   - Aguardando Manutenção
+ * `contains("Manutenção")` — para que "Manutenção de Terceiros" NÃO seja
+ * contabilizado como manutenção:
+ *   - Manutenção Mecânica   → tipo MECANICA
+ *   - Manutenção Elétrica   → tipo ELETRICA
+ *   - Manutenção Automação  → tipo AUTOMACAO
+ *   - Aguardando Manutenção → tipo AGUARDANDO
+ *
+ * Casos especiais (não-manutenção):
+ *   - "Falta de Utilidades" → PARADA_PERDA (paralisa a máquina, reduz disponibilidade,
+ *     mas NÃO é evento de manutenção/KPI).
  */
 import { PcFactoryStatusCategory } from "@prisma/client";
 
@@ -48,13 +53,15 @@ const KEY = {
   REFEICAO: "refeicao",
   AGUARDANDO_LANCAMENTO: "aguardando lancamento",
   MANUTENCAO_AUTOMACAO: "manutencao automacao",
-  MANUTENCAO_TERCEIROS: "manutencao de terceiros"
+  MANUTENCAO_TERCEIROS: "manutencao de terceiros",
+  FALTA_DE_UTILIDADES: "falta de utilidades"
 } as const;
 
-/** Os três (e apenas três) status que contam como manutenção. */
+/** Os quatro (e apenas quatro) status que contam como manutenção. */
 const MAINTENANCE_KEYS = new Set<string>([
   KEY.MANUTENCAO_MECANICA,
   KEY.MANUTENCAO_ELETRICA,
+  KEY.MANUTENCAO_AUTOMACAO,
   KEY.AGUARDANDO_MANUTENCAO
 ]);
 
@@ -64,7 +71,8 @@ const EXCLUDED_PLANNED_KEYS = new Set<string>([KEY.FORA_DE_TURNO, KEY.RECURSO_NA
 const OPERATIONAL_LOSS_KEYS = new Set<string>([
   KEY.SETUP,
   KEY.FALTA_DE_MATERIAL,
-  KEY.PARADA_NAO_IDENTIFICADA
+  KEY.PARADA_NAO_IDENTIFICADA,
+  KEY.FALTA_DE_UTILIDADES
 ]);
 
 /* ------------------------------------------------------------------ */
@@ -83,14 +91,16 @@ const CATEGORY_BY_KEY: Record<string, PcFactoryStatusCategory> = {
   [KEY.PARADA_NAO_IDENTIFICADA]: PcFactoryStatusCategory.PARADA_PERDA,
   [KEY.REFEICAO]: PcFactoryStatusCategory.OPERACIONAL,
   [KEY.AGUARDANDO_LANCAMENTO]: PcFactoryStatusCategory.OUTROS,
-  [KEY.MANUTENCAO_AUTOMACAO]: PcFactoryStatusCategory.OUTROS,
+  [KEY.MANUTENCAO_AUTOMACAO]: PcFactoryStatusCategory.MANUTENCAO,
+  [KEY.FALTA_DE_UTILIDADES]: PcFactoryStatusCategory.PARADA_PERDA,
   [KEY.MANUTENCAO_TERCEIROS]: PcFactoryStatusCategory.OUTROS
 };
 
 /**
  * Classifica o "Nome Status Recurso" em categoria gerencial.
- * Status desconhecido → OUTROS. Note que "Manutenção Automação" e
- * "Manutenção de Terceiros" caem explicitamente em OUTROS (não em MANUTENCAO).
+ * Status desconhecido → OUTROS. "Manutenção Automação" entra em MANUTENCAO;
+ * "Falta de Utilidades" entra em PARADA_PERDA; "Manutenção de Terceiros"
+ * permanece em OUTROS (não conta como manutenção).
  */
 export function classifyPcFactoryStatus(statusRaw: unknown): PcFactoryStatusCategory {
   const key = normalizePcFactoryStatusName(statusRaw);
@@ -101,9 +111,14 @@ export function classifyPcFactoryStatus(statusRaw: unknown): PcFactoryStatusCate
 /* Funções booleanas (regras explícitas, por valor exato)            */
 /* ------------------------------------------------------------------ */
 
-/** true SOMENTE para Manutenção Mecânica, Manutenção Elétrica e Aguardando Manutenção. */
+/** true SOMENTE para Manutenção Mecânica, Elétrica, Automação e Aguardando Manutenção. */
 export function isMaintenanceStatus(statusRaw: unknown): boolean {
   return MAINTENANCE_KEYS.has(normalizePcFactoryStatusName(statusRaw));
+}
+
+/** Alias semântico: os mesmos 4 status que entram no KPI de manutenção. */
+export function isMaintenanceKpi(statusRaw: unknown): boolean {
+  return isMaintenanceStatus(statusRaw);
 }
 
 export function isMechanicalMaintenance(statusRaw: unknown): boolean {
@@ -112,6 +127,10 @@ export function isMechanicalMaintenance(statusRaw: unknown): boolean {
 
 export function isElectricalMaintenance(statusRaw: unknown): boolean {
   return normalizePcFactoryStatusName(statusRaw) === KEY.MANUTENCAO_ELETRICA;
+}
+
+export function isAutomationMaintenance(statusRaw: unknown): boolean {
+  return normalizePcFactoryStatusName(statusRaw) === KEY.MANUTENCAO_AUTOMACAO;
 }
 
 export function isWaitingMaintenance(statusRaw: unknown): boolean {
@@ -128,21 +147,44 @@ export function isProductiveStatus(statusRaw: unknown): boolean {
   return normalizePcFactoryStatusName(statusRaw) === KEY.PRODUCAO;
 }
 
-/** true para Setup, Falta de Material e Parada não Identificada. */
+/** true para Setup, Falta de Material, Parada não Identificada e Falta de Utilidades. */
 export function isOperationalLossStatus(statusRaw: unknown): boolean {
   return OPERATIONAL_LOSS_KEYS.has(normalizePcFactoryStatusName(statusRaw));
 }
 
+/**
+ * true quando o status paralisa a máquina e reduz a disponibilidade estimada:
+ * manutenção (4 status), parada/perda (inclui Falta de Utilidades) e Setup.
+ * Fora de Turno / Recurso Não Programado NÃO entram (saem do tempo planejado).
+ */
+export function isDowntimeForAvailability(statusRaw: unknown): boolean {
+  const category = classifyPcFactoryStatus(statusRaw);
+  return (
+    category === PcFactoryStatusCategory.MANUTENCAO ||
+    category === PcFactoryStatusCategory.PARADA_PERDA ||
+    category === PcFactoryStatusCategory.SETUP
+  );
+}
+
 /** Sub-tipo de manutenção do registro, ou null se não for manutenção. */
-export type MaintenanceKind = "MECANICA" | "ELETRICA" | "AGUARDANDO";
+export type MaintenanceKind = "MECANICA" | "ELETRICA" | "AUTOMACAO" | "AGUARDANDO";
 
 export function maintenanceKind(statusRaw: unknown): MaintenanceKind | null {
   const key = normalizePcFactoryStatusName(statusRaw);
   if (key === KEY.MANUTENCAO_MECANICA) return "MECANICA";
   if (key === KEY.MANUTENCAO_ELETRICA) return "ELETRICA";
+  if (key === KEY.MANUTENCAO_AUTOMACAO) return "AUTOMACAO";
   if (key === KEY.AGUARDANDO_MANUTENCAO) return "AGUARDANDO";
   return null;
 }
+
+/** Rótulos por tipo de manutenção (UI e auditoria de importação). */
+export const PC_FACTORY_MAINTENANCE_TYPE_LABELS: Record<MaintenanceKind, string> = {
+  MECANICA: "Manutenção Mecânica",
+  ELETRICA: "Manutenção Elétrica",
+  AUTOMACAO: "Manutenção Automação",
+  AGUARDANDO: "Aguardando Manutenção"
+};
 
 /* ------------------------------------------------------------------ */
 /* Rótulos e cores das categorias (UI premium)                        */
@@ -273,6 +315,19 @@ export function parseDurationToMinutes(value: unknown): number | null {
   }
 
   return converterNumeroBrasileiro(text);
+}
+
+/**
+ * Converte a coluna "Tempo Decorrido [hr]" da aba bruta `ag-grid` para minutos.
+ * Nessa aba o valor chega como FRAÇÃO DE DIA (ex.: 0,347 ≈ 8,33 h), não como horas.
+ * Regra de negócio: se o valor for < 1.5, multiplicar por 24 (fração de dia → horas);
+ * caso contrário, assume-se que já está em horas. Retorna minutos.
+ */
+export function parseAgGridElapsedToMinutes(value: unknown): number | null {
+  const raw = typeof value === "number" && Number.isFinite(value) ? value : converterNumeroBrasileiro(limparTexto(value));
+  if (raw === null || !Number.isFinite(raw) || raw < 0) return null;
+  const hours = raw < 1.5 ? raw * 24 : raw;
+  return round(hours * 60);
 }
 
 /** Calcula a duração em minutos a partir do delta início→fim, com fallback no valor da coluna. */

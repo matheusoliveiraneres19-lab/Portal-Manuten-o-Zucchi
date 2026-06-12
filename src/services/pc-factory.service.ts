@@ -10,7 +10,9 @@ import {
 import type {
   PcFactoryCategorySlice,
   PcFactoryDashboardSummary,
+  PcFactoryDataQuality,
   PcFactoryFilterOptions,
+  PcFactoryGroupRow,
   PcFactoryKpis,
   PcFactoryMaintenanceSplit,
   PcFactoryPageData,
@@ -44,22 +46,18 @@ function buildWhere(params: PcFactoryQueryParams): Prisma.PcFactoryRecordWhereIn
 
   if (params.resources?.length) and.push({ resourceName: { in: params.resources } });
   if (params.productionLines?.length) and.push({ productionLine: { in: params.productionLines } });
+  if (params.groupPortals?.length) and.push({ groupPortal: { in: params.groupPortals } });
   if (params.sectors?.length) and.push({ sector: { in: params.sectors } });
   if (params.shifts?.length) and.push({ shift: { in: params.shifts } });
   if (params.statusNames?.length) and.push({ statusRaw: { in: params.statusNames } });
   if (params.categories?.length) and.push({ statusCategory: { in: params.categories } });
 
-  // Toggles de manutenção (escopados à categoria MANUTENCAO, que contém só os 3 status).
-  if (params.onlyMaintenance) and.push({ statusCategory: PcFactoryStatusCategory.MANUTENCAO });
-  if (params.onlyMechanical) {
-    and.push({ statusCategory: PcFactoryStatusCategory.MANUTENCAO, statusRaw: { contains: "mec", mode: "insensitive" } });
-  }
-  if (params.onlyElectrical) {
-    and.push({ statusCategory: PcFactoryStatusCategory.MANUTENCAO, statusRaw: { contains: "trica", mode: "insensitive" } });
-  }
-  if (params.onlyWaiting) {
-    and.push({ statusCategory: PcFactoryStatusCategory.MANUTENCAO, statusRaw: { contains: "guard", mode: "insensitive" } });
-  }
+  // Toggles de manutenção — usam o campo derivado maintenanceType (robusto, sem contains frágil).
+  if (params.onlyMaintenance) and.push({ isMaintenanceKpi: true });
+  if (params.onlyMechanical) and.push({ maintenanceType: "MECANICA" });
+  if (params.onlyElectrical) and.push({ maintenanceType: "ELETRICA" });
+  if (params.onlyAutomation) and.push({ maintenanceType: "AUTOMACAO" });
+  if (params.onlyWaiting) and.push({ maintenanceType: "AGUARDANDO" });
   if (params.excludeOutOfPlanned) {
     and.push({ NOT: { statusCategory: PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO } });
   }
@@ -94,6 +92,7 @@ type AnalyticsRecord = {
   resourceName: string;
   resourceCode: string | null;
   productionLine: string | null;
+  groupPortal: string | null;
   sector: string | null;
   statusRaw: string | null;
   statusCategory: PcFactoryStatusCategory;
@@ -110,6 +109,7 @@ const loadRecords = cache(async (params: PcFactoryQueryParams): Promise<Analytic
       resourceName: true,
       resourceCode: true,
       productionLine: true,
+      groupPortal: true,
       sector: true,
       statusRaw: true,
       statusCategory: true,
@@ -131,6 +131,7 @@ type HoursAggregate = {
   maintenanceHours: number;
   mechanicalHours: number;
   electricalHours: number;
+  automationHours: number;
   waitingHours: number;
   setupHours: number;
   lossHours: number;
@@ -140,6 +141,7 @@ type HoursAggregate = {
   maintenanceEvents: number;
   mechanicalEvents: number;
   electricalEvents: number;
+  automationEvents: number;
   waitingEvents: number;
 };
 
@@ -151,6 +153,7 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
   let maintenanceHours = 0;
   let mechanicalHours = 0;
   let electricalHours = 0;
+  let automationHours = 0;
   let waitingHours = 0;
   let setupHours = 0;
   let paradaPerdaHours = 0;
@@ -159,6 +162,7 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
   let maintenanceEvents = 0;
   let mechanicalEvents = 0;
   let electricalEvents = 0;
+  let automationEvents = 0;
   let waitingEvents = 0;
 
   for (const record of records) {
@@ -185,6 +189,9 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
         } else if (kind === "ELETRICA") {
           electricalHours += hours;
           electricalEvents += 1;
+        } else if (kind === "AUTOMACAO") {
+          automationHours += hours;
+          automationEvents += 1;
         } else if (kind === "AGUARDANDO") {
           waitingHours += hours;
           waitingEvents += 1;
@@ -220,6 +227,7 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
     maintenanceHours: round(maintenanceHours),
     mechanicalHours: round(mechanicalHours),
     electricalHours: round(electricalHours),
+    automationHours: round(automationHours),
     waitingHours: round(waitingHours),
     setupHours: round(setupHours),
     lossHours: round(lossHours),
@@ -229,6 +237,7 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
     maintenanceEvents,
     mechanicalEvents,
     electricalEvents,
+    automationEvents,
     waitingEvents
   };
 }
@@ -264,15 +273,18 @@ function buildResourceRanking(records: AnalyticsRecord[]): PcFactoryResourceRow[
     const agg = aggregateHours(list);
     const sample = list.find((item) => item.resourceCode) ?? list[0];
     const line = list.find((item) => item.productionLine)?.productionLine ?? null;
+    const group = list.find((item) => item.groupPortal)?.groupPortal ?? null;
     rows.push({
       resourceName,
       resourceCode: sample.resourceCode ?? null,
       productionLine: line,
+      groupPortal: group,
       plannedHours: agg.plannedHours,
       productionHours: agg.productionHours,
       maintenanceHours: agg.maintenanceHours,
       mechanicalHours: agg.mechanicalHours,
       electricalHours: agg.electricalHours,
+      automationHours: agg.automationHours,
       waitingHours: agg.waitingHours,
       lossHours: agg.lossHours,
       stoppedHours: agg.stoppedHours,
@@ -303,10 +315,12 @@ export async function getPcFactoryDashboardKPIs(params: PcFactoryQueryParams): P
 
   const resourceNames = new Set(records.map((r) => r.resourceName));
   const lines = new Set(records.map((r) => r.productionLine).filter(Boolean) as string[]);
+  const groups = new Set(records.map((r) => r.groupPortal).filter(Boolean) as string[]);
 
   return {
     totalRecords: records.length,
     totalResources: resourceNames.size,
+    totalGroups: groups.size,
     totalProductionLines: lines.size,
     totalHours: agg.totalHours,
     plannedHours: agg.plannedHours,
@@ -314,6 +328,7 @@ export async function getPcFactoryDashboardKPIs(params: PcFactoryQueryParams): P
     maintenanceHours: agg.maintenanceHours,
     mechanicalMaintenanceHours: agg.mechanicalHours,
     electricalMaintenanceHours: agg.electricalHours,
+    automationMaintenanceHours: agg.automationHours,
     waitingMaintenanceHours: agg.waitingHours,
     setupHours: agg.setupHours,
     lossHours: agg.lossHours,
@@ -323,6 +338,7 @@ export async function getPcFactoryDashboardKPIs(params: PcFactoryQueryParams): P
     maintenanceEvents: agg.maintenanceEvents,
     mechanicalEvents: agg.mechanicalEvents,
     electricalEvents: agg.electricalEvents,
+    automationEvents: agg.automationEvents,
     waitingEvents: agg.waitingEvents,
     mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
     maintenancePercentOfPlanned: maintenancePercent(agg.plannedHours, agg.maintenanceHours),
@@ -357,6 +373,7 @@ function maintenanceSplitFromAggregate(agg: HoursAggregate): PcFactoryMaintenanc
   return [
     { key: "MECANICA" as const, label: "Manutenção Mecânica", hours: agg.mechanicalHours, events: agg.mechanicalEvents, color: "#c49a45" },
     { key: "ELETRICA" as const, label: "Manutenção Elétrica", hours: agg.electricalHours, events: agg.electricalEvents, color: "#0f4d68" },
+    { key: "AUTOMACAO" as const, label: "Manutenção Automação", hours: agg.automationHours, events: agg.automationEvents, color: "#7a4fb5" },
     { key: "AGUARDANDO" as const, label: "Aguardando Manutenção", hours: agg.waitingHours, events: agg.waitingEvents, color: "#a6192e" }
   ].filter((item) => item.hours > 0);
 }
@@ -390,6 +407,41 @@ export async function getPcFactoryProductionLineSummary(params: PcFactoryQueryPa
       maintenanceHours: agg.maintenanceHours,
       lossHours: agg.lossHours,
       stoppedHours: agg.stoppedHours,
+      availabilityPercent: availability(agg.plannedHours, agg.stoppedHours)
+    });
+  }
+  return rows.sort((a, b) => b.maintenanceHours - a.maintenanceHours);
+}
+
+export async function getPcFactoryGroupSummary(params: PcFactoryQueryParams): Promise<PcFactoryGroupRow[]> {
+  return buildGroupSummary(await loadRecords(params));
+}
+
+function buildGroupSummary(records: AnalyticsRecord[]): PcFactoryGroupRow[] {
+  const groups = new Map<string, AnalyticsRecord[]>();
+  for (const record of records) {
+    const key = record.groupPortal?.trim() || "Sem grupo";
+    const list = groups.get(key);
+    if (list) list.push(record);
+    else groups.set(key, [record]);
+  }
+
+  const rows: PcFactoryGroupRow[] = [];
+  for (const [groupPortal, list] of Array.from(groups.entries())) {
+    const agg = aggregateHours(list);
+    rows.push({
+      groupPortal,
+      resourcesCount: new Set(list.map((item) => item.resourceName)).size,
+      plannedHours: agg.plannedHours,
+      maintenanceHours: agg.maintenanceHours,
+      mechanicalHours: agg.mechanicalHours,
+      electricalHours: agg.electricalHours,
+      automationHours: agg.automationHours,
+      waitingHours: agg.waitingHours,
+      lossHours: agg.lossHours,
+      stoppedHours: agg.stoppedHours,
+      maintenanceEvents: agg.maintenanceEvents,
+      mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
       availabilityPercent: availability(agg.plannedHours, agg.stoppedHours)
     });
   }
@@ -434,6 +486,10 @@ export async function getPcFactoryTrend(params: PcFactoryQueryParams): Promise<P
         period,
         label,
         maintenanceHours: agg.maintenanceHours,
+        mechanicalHours: agg.mechanicalHours,
+        electricalHours: agg.electricalHours,
+        automationHours: agg.automationHours,
+        waitingHours: agg.waitingHours,
         plannedHours: agg.plannedHours,
         availabilityPercent: availability(agg.plannedHours, agg.stoppedHours)
       };
@@ -474,9 +530,13 @@ const recordSelect = {
   resourceName: true,
   resourceCode: true,
   productionLine: true,
+  groupPortal: true,
   sector: true,
   statusRaw: true,
   statusCategory: true,
+  maintenanceType: true,
+  isMaintenanceKpi: true,
+  excludePlannedTime: true,
   startDateTime: true,
   endDateTime: true,
   durationHours: true,
@@ -494,12 +554,15 @@ function toRecordRow(record: RecordPayload): PcFactoryRecordRow {
     resourceName: record.resourceName,
     resourceCode: record.resourceCode,
     productionLine: record.productionLine,
+    groupPortal: record.groupPortal,
     sector: record.sector,
     statusRaw: record.statusRaw,
     statusCategory: record.statusCategory,
     classificationLabel: PC_FACTORY_CATEGORY_LABELS[record.statusCategory],
+    maintenanceType: record.maintenanceType,
     isMaintenance: record.statusCategory === PcFactoryStatusCategory.MANUTENCAO,
-    isInPlannedTime: record.statusCategory !== PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO,
+    isMaintenanceKpi: record.isMaintenanceKpi,
+    isInPlannedTime: !record.excludePlannedTime,
     startDateTime: record.startDateTime ? record.startDateTime.toISOString() : null,
     endDateTime: record.endDateTime ? record.endDateTime.toISOString() : null,
     durationHours: round(record.durationHours),
@@ -532,6 +595,7 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
         resourceName: true,
         resourceCode: true,
         productionLine: true,
+        groupPortal: true,
         sector: true,
         statusRaw: true,
         statusCategory: true,
@@ -563,11 +627,13 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
     resourceName: sample.resourceName,
     resourceCode: sample.resourceCode ?? null,
     productionLine: analytics.find((i) => i.productionLine)?.productionLine ?? null,
+    groupPortal: analytics.find((i) => i.groupPortal)?.groupPortal ?? null,
     sector: analytics.find((i) => i.sector)?.sector ?? null,
     plannedHours: agg.plannedHours,
     maintenanceHours: agg.maintenanceHours,
     mechanicalHours: agg.mechanicalHours,
     electricalHours: agg.electricalHours,
+    automationHours: agg.automationHours,
     waitingHours: agg.waitingHours,
     stoppedHours: agg.stoppedHours,
     maintenanceEvents: agg.maintenanceEvents,
@@ -605,9 +671,10 @@ function buildRecommendations(agg: HoursAggregate, availabilityPercent: number |
 /* ------------------------------------------------------------------ */
 
 export async function getPcFactoryFilterOptions(): Promise<PcFactoryFilterOptions> {
-  const [resources, lines, sectors, shifts, statusNames] = await Promise.all([
+  const [resources, lines, groups, sectors, shifts, statusNames] = await Promise.all([
     prisma.pcFactoryRecord.findMany({ select: { resourceName: true }, distinct: ["resourceName"], orderBy: { resourceName: "asc" } }),
     prisma.pcFactoryRecord.findMany({ select: { productionLine: true }, distinct: ["productionLine"], orderBy: { productionLine: "asc" } }),
+    prisma.pcFactoryRecord.findMany({ select: { groupPortal: true }, distinct: ["groupPortal"], orderBy: { groupPortal: "asc" } }),
     prisma.pcFactoryRecord.findMany({ select: { sector: true }, distinct: ["sector"], orderBy: { sector: "asc" } }),
     prisma.pcFactoryRecord.findMany({ select: { shift: true }, distinct: ["shift"], orderBy: { shift: "asc" } }),
     prisma.pcFactoryRecord.findMany({ select: { statusRaw: true }, distinct: ["statusRaw"], orderBy: { statusRaw: "asc" } })
@@ -622,6 +689,7 @@ export async function getPcFactoryFilterOptions(): Promise<PcFactoryFilterOption
   return {
     resources: resources.map((r) => ({ value: r.resourceName, label: r.resourceName })),
     productionLines: clean(lines, "productionLine"),
+    groupPortals: clean(groups, "groupPortal"),
     sectors: clean(sectors, "sector"),
     shifts: clean(shifts, "shift"),
     statusNames: clean(statusNames, "statusRaw"),
@@ -642,17 +710,20 @@ export async function getPcFactoryPageData(params: PcFactoryQueryParams = {}): P
   const agg = aggregateHours(records);
   const ranking = buildResourceRanking(records);
 
-  const [kpis, productionLines, trend, records_, filterOptions] = await Promise.all([
+  const [kpis, productionLines, groupSummary, trend, records_, filterOptions, dataQuality] = await Promise.all([
     getPcFactoryDashboardKPIs(params),
     getPcFactoryProductionLineSummary(params),
+    getPcFactoryGroupSummary(params),
     getPcFactoryTrend(params),
     getPcFactoryRecords(params),
-    getPcFactoryFilterOptions()
+    getPcFactoryFilterOptions(),
+    buildDataQuality(params)
   ]);
 
   const criticalResources = [...ranking].filter((r) => r.maintenanceHours > 0).sort((a, b) => b.maintenanceHours - a.maintenanceHours).slice(0, 10);
   const topMechanical = [...ranking].filter((r) => r.mechanicalHours > 0).sort((a, b) => b.mechanicalHours - a.mechanicalHours).slice(0, 10);
   const topElectrical = [...ranking].filter((r) => r.electricalHours > 0).sort((a, b) => b.electricalHours - a.electricalHours).slice(0, 10);
+  const topAutomation = [...ranking].filter((r) => r.automationHours > 0).sort((a, b) => b.automationHours - a.automationHours).slice(0, 10);
   const topWaiting = [...ranking].filter((r) => r.waitingHours > 0).sort((a, b) => b.waitingHours - a.waitingHours).slice(0, 10);
 
   return {
@@ -663,12 +734,39 @@ export async function getPcFactoryPageData(params: PcFactoryQueryParams = {}): P
     criticalResources,
     topMechanical,
     topElectrical,
+    topAutomation,
     topWaiting,
     productionLines,
+    groupSummary,
     trend,
     records: records_,
     filterOptions,
+    dataQuality,
     source: "database"
+  };
+}
+
+/** Diagnóstico de qualidade da importação refletido nos dados filtrados (TAREFA 8). */
+async function buildDataQuality(params: PcFactoryQueryParams): Promise<PcFactoryDataQuality> {
+  const where = buildWhere(params);
+  const [totalRecords, recordsWithIssue, agg, groups, statuses] = await Promise.all([
+    prisma.pcFactoryRecord.count({ where }),
+    prisma.pcFactoryRecord.count({ where: { AND: [where, { NOT: { dataQualityIssue: null } }] } }),
+    prisma.pcFactoryRecord.aggregate({ where, _min: { startDateTime: true }, _max: { startDateTime: true } }),
+    prisma.pcFactoryRecord.findMany({ where, select: { groupPortal: true }, distinct: ["groupPortal"], orderBy: { groupPortal: "asc" } }),
+    prisma.pcFactoryRecord.findMany({ where, select: { statusRaw: true }, distinct: ["statusRaw"], orderBy: { statusRaw: "asc" } })
+  ]);
+
+  const resourcesDistinct = await prisma.pcFactoryRecord.findMany({ where, select: { resourceName: true }, distinct: ["resourceName"] });
+
+  return {
+    totalRecords,
+    periodStart: agg._min.startDateTime ? agg._min.startDateTime.toISOString() : null,
+    periodEnd: agg._max.startDateTime ? agg._max.startDateTime.toISOString() : null,
+    groupsDetected: groups.map((g) => g.groupPortal).filter((v): v is string => Boolean(v && v.trim())),
+    resourcesDetected: resourcesDistinct.length,
+    statusDetected: statuses.map((s) => s.statusRaw).filter((v): v is string => Boolean(v && v.trim())),
+    recordsWithIssue
   };
 }
 
@@ -712,6 +810,7 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
     kpis: {
       totalRecords: 0,
       totalResources: 0,
+      totalGroups: 0,
       totalProductionLines: 0,
       totalHours: 0,
       plannedHours: 0,
@@ -719,6 +818,7 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
       maintenanceHours: 0,
       mechanicalMaintenanceHours: 0,
       electricalMaintenanceHours: 0,
+      automationMaintenanceHours: 0,
       waitingMaintenanceHours: 0,
       setupHours: 0,
       lossHours: 0,
@@ -728,6 +828,7 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
       maintenanceEvents: 0,
       mechanicalEvents: 0,
       electricalEvents: 0,
+      automationEvents: 0,
       waitingEvents: 0,
       mttr: null,
       maintenancePercentOfPlanned: null,
@@ -739,17 +840,29 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
     criticalResources: [],
     topMechanical: [],
     topElectrical: [],
+    topAutomation: [],
     topWaiting: [],
     productionLines: [],
+    groupSummary: [],
     trend: [],
     records: { data: [], total: 0, page: 1, pageSize: DEFAULT_PAGE_SIZE, totalPages: 1 },
     filterOptions: {
       resources: [],
       productionLines: [],
+      groupPortals: [],
       sectors: [],
       shifts: [],
       statusNames: [],
       categories: PC_FACTORY_CATEGORY_ORDER.map((category) => ({ value: category, label: PC_FACTORY_CATEGORY_LABELS[category] }))
+    },
+    dataQuality: {
+      totalRecords: 0,
+      periodStart: null,
+      periodEnd: null,
+      groupsDetected: [],
+      resourcesDetected: 0,
+      statusDetected: [],
+      recordsWithIssue: 0
     },
     source: "empty"
   };

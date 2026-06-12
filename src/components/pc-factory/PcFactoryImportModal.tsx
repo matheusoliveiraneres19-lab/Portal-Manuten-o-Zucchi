@@ -52,15 +52,16 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
     <PcFactoryModalShell
       open={open}
       title="Importar relatório do PC-Factory"
-      subtitle='Planilha Excel (.xlsx) — campo obrigatório "Nome Status Recurso"'
+      subtitle='Planilha ajustada (.xlsx) — aba "Import_PC_FACTORY" ou aba bruta "ag-grid"'
       onClose={onClose}
     >
       <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gold/35 bg-black/25 px-4 py-8 text-center transition hover:border-gold/55">
         <FileSpreadsheet className="h-8 w-8 text-gold" />
         <span className="text-sm font-semibold text-champagne">{file ? file.name : "Clique para selecionar o arquivo .xlsx"}</span>
         <span className="text-[11px] text-zinc-500">
-          Reconhece: Recurso, Nome Status Recurso, Linha, Setor, Data início/fim, Hora início/fim, Duração, Ordem,
-          Produto, Turno, Observação...
+          Lê preferencialmente a aba <strong className="text-zinc-300">Import_PC_FACTORY</strong> (colunas resourceName,
+          statusRaw, groupPortal...). Se ausente, lê a aba bruta <strong className="text-zinc-300">ag-grid</strong>
+          (Apelido Recurso, Nome Status Recurso, Tempo Decorrido [hr]...).
         </span>
         <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
       </label>
@@ -82,6 +83,7 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
               <Summary label="Manutenção (total)" value={result.maintenanceRows} tone="gold" />
               <Summary label="Manut. Mecânica" value={result.mechanicalMaintenanceRows} />
               <Summary label="Manut. Elétrica" value={result.electricalMaintenanceRows} />
+              <Summary label="Manut. Automação" value={result.automationMaintenanceRows} />
               <Summary label="Aguardando manut." value={result.waitingMaintenanceRows} />
               <Summary label="Produção" value={result.productionRows} />
               <Summary label="Setup" value={result.setupRows} />
@@ -89,9 +91,21 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
               <Summary label="Fora do planejado" value={result.excludedFromPlannedTimeRows} />
               <Summary label="Outros" value={result.otherRows} />
               <Summary label="Recursos detectados" value={result.resourcesDetected} />
+              <Summary label="Grupos detectados" value={result.groupsDetected.length} />
+              <Summary label="Com problema de dados" value={result.dataQualityRows} tone={result.dataQualityRows > 0 ? "danger" : "default"} />
             </dl>
           </div>
 
+          {result.sheetUsed ? (
+            <p className="text-[11px] text-zinc-500">
+              <span className="font-semibold text-gold">Aba lida:</span> {result.sheetUsed}
+            </p>
+          ) : null}
+          {result.groupsDetected.length ? (
+            <p className="text-[11px] text-zinc-500">
+              <span className="font-semibold text-gold">Grupos detectados:</span> {result.groupsDetected.join(" · ")}
+            </p>
+          ) : null}
           {result.statusDetected.length ? (
             <p className="text-[11px] text-zinc-500">
               <span className="font-semibold text-gold">Status detectados:</span> {result.statusDetected.join(" · ")}

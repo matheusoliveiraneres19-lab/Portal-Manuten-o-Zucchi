@@ -12,6 +12,7 @@ import { PcFactoryEmptyState } from "@/components/pc-factory/PcFactoryEmptyState
 import { PcFactoryRecordsTable } from "@/components/pc-factory/PcFactoryRecordsTable";
 import { PcFactoryDetailsDrawer } from "@/components/pc-factory/PcFactoryDetailsDrawer";
 import { PcFactoryImportModal } from "@/components/pc-factory/PcFactoryImportModal";
+import { PcFactoryQualityPanel } from "@/components/pc-factory/PcFactoryQualityPanel";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import { PC_FACTORY_CATEGORY_LABELS } from "@/utils/pc-factory-normalizer";
 import type { PcFactoryPageData, PcFactoryResourceDetails, PcFactoryStatusCategory } from "@/types/pc-factory";
@@ -32,6 +33,10 @@ const PcFactoryLineSummaryChart = dynamic(
   () => import("@/components/pc-factory/PcFactoryLineSummaryChart").then((m) => m.PcFactoryLineSummaryChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
 );
+const PcFactoryGroupChart = dynamic(
+  () => import("@/components/pc-factory/PcFactoryGroupChart").then((m) => m.PcFactoryGroupChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
+);
 const PcFactoryCompositionChart = dynamic(
   () => import("@/components/pc-factory/PcFactoryCompositionChart").then((m) => m.PcFactoryCompositionChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
@@ -46,6 +51,7 @@ export type AppliedPcFactoryFilters = {
   endDate: string;
   resources: string[];
   productionLines: string[];
+  groupPortals: string[];
   sectors: string[];
   shifts: string[];
   statusNames: string[];
@@ -53,6 +59,7 @@ export type AppliedPcFactoryFilters = {
   onlyMaintenance: boolean;
   onlyMechanical: boolean;
   onlyElectrical: boolean;
+  onlyAutomation: boolean;
   onlyWaiting: boolean;
   excludeOutOfPlanned: boolean;
   search: string;
@@ -213,6 +220,8 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
         <>
           <PcFactoryKpiCards kpis={data.kpis} />
 
+          <PcFactoryQualityPanel quality={data.dataQuality} />
+
           <p className="text-[11px] text-zinc-500">
             <span className="font-semibold text-gold">Dica:</span> clique em uma máquina nos gráficos ou na tabela para ver
             disponibilidade, MTTR, manutenção mecânica/elétrica/aguardando e recomendações.
@@ -254,6 +263,16 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
             />
             <PcFactoryRankingChart
               className="xl:col-span-6"
+              title="Top manutenção automação"
+              subtitle="Top 10 máquinas por horas em Manutenção Automação."
+              rows={data.topAutomation}
+              metric="automationHours"
+              color="#7a4fb5"
+              emptyDescription="Sem manutenção de automação no período."
+              onSelect={openDetails}
+            />
+            <PcFactoryRankingChart
+              className="xl:col-span-6"
               title="Top máquinas aguardando manutenção"
               subtitle="Top 10 máquinas por horas em Aguardando Manutenção."
               rows={data.topWaiting}
@@ -263,6 +282,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
               onSelect={openDetails}
             />
 
+            <PcFactoryGroupChart className="xl:col-span-6" rows={data.groupSummary} />
             <PcFactoryLineSummaryChart className="xl:col-span-6" rows={data.productionLines} />
             <PcFactoryCompositionChart className="xl:col-span-6" rows={data.productionLines} />
             <PcFactoryTrendChart className="xl:col-span-12" points={data.trend} />
@@ -300,6 +320,7 @@ function toTableFilters(filters: AppliedPcFactoryFilters) {
     endDate: filters.endDate,
     resources: filters.resources,
     productionLines: filters.productionLines,
+    groupPortals: filters.groupPortals,
     sectors: filters.sectors,
     shifts: filters.shifts,
     statusNames: filters.statusNames,
@@ -307,6 +328,7 @@ function toTableFilters(filters: AppliedPcFactoryFilters) {
     onlyMaintenance: filters.onlyMaintenance,
     onlyMechanical: filters.onlyMechanical,
     onlyElectrical: filters.onlyElectrical,
+    onlyAutomation: filters.onlyAutomation,
     onlyWaiting: filters.onlyWaiting,
     excludeOutOfPlanned: filters.excludeOutOfPlanned,
     search: filters.search
@@ -323,6 +345,7 @@ const TOGGLE_LABELS: Partial<Record<keyof AppliedPcFactoryFilters, string>> = {
   onlyMaintenance: "Somente manutenção",
   onlyMechanical: "Só mecânica",
   onlyElectrical: "Só elétrica",
+  onlyAutomation: "Só automação",
   onlyWaiting: "Só aguardando",
   excludeOutOfPlanned: "Excluir fora do planejado"
 };
@@ -332,6 +355,7 @@ function buildChips(filters: AppliedPcFactoryFilters): Chip[] {
   if (filters.startDate || filters.endDate) {
     chips.push({ key: "period", label: `Período: ${filters.startDate || "…"} → ${filters.endDate || "…"}`, kind: "startDate" });
   }
+  filters.groupPortals.forEach((v) => chips.push({ key: `grp:${v}`, label: `Grupo: ${v}`, kind: "groupPortals", value: v }));
   filters.productionLines.forEach((v) => chips.push({ key: `line:${v}`, label: `Linha: ${v}`, kind: "productionLines", value: v }));
   filters.resources.forEach((v) => chips.push({ key: `res:${v}`, label: `Máquina: ${v}`, kind: "resources", value: v }));
   filters.statusNames.forEach((v) => chips.push({ key: `sn:${v}`, label: `Status: ${v}`, kind: "statusNames", value: v }));
@@ -340,7 +364,7 @@ function buildChips(filters: AppliedPcFactoryFilters): Chip[] {
   );
   filters.sectors.forEach((v) => chips.push({ key: `sec:${v}`, label: `Setor: ${v}`, kind: "sectors", value: v }));
   filters.shifts.forEach((v) => chips.push({ key: `sh:${v}`, label: `Turno: ${v}`, kind: "shifts", value: v }));
-  (["onlyMaintenance", "onlyMechanical", "onlyElectrical", "onlyWaiting", "excludeOutOfPlanned"] as const).forEach((key) => {
+  (["onlyMaintenance", "onlyMechanical", "onlyElectrical", "onlyAutomation", "onlyWaiting", "excludeOutOfPlanned"] as const).forEach((key) => {
     if (filters[key]) chips.push({ key, label: TOGGLE_LABELS[key] ?? key, kind: key });
   });
   if (filters.search) chips.push({ key: "search", label: `Busca: ${filters.search}`, kind: "search" });
@@ -352,6 +376,7 @@ function removeChip(chip: Chip, applied: AppliedPcFactoryFilters): AppliedPcFact
     ...applied,
     resources: [...applied.resources],
     productionLines: [...applied.productionLines],
+    groupPortals: [...applied.groupPortals],
     sectors: [...applied.sectors],
     shifts: [...applied.shifts],
     statusNames: [...applied.statusNames],
@@ -362,7 +387,14 @@ function removeChip(chip: Chip, applied: AppliedPcFactoryFilters): AppliedPcFact
     next.endDate = "";
   } else if (chip.kind === "search") {
     next.search = "";
-  } else if (chip.kind === "onlyMaintenance" || chip.kind === "onlyMechanical" || chip.kind === "onlyElectrical" || chip.kind === "onlyWaiting" || chip.kind === "excludeOutOfPlanned") {
+  } else if (
+    chip.kind === "onlyMaintenance" ||
+    chip.kind === "onlyMechanical" ||
+    chip.kind === "onlyElectrical" ||
+    chip.kind === "onlyAutomation" ||
+    chip.kind === "onlyWaiting" ||
+    chip.kind === "excludeOutOfPlanned"
+  ) {
     next[chip.kind] = false;
   } else if (chip.value) {
     const list = next[chip.kind] as string[];
@@ -376,6 +408,7 @@ function filtersToParams(filters: AppliedPcFactoryFilters): URLSearchParams {
   if (filters.startDate) params.set("startDate", filters.startDate);
   if (filters.endDate) params.set("endDate", filters.endDate);
   filters.productionLines.forEach((v) => params.append("line", v));
+  filters.groupPortals.forEach((v) => params.append("group", v));
   filters.resources.forEach((v) => params.append("resource", v));
   filters.sectors.forEach((v) => params.append("sector", v));
   filters.shifts.forEach((v) => params.append("shift", v));
@@ -384,6 +417,7 @@ function filtersToParams(filters: AppliedPcFactoryFilters): URLSearchParams {
   if (filters.onlyMaintenance) params.set("onlyMaintenance", "1");
   if (filters.onlyMechanical) params.set("onlyMechanical", "1");
   if (filters.onlyElectrical) params.set("onlyElectrical", "1");
+  if (filters.onlyAutomation) params.set("onlyAutomation", "1");
   if (filters.onlyWaiting) params.set("onlyWaiting", "1");
   if (filters.excludeOutOfPlanned) params.set("excludeOutOfPlanned", "1");
   if (filters.search) params.set("q", filters.search);

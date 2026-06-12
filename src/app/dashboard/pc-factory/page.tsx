@@ -14,6 +14,7 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
   const startDate = firstParam(searchParams.startDate);
   const endDate = firstParam(searchParams.endDate);
   const productionLines = listParam(searchParams.line);
+  const groupPortals = listParam(searchParams.group);
   const resources = listParam(searchParams.resource);
   const sectors = listParam(searchParams.sector);
   const shifts = listParam(searchParams.shift);
@@ -22,6 +23,7 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
   const onlyMaintenance = isTrue(searchParams.onlyMaintenance);
   const onlyMechanical = isTrue(searchParams.onlyMechanical);
   const onlyElectrical = isTrue(searchParams.onlyElectrical);
+  const onlyAutomation = isTrue(searchParams.onlyAutomation);
   const onlyWaiting = isTrue(searchParams.onlyWaiting);
   const excludeOutOfPlanned = isTrue(searchParams.excludeOutOfPlanned);
   const search = firstParam(searchParams.q);
@@ -30,6 +32,7 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
     startDate,
     endDate,
     productionLines,
+    groupPortals,
     resources,
     sectors,
     shifts,
@@ -38,6 +41,7 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
     onlyMaintenance,
     onlyMechanical,
     onlyElectrical,
+    onlyAutomation,
     onlyWaiting,
     excludeOutOfPlanned,
     search
@@ -47,6 +51,7 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
     startDate: startDate ?? "",
     endDate: endDate ?? "",
     productionLines,
+    groupPortals,
     resources,
     sectors,
     shifts,
@@ -55,6 +60,7 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
     onlyMaintenance,
     onlyMechanical,
     onlyElectrical,
+    onlyAutomation,
     onlyWaiting,
     excludeOutOfPlanned,
     search: search ?? ""

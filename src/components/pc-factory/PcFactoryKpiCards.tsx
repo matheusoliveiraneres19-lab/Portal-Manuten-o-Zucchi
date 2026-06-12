@@ -1,7 +1,7 @@
 "use client";
 
 import { m } from "framer-motion";
-import { AlarmClock, CalendarClock, CircleGauge, Cog, Crown, Hammer, Percent, Timer, Wrench, Zap } from "lucide-react";
+import { AlarmClock, CalendarClock, CircleGauge, Cog, Cpu, Crown, Hammer, Percent, Timer, Wrench, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { PcFactoryKpis } from "@/types/pc-factory";
 
@@ -32,14 +32,14 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
     {
       title: "Horas de manutenção",
       value: hours(kpis.maintenanceHours),
-      description: "Mecânica + Elétrica + Aguardando Manutenção.",
+      description: "Mecânica + Elétrica + Automação + Aguardando.",
       icon: Wrench,
       tone: "gold"
     },
     {
       title: "Eventos de manutenção",
       value: int(kpis.maintenanceEvents),
-      description: "Registros dos 3 status de manutenção.",
+      description: "Registros dos 4 status de manutenção.",
       icon: Hammer,
       tone: "blue"
     },
@@ -77,6 +77,13 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
       description: `${int(kpis.electricalEvents)} eventos no período.`,
       icon: Zap,
       tone: "blue"
+    },
+    {
+      title: "Manutenção Automação",
+      value: hours(kpis.automationMaintenanceHours),
+      description: `${int(kpis.automationEvents)} eventos no período.`,
+      icon: Cpu,
+      tone: "green"
     },
     {
       title: "Aguardando manutenção",

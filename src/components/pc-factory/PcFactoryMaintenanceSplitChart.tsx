@@ -9,17 +9,17 @@ type PcFactoryMaintenanceSplitChartProps = {
   className?: string;
 };
 
-/** Rosca — Manutenção Mecânica × Elétrica × Aguardando (somente os 3 status de manutenção). */
+/** Rosca — Mecânica × Elétrica × Automação × Aguardando (os 4 status de manutenção). */
 export function PcFactoryMaintenanceSplitChart({ split, className = "" }: PcFactoryMaintenanceSplitChartProps) {
   const data = split.filter((item) => item.hours > 0);
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Manutenção: Mecânica × Elétrica × Aguardando</h3>
-      <p className="mb-3 text-[11px] text-zinc-500">Horas dos três status que entram como manutenção.</p>
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Manutenção: Mecânica × Elétrica × Automação × Aguardando</h3>
+      <p className="mb-3 text-[11px] text-zinc-500">Horas dos quatro status que entram como manutenção.</p>
 
       {data.length === 0 ? (
-        <EmptyState title="Sem manutenção no período" description="Nenhum dos 3 status de manutenção foi registrado." />
+        <EmptyState title="Sem manutenção no período" description="Nenhum dos 4 status de manutenção foi registrado." />
       ) : (
         <div className="h-[280px] w-full">
           <ResponsiveContainer width="100%" height="100%">

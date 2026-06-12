@@ -13,6 +13,8 @@ export type PcFactoryQueryParams = {
   /** Filtros acumulativos (multi-seleção). */
   resources?: string[];
   productionLines?: string[];
+  /** Grupo gerencial do portal (ex.: Indústria Granito, Indústria Mármore). */
+  groupPortals?: string[];
   sectors?: string[];
   shifts?: string[];
   /** Valores exatos de "Nome Status Recurso". */
@@ -23,6 +25,7 @@ export type PcFactoryQueryParams = {
   onlyMaintenance?: boolean;
   onlyMechanical?: boolean;
   onlyElectrical?: boolean;
+  onlyAutomation?: boolean;
   onlyWaiting?: boolean;
   /** Exclui Fora de Turno / Recurso Não Programado dos resultados. */
   excludeOutOfPlanned?: boolean;
@@ -44,6 +47,7 @@ export type PcFactoryTopResource = {
 export type PcFactoryKpis = {
   totalRecords: number;
   totalResources: number;
+  totalGroups: number;
   totalProductionLines: number;
   totalHours: number;
   /** Tempo planejado = total − (Fora de Turno + Recurso Não Programado). */
@@ -53,6 +57,7 @@ export type PcFactoryKpis = {
   maintenanceHours: number;
   mechanicalMaintenanceHours: number;
   electricalMaintenanceHours: number;
+  automationMaintenanceHours: number;
   waitingMaintenanceHours: number;
   setupHours: number;
   /** Perdas operacionais (não-manutenção): Falta de Material, Parada não Identificada e Setup (decisão da empresa). */
@@ -66,6 +71,7 @@ export type PcFactoryKpis = {
   maintenanceEvents: number;
   mechanicalEvents: number;
   electricalEvents: number;
+  automationEvents: number;
   waitingEvents: number;
   /** MTTR gerencial (horas) = horas de manutenção / eventos. null = dados insuficientes. */
   mttr: number | null;
@@ -85,7 +91,7 @@ export type PcFactoryCategorySlice = {
 };
 
 export type PcFactoryMaintenanceSplit = {
-  key: "MECANICA" | "ELETRICA" | "AGUARDANDO";
+  key: "MECANICA" | "ELETRICA" | "AUTOMACAO" | "AGUARDANDO";
   label: string;
   hours: number;
   events: number;
@@ -96,11 +102,30 @@ export type PcFactoryResourceRow = {
   resourceName: string;
   resourceCode: string | null;
   productionLine: string | null;
+  groupPortal: string | null;
   plannedHours: number;
   productionHours: number;
   maintenanceHours: number;
   mechanicalHours: number;
   electricalHours: number;
+  automationHours: number;
+  waitingHours: number;
+  lossHours: number;
+  stoppedHours: number;
+  maintenanceEvents: number;
+  mttr: number | null;
+  availabilityPercent: number | null;
+};
+
+/** Agregação de manutenção por Grupo Portal (ex.: Indústria Granito). */
+export type PcFactoryGroupRow = {
+  groupPortal: string;
+  resourcesCount: number;
+  plannedHours: number;
+  maintenanceHours: number;
+  mechanicalHours: number;
+  electricalHours: number;
+  automationHours: number;
   waitingHours: number;
   lossHours: number;
   stoppedHours: number;
@@ -124,6 +149,10 @@ export type PcFactoryTrendPoint = {
   period: string;
   label: string;
   maintenanceHours: number;
+  mechanicalHours: number;
+  electricalHours: number;
+  automationHours: number;
+  waitingHours: number;
   plannedHours: number;
   availabilityPercent: number | null;
 };
@@ -133,11 +162,14 @@ export type PcFactoryRecordRow = {
   resourceName: string;
   resourceCode: string | null;
   productionLine: string | null;
+  groupPortal: string | null;
   sector: string | null;
   statusRaw: string | null;
   statusCategory: PcFactoryStatusCategory;
   classificationLabel: string;
+  maintenanceType: string | null;
   isMaintenance: boolean;
+  isMaintenanceKpi: boolean;
   isInPlannedTime: boolean;
   startDateTime: string | null;
   endDateTime: string | null;
@@ -159,6 +191,7 @@ export type PcFactoryRecordsResult = {
 export type PcFactoryFilterOptions = {
   resources: Array<{ value: string; label: string }>;
   productionLines: Array<{ value: string; label: string }>;
+  groupPortals: Array<{ value: string; label: string }>;
   sectors: Array<{ value: string; label: string }>;
   shifts: Array<{ value: string; label: string }>;
   /** Valores exatos de "Nome Status Recurso" presentes nos dados. */
@@ -182,10 +215,12 @@ export type PcFactoryResourceDetails = {
   resourceCode: string | null;
   productionLine: string | null;
   sector: string | null;
+  groupPortal: string | null;
   plannedHours: number;
   maintenanceHours: number;
   mechanicalHours: number;
   electricalHours: number;
+  automationHours: number;
   waitingHours: number;
   stoppedHours: number;
   maintenanceEvents: number;
@@ -209,12 +244,27 @@ export type PcFactoryPageData = {
   criticalResources: PcFactoryResourceRow[];
   topMechanical: PcFactoryResourceRow[];
   topElectrical: PcFactoryResourceRow[];
+  topAutomation: PcFactoryResourceRow[];
   topWaiting: PcFactoryResourceRow[];
   productionLines: PcFactoryProductionLineRow[];
+  groupSummary: PcFactoryGroupRow[];
   trend: PcFactoryTrendPoint[];
   records: PcFactoryRecordsResult;
   filterOptions: PcFactoryFilterOptions;
+  /** Diagnóstico de qualidade da importação refletido nos dados atuais. */
+  dataQuality: PcFactoryDataQuality;
   source: "database" | "empty";
+};
+
+/** Painel "Qualidade da importação" (TAREFA 8). */
+export type PcFactoryDataQuality = {
+  totalRecords: number;
+  periodStart: string | null;
+  periodEnd: string | null;
+  groupsDetected: string[];
+  resourcesDetected: number;
+  statusDetected: string[];
+  recordsWithIssue: number;
 };
 
 /** Resumo enxuto para futura integração com o dashboard principal (TAREFA 12). */
@@ -249,34 +299,57 @@ export type PcFactoryImportResult = {
   maintenanceRows: number;
   mechanicalMaintenanceRows: number;
   electricalMaintenanceRows: number;
+  automationMaintenanceRows: number;
   waitingMaintenanceRows: number;
   excludedFromPlannedTimeRows: number;
   productionRows: number;
   setupRows: number;
   operationalLossRows: number;
   otherRows: number;
+  dataQualityRows: number;
+  /** Aba efetivamente lida (Import_PC_FACTORY, ag-grid, etc.). */
+  sheetUsed: string | null;
   periodDetected: { start: string | null; end: string | null };
   resourcesDetected: number;
+  groupsDetected: string[];
   statusDetected: string[];
   errors: PcFactoryImportError[];
 };
 
-/** Linha bruta da planilha PC-Factory após mapeamento flexível de colunas. */
+/**
+ * Linha bruta da planilha PC-Factory após mapeamento flexível de colunas.
+ * Cobre tanto a aba ajustada `Import_PC_FACTORY` (camelCase) quanto a aba bruta `ag-grid`.
+ */
 export type PcFactoryExcelRow = {
   resourceCode?: unknown;
   resourceName?: unknown;
   productionLine?: unknown;
+  groupPortal?: unknown;
   sector?: unknown;
   status?: unknown;
+  statusDetails?: unknown;
+  /** Início/Término — podem vir como data+hora num único campo ou separados. */
   startDate?: unknown;
   endDate?: unknown;
   startTime?: unknown;
   endTime?: unknown;
+  /** Duração genérica (minutos / hh:mm / "1,5h"). */
   duration?: unknown;
+  /** Duração explícita em minutos (coluna durationMinutes). */
+  durationMinutes?: unknown;
+  /** Duração explícita em horas reais (coluna durationHours). */
+  durationHours?: unknown;
+  /** "Tempo Decorrido [hr]" da aba bruta — fração de dia (multiplicar por 24). */
+  elapsedDayFraction?: unknown;
   orderNumber?: unknown;
+  operationCode?: unknown;
+  operationName?: unknown;
   productCode?: unknown;
   productDescription?: unknown;
   operatorName?: unknown;
+  initialResponsible?: unknown;
+  finalResponsible?: unknown;
   shift?: unknown;
   observation?: unknown;
+  rootCause?: unknown;
 };

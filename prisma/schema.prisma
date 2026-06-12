@@ -577,24 +577,45 @@ model PcFactoryRecord {
   resourceName       String
   /// Linha de produção e setor onde o recurso opera.
   productionLine     String?
+  /// Grupo gerencial do portal (ex.: "Indústria Granito", "Indústria Mármore").
+  groupPortal        String?
   sector             String?
   /// Valor exato de "Nome Status Recurso" vindo da planilha (auditoria, nunca substituído).
   statusRaw          String?
+  /// Detalhamento do status (campo livre da planilha).
+  statusDetails      String?
   /// Classificação gerencial derivada de statusRaw por match exato.
   statusCategory     PcFactoryStatusCategory @default(OUTROS)
+  /// Tipo de manutenção derivado (MECANICA | ELETRICA | AUTOMACAO | AGUARDANDO), ou null.
+  maintenanceType    String?
+  /// Entra no KPI de manutenção (os 4 status de manutenção). Derivado de statusRaw.
+  isMaintenanceKpi   Boolean                 @default(false)
+  /// Sai do tempo planejado (Fora de Turno / Recurso Não Programado). Derivado.
+  excludePlannedTime Boolean                 @default(false)
+  /// Reduz a disponibilidade estimada (manutenção + parada/perda + setup). Derivado.
+  isDowntimeForAvailability Boolean           @default(false)
   /// Janela do evento.
   startDateTime      DateTime?
   endDateTime        DateTime?
   /// Duração do evento (sempre positiva), em minutos e horas.
   durationMinutes    Float
   durationHours      Float
-  /// Ordem de produção / produto associado ao evento.
+  /// Responsáveis e operador do evento.
+  initialResponsible String?
+  finalResponsible   String?
+  operatorName       String?
+  /// Ordem de produção / operação / produto associado ao evento.
   orderNumber        String?
+  operationCode      String?
+  operationName      String?
   productCode        String?
   productDescription String?
-  operatorName       String?
   shift              String?
+  /// Observação/comentários e causa raiz informados na planilha.
   observation        String?
+  rootCause          String?
+  /// Marcação de problema de qualidade de dados detectado na importação.
+  dataQualityIssue   String?
   source             PcFactorySource         @default(EXCEL)
   importBatch        String?
   /// Chave de deduplicação na reimportação.
@@ -605,8 +626,10 @@ model PcFactoryRecord {
   @@index([resourceName])
   @@index([resourceCode])
   @@index([productionLine])
+  @@index([groupPortal])
   @@index([sector])
   @@index([statusCategory])
+  @@index([maintenanceType])
   @@index([startDateTime])
   @@index([endDateTime])
   @@index([importBatch])

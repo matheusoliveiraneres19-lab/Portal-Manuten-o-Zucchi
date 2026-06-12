@@ -19,6 +19,7 @@ const TOGGLES: Array<{ key: keyof AppliedPcFactoryFilters; label: string }> = [
   { key: "onlyMaintenance", label: "Somente manutenção" },
   { key: "onlyMechanical", label: "Só mecânica" },
   { key: "onlyElectrical", label: "Só elétrica" },
+  { key: "onlyAutomation", label: "Só automação" },
   { key: "onlyWaiting", label: "Só aguardando" },
   { key: "excludeOutOfPlanned", label: "Excluir fora de turno / não programado" }
 ];
@@ -33,7 +34,16 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
 
       <div className="grid gap-x-4 gap-y-4 md:grid-cols-2 xl:grid-cols-3">
         <MultiSelectFilter
-          label="Linha de produção"
+          label="Grupo Portal"
+          options={options.groupPortals}
+          selectedValues={draft.groupPortals}
+          onChange={(values) => onChange("groupPortals", values)}
+          placeholder="Todos os grupos"
+          searchPlaceholder="Buscar grupo..."
+          disabled={options.groupPortals.length === 0}
+        />
+        <MultiSelectFilter
+          label="Linha / Área"
           options={options.productionLines}
           selectedValues={draft.productionLines}
           onChange={(values) => onChange("productionLines", values)}

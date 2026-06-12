@@ -9,6 +9,7 @@ export type RecordsTableFilters = {
   endDate: string;
   resources: string[];
   productionLines: string[];
+  groupPortals: string[];
   sectors: string[];
   shifts: string[];
   statusNames: string[];
@@ -16,9 +17,17 @@ export type RecordsTableFilters = {
   onlyMaintenance: boolean;
   onlyMechanical: boolean;
   onlyElectrical: boolean;
+  onlyAutomation: boolean;
   onlyWaiting: boolean;
   excludeOutOfPlanned: boolean;
   search: string;
+};
+
+const MAINTENANCE_TYPE_LABELS: Record<string, string> = {
+  MECANICA: "Mecânica",
+  ELETRICA: "Elétrica",
+  AUTOMACAO: "Automação",
+  AGUARDANDO: "Aguardando"
 };
 
 type PcFactoryRecordsTableProps = {
@@ -62,6 +71,7 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
     if (filters.endDate) params.set("endDate", filters.endDate);
     filters.resources.forEach((v) => params.append("resource", v));
     filters.productionLines.forEach((v) => params.append("line", v));
+    filters.groupPortals.forEach((v) => params.append("group", v));
     filters.sectors.forEach((v) => params.append("sector", v));
     filters.shifts.forEach((v) => params.append("shift", v));
     filters.statusNames.forEach((v) => params.append("statusName", v));
@@ -69,6 +79,7 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
     if (filters.onlyMaintenance) params.set("onlyMaintenance", "1");
     if (filters.onlyMechanical) params.set("onlyMechanical", "1");
     if (filters.onlyElectrical) params.set("onlyElectrical", "1");
+    if (filters.onlyAutomation) params.set("onlyAutomation", "1");
     if (filters.onlyWaiting) params.set("onlyWaiting", "1");
     if (filters.excludeOutOfPlanned) params.set("excludeOutOfPlanned", "1");
     if (filters.search) params.set("search", filters.search);
@@ -131,25 +142,27 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
             <Loader2 className="h-5 w-5 animate-spin text-gold" />
           </div>
         ) : null}
-        <table className="w-full min-w-[1100px] border-collapse text-left text-xs">
+        <table className="w-full min-w-[1320px] border-collapse text-left text-xs">
           <thead>
             <tr className="border-b border-zinc-200 bg-zinc-50 text-[10px] uppercase tracking-wide text-zinc-500">
-              <Th>Início</Th>
-              <Th>Fim</Th>
+              <Th>Data início</Th>
+              <Th>Data fim</Th>
+              <Th>Grupo Portal</Th>
+              <Th>Linha / Área</Th>
               <Th>Máquina / Recurso</Th>
-              <Th>Linha</Th>
               <Th>Nome Status Recurso</Th>
-              <Th>Classificação</Th>
+              <Th>Classificação Portal</Th>
+              <Th>Tipo manutenção</Th>
               <Th className="text-right">Duração</Th>
-              <Th className="text-center">Manutenção?</Th>
-              <Th className="text-center">Tempo planejado?</Th>
+              <Th className="text-center">Entra KPI Manutenção?</Th>
+              <Th className="text-center">Entra Tempo Planejado?</Th>
               <Th>Observação</Th>
             </tr>
           </thead>
           <tbody>
             {result.data.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-zinc-500">
+                <td colSpan={12} className="px-3 py-8 text-center text-zinc-500">
                   Nenhum registro para os filtros atuais.
                 </td>
               </tr>
@@ -162,21 +175,23 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
                 >
                   <Td>{formatDateTime(row.startDateTime)}</Td>
                   <Td>{formatDateTime(row.endDateTime)}</Td>
+                  <Td>{orDash(row.groupPortal)}</Td>
+                  <Td>{orDash(row.productionLine ?? row.sector)}</Td>
                   <Td className="font-semibold text-zinc-800">
                     {row.resourceName}
                     {row.resourceCode ? <span className="ml-1 font-mono text-[10px] text-zinc-400">{row.resourceCode}</span> : null}
                   </Td>
-                  <Td>{orDash(row.productionLine)}</Td>
                   <Td className="text-zinc-700">{orDash(row.statusRaw)}</Td>
                   <Td>
                     <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${categoryBadge[row.statusCategory]}`}>
                       {row.classificationLabel}
                     </span>
                   </Td>
+                  <Td>{row.maintenanceType ? MAINTENANCE_TYPE_LABELS[row.maintenanceType] ?? row.maintenanceType : "—"}</Td>
                   <Td className="text-right font-semibold text-zinc-700">
                     {row.durationHours.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} h
                   </Td>
-                  <Td className="text-center">{row.isMaintenance ? <Yes /> : <No />}</Td>
+                  <Td className="text-center">{row.isMaintenanceKpi ? <Yes /> : <No />}</Td>
                   <Td className="text-center">{row.isInPlannedTime ? <Yes /> : <No />}</Td>
                   <Td className="max-w-[200px] truncate" title={row.observation ?? ""}>
                     {orDash(row.observation)}

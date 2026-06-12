@@ -8,6 +8,7 @@ export type RankingMetric =
   | "maintenanceHours"
   | "mechanicalHours"
   | "electricalHours"
+  | "automationHours"
   | "waitingHours"
   | "availabilityPercent";
 
@@ -26,6 +27,7 @@ const SUFFIX: Record<RankingMetric, string> = {
   maintenanceHours: " h",
   mechanicalHours: " h",
   electricalHours: " h",
+  automationHours: " h",
   waitingHours: " h",
   availabilityPercent: "%"
 };
