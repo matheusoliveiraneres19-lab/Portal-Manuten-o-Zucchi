@@ -1,10 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { importLubricantsFromExcel } from "@/services/importacao/lubricants-import.service";
+import { requireApiSession } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
+  const { error } = await requireApiSession();
+  if (error) return error;
+
   try {
     const formData = await request.formData();
     const file = formData.get("file");

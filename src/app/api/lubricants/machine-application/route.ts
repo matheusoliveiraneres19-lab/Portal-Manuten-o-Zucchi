@@ -3,10 +3,14 @@ import {
   deleteLubricantMachineApplication,
   saveLubricantMachineApplication
 } from "@/services/lubricants.service";
+import { requireApiSession } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const { error } = await requireApiSession();
+  if (error) return error;
+
   try {
     const body = await request.json();
     const code = typeof body.code === "string" ? body.code : "";
@@ -33,6 +37,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const { error } = await requireApiSession();
+  if (error) return error;
+
   const id = request.nextUrl.searchParams.get("id");
   if (!id) {
     return NextResponse.json({ error: "Parâmetro 'id' é obrigatório." }, { status: 400 });

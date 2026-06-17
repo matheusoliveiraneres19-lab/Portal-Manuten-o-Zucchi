@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { importPurchasesFromExcel } from "@/services/importacao/purchases-import.service";
+import { requireApiSession } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,6 +15,9 @@ function errorResponse(message: string, details: string, status: number) {
 }
 
 export async function POST(request: NextRequest) {
+  const { error: authError } = await requireApiSession();
+  if (authError) return authError;
+
   try {
     const contentType = request.headers.get("content-type") ?? "";
     if (!contentType.includes("multipart/form-data")) {

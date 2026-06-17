@@ -1,9 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateLubricantMinimumStock } from "@/services/lubricants.service";
+import { requireApiSession } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const { error } = await requireApiSession();
+  if (error) return error;
+
   try {
     const body = await request.json();
     const code = typeof body.code === "string" ? body.code : "";

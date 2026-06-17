@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { UserStatus } from "@prisma/client";
 import { AUTH_COOKIE_NAME, SESSION_MAX_AGE_SECONDS, getAuthSecret } from "@/lib/auth";
 import { signSession } from "@/lib/session";
+import { hashPassword, isBcryptHash, verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -95,15 +96,24 @@ export async function POST(request: NextRequest) {
           if (user.status === UserStatus.INATIVO) {
             return NextResponse.json({ ok: false, message: INACTIVE_USER_MESSAGE }, { status: 403 });
           }
-          // ATENÇÃO (Fase 2): trocar por bcrypt.compare(password, user.passwordHash).
-          if (password !== user.passwordHash) {
+          // Confere a senha com bcrypt (ou texto puro legado, migrado abaixo).
+          const passwordOk = await verifyPassword(password, user.passwordHash);
+          if (!passwordOk) {
             return NextResponse.json({ ok: false, message: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
           }
-          // Atualiza o último acesso de forma best-effort (não bloqueia o login se falhar).
+          // Migração transparente: se a senha ainda estava em texto puro, re-hasheia
+          // com bcrypt no primeiro login bem-sucedido (best-effort, não bloqueia).
+          const needsRehash = !isBcryptHash(user.passwordHash);
           try {
-            await prisma.user.update({ where: { id: user.id }, data: { lastAccess: new Date() } });
+            await prisma.user.update({
+              where: { id: user.id },
+              data: {
+                lastAccess: new Date(),
+                ...(needsRehash ? { passwordHash: await hashPassword(password) } : {})
+              }
+            });
           } catch {
-            /* ignora falha de escrita do lastAccess */
+            /* ignora falha de escrita (lastAccess/rehash); não bloqueia o login */
           }
           return await buildSessionResponse(
             secret,

@@ -18,6 +18,7 @@ import {
   ServiceOrderStatus,
   UserStatus
 } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 const seedOwner = "Seed Zucchi";
@@ -56,7 +57,9 @@ async function cleanGeneratedSeedData() {
 }
 
 async function seedUsers() {
-  // passwordHash está temporariamente simples para desenvolvimento local; em produção deve usar bcrypt.
+  // Senha padrão de desenvolvimento ("admin123") armazenada como hash bcrypt.
+  // Todos os usuários do seed compartilham a mesma senha, então um hash basta.
+  const passwordHash = await bcrypt.hash("admin123", 10);
   const users = [
     ["Administrador", "admin", "admin@zucchi.local", Role.ADMIN, "Administrador do Portal", "Manutenção"],
     ["Manutenção Zucchi", "manutencao", "manutencao@zucchi.local", Role.GESTOR, "Gestão da Manutenção", "Manutenção"],
@@ -71,8 +74,8 @@ async function seedUsers() {
   for (const [name, login, email, role, position, sector] of users) {
     result[name] = await prisma.user.upsert({
       where: { login },
-      update: { name, email, passwordHash: "admin123", role, status: UserStatus.ATIVO, position, sector },
-      create: { name, login, email, passwordHash: "admin123", role, status: UserStatus.ATIVO, position, sector }
+      update: { name, email, passwordHash, role, status: UserStatus.ATIVO, position, sector },
+      create: { name, login, email, passwordHash, role, status: UserStatus.ATIVO, position, sector }
     });
   }
   return result;
