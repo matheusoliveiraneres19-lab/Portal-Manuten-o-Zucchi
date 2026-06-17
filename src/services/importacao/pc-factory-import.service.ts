@@ -517,7 +517,8 @@ function parseRow(row: PcFactoryExcelRow, line: number): ParseOutcome {
       productDescription: optionalText(row.productDescription),
       shift: optionalText(row.shift),
       observation: optionalText(row.observation),
-      rootCause: optionalText(row.rootCause),
+      // PC-Factory exporta "0" quando a causa raiz não é preenchida → trata como ausente.
+      rootCause: cleanRootCause(row.rootCause),
       dataQualityIssue: detectDataQualityIssue(statusCategory, startDateTime, endDateTime, durationMinutes),
       // TAREFA 7: usa a technicalKey da planilha quando presente; senão gera uma única por linha.
       technicalKey:
@@ -639,6 +640,12 @@ async function createImportHistory(result: PcFactoryImportResult, options: Impor
 function optionalText(value: unknown): string | null {
   const text = limparTexto(value);
   return text || null;
+}
+
+/** Causa raiz: o PC-Factory grava "0" quando não há causa — tratamos como ausente. */
+function cleanRootCause(value: unknown): string | null {
+  const text = optionalText(value);
+  return text && text !== "0" ? text : null;
 }
 
 function round(value: number): number {

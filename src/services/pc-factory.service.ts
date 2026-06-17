@@ -528,10 +528,12 @@ export async function getPcFactoryRootCausePareto(params: PcFactoryQueryParams):
     _count: { _all: true }
   });
 
-  // Mescla null e "" no mesmo rótulo "Não informada".
+  // Mescla null, "" e o placeholder "0" (PC-Factory exporta 0 quando não há causa)
+  // no mesmo rótulo "Não informada".
   const merged = new Map<string, { hours: number; events: number }>();
   for (const group of grouped) {
-    const cause = group.rootCause?.trim() || "Não informada";
+    const raw = group.rootCause?.trim();
+    const cause = !raw || raw === "0" ? "Não informada" : raw;
     const current = merged.get(cause) ?? { hours: 0, events: 0 };
     current.hours += group._sum.durationHours ?? 0;
     current.events += group._count._all;
