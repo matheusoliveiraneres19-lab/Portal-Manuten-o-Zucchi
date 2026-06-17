@@ -1,24 +1,27 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, CalendarRange, Download, Loader2, Search, Target } from "lucide-react";
+import { AlertTriangle, CalendarRange, Download, Loader2, Search, SlidersHorizontal, Target } from "lucide-react";
 import { toast } from "sonner";
 import { AREA_LABELS, STATUS_LABELS } from "@/components/team/CollaboratorFormModal";
+import { AreaGoalsModal } from "@/components/team/AreaGoalsModal";
 import { normalizeNameKey } from "@/lib/name-normalizer";
 import type { CollaboratorArea, CollaboratorStatus, TeamHoursResult, TeamHoursRow } from "@/types/collaborators";
 
 type TeamHoursPanelProps = {
   initial: TeamHoursResult;
+  onGoalsChanged?: () => void;
 };
 
 const inputClass =
   "h-10 rounded-lg border border-white/14 bg-black/40 px-3 text-sm text-white outline-none transition focus:border-gold/70";
 
-export function TeamHoursPanel({ initial }: TeamHoursPanelProps) {
+export function TeamHoursPanel({ initial, onGoalsChanged }: TeamHoursPanelProps) {
   const [data, setData] = useState<TeamHoursResult>(initial);
   const [startDate, setStartDate] = useState(initial.startDate.slice(0, 10));
   const [endDate, setEndDate] = useState(initial.endDate.slice(0, 10));
   const [loading, setLoading] = useState(false);
+  const [goalsOpen, setGoalsOpen] = useState(false);
 
   const [areaFilter, setAreaFilter] = useState<CollaboratorArea | "">("");
   const [statusFilter, setStatusFilter] = useState<CollaboratorStatus | "">("");
@@ -146,8 +149,15 @@ export function TeamHoursPanel({ initial }: TeamHoursPanelProps) {
         </div>
         <button
           type="button"
-          onClick={exportCsv}
+          onClick={() => setGoalsOpen(true)}
           className="ml-auto inline-flex h-10 items-center gap-2 rounded-lg border border-gold/20 px-4 text-sm font-semibold text-zinc-300 transition hover:border-gold/40 hover:text-white"
+        >
+          <SlidersHorizontal className="h-4 w-4" /> Metas por área
+        </button>
+        <button
+          type="button"
+          onClick={exportCsv}
+          className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/20 px-4 text-sm font-semibold text-zinc-300 transition hover:border-gold/40 hover:text-white"
         >
           <Download className="h-4 w-4" /> Exportar CSV
         </button>
@@ -249,6 +259,15 @@ export function TeamHoursPanel({ initial }: TeamHoursPanelProps) {
           </div>
         </article>
       ) : null}
+
+      <AreaGoalsModal
+        open={goalsOpen}
+        onClose={() => setGoalsOpen(false)}
+        onSaved={() => {
+          void fetchHours(startDate, endDate);
+          onGoalsChanged?.();
+        }}
+      />
     </div>
   );
 }

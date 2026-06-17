@@ -44,7 +44,7 @@ function toDateUTC(br: string): Date {
 function topVote(m: Map<string, number>): string | null {
   let best: string | null = null;
   let bestN = -1;
-  for (const [k, n] of m) if (n > bestN) { best = k; bestN = n; }
+  for (const [k, n] of Array.from(m.entries())) if (n > bestN) { best = k; bestN = n; }
   return best;
 }
 

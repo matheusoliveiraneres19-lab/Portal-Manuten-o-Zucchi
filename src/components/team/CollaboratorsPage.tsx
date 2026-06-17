@@ -112,7 +112,7 @@ export function CollaboratorsPage({ initial, initialHours }: CollaboratorsPagePr
       </div>
 
       {tab === "horas" ? (
-        <TeamHoursPanel initial={initialHours} />
+        <TeamHoursPanel initial={initialHours} onGoalsChanged={load} />
       ) : (
         <>
       {/* Filtros */}

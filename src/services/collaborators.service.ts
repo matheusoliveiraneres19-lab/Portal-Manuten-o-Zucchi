@@ -2,11 +2,19 @@ import { CollaboratorArea, CollaboratorStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizeNameKey } from "@/lib/name-normalizer";
 import type {
+  AreaGoal,
   CollaboratorInput,
   CollaboratorListParams,
   CollaboratorListResult,
   CollaboratorRow
 } from "@/types/collaborators";
+
+const AREA_ORDER: CollaboratorArea[] = [
+  CollaboratorArea.MECANICA,
+  CollaboratorArea.ELETRICA,
+  CollaboratorArea.AUTOMACAO,
+  CollaboratorArea.OUTROS
+];
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
@@ -101,6 +109,56 @@ export async function listCollaborators(params: CollaboratorListParams = {}): Pr
 export async function getCollaboratorById(id: string): Promise<CollaboratorRow | null> {
   const record = await prisma.collaborator.findUnique({ where: { id }, select: collaboratorSelect });
   return record ? toRow(record) : null;
+}
+
+/** Meta mensal vigente por área (valor mais comum quando há divergência). */
+export async function getAreaGoals(): Promise<AreaGoal[]> {
+  const grouped = await prisma.collaborator.groupBy({
+    by: ["area", "monthlyGoal"],
+    _count: { _all: true }
+  });
+
+  const byArea = new Map<CollaboratorArea, Map<number, number>>();
+  for (const row of grouped) {
+    const goals = byArea.get(row.area) ?? new Map<number, number>();
+    goals.set(row.monthlyGoal, row._count._all);
+    byArea.set(row.area, goals);
+  }
+
+  return AREA_ORDER.map((area) => {
+    const goals = byArea.get(area);
+    if (!goals || goals.size === 0) {
+      return { area, goal: DEFAULT_MONTHLY_GOAL, count: 0, uniform: true };
+    }
+    let goal = DEFAULT_MONTHLY_GOAL;
+    let bestCount = -1;
+    let count = 0;
+    for (const [value, occurrences] of Array.from(goals.entries())) {
+      count += occurrences;
+      if (occurrences > bestCount) {
+        bestCount = occurrences;
+        goal = value;
+      }
+    }
+    return { area, goal, count, uniform: goals.size === 1 };
+  });
+}
+
+/** Define a meta mensal por área (atualiza todos os colaboradores da área). */
+export async function setAreaGoals(
+  goals: Partial<Record<CollaboratorArea, number>>
+): Promise<Array<{ area: CollaboratorArea; goal: number; updated: number }>> {
+  const results: Array<{ area: CollaboratorArea; goal: number; updated: number }> = [];
+  for (const area of AREA_ORDER) {
+    const goal = goals[area];
+    if (goal === undefined) continue;
+    if (!Number.isFinite(goal) || goal <= 0 || goal > 1000) {
+      throw new CollaboratorValidationError(`Meta inválida para a área ${area}. Use um valor entre 1 e 1000.`);
+    }
+    const updated = await prisma.collaborator.updateMany({ where: { area }, data: { monthlyGoal: goal } });
+    results.push({ area, goal, updated: updated.count });
+  }
+  return results;
 }
 
 export async function createCollaborator(input: CollaboratorInput): Promise<CollaboratorRow> {

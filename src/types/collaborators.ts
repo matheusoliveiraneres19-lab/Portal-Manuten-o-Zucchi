@@ -56,6 +56,16 @@ export type UnmatchedHoursRow = {
   hours: number;
 };
 
+/** Meta mensal vigente de uma área (para o editor de metas por área). */
+export type AreaGoal = {
+  area: CollaboratorArea;
+  goal: number;
+  /** Quantos colaboradores há na área. */
+  count: number;
+  /** true se todos na área compartilham a mesma meta. */
+  uniform: boolean;
+};
+
 export type TeamHoursResult = {
   startDate: string;
   endDate: string;
