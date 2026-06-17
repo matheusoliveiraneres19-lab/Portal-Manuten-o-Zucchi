@@ -60,6 +60,7 @@ type Person = {
 async function main() {
   const filePath = process.argv[2];
   const commit = process.argv.includes("--commit");
+  const replace = process.argv.includes("--replace");
   if (!filePath) {
     console.error('Informe o caminho do arquivo. Ex.: npx tsx scripts/import-team-hours.ts "C:\\...\\horas_17.06.md"');
     process.exit(1);
@@ -162,9 +163,11 @@ async function main() {
   console.log("\nGravando...");
   let created = 0;
   let updated = 0;
+  const keep: string[] = [];
   for (const p of persons) {
     const mat = topVote(p.matriculaVotes);
     const matricula = mat ? `P-${mat}` : `N-${p.nameKey.replace(/\s+/g, "-").slice(0, 18)}`;
+    keep.push(matricula);
     const gpm = topVote(p.gpmVotes) ?? "";
     const map = GPM_MAP[gpm] ?? { area: CollaboratorArea.OUTROS, role: null };
     const result = await prisma.collaborator.upsert({
@@ -174,6 +177,18 @@ async function main() {
     });
     if (result.createdAt.getTime() === result.updatedAt.getTime()) created += 1;
     else updated += 1;
+  }
+
+  // --replace: remove colaboradores gerados por importação (matrícula P-/N-) que
+  // não estão mais na lista atual. Não toca em cadastros manuais.
+  if (replace) {
+    const removed = await prisma.collaborator.deleteMany({
+      where: {
+        OR: [{ matricula: { startsWith: "P-" } }, { matricula: { startsWith: "N-" } }],
+        NOT: { matricula: { in: keep } }
+      }
+    });
+    console.log(`Colaboradores removidos (fora da lista atual): ${removed.count}`);
   }
 
   const del = await prisma.timeEntry.deleteMany({ where: { observation: MARKER } });
