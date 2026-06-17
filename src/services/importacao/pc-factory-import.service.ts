@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { ImportStatus, ImportType, PcFactorySource, PcFactoryStatusCategory } from "@prisma/client";
+import { ImportStatus, ImportType, PcFactorySource, PcFactoryStatusCategory, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { converterNumeroBrasileiro, limparTexto, normalizarNomeColuna } from "@/utils/importacao";
 import {
@@ -266,6 +266,9 @@ export async function importPcFactoryRecords(
   let minDate: Date | null = null;
   let maxDate: Date | null = null;
 
+  // Acumula os registros válidos em memória; a gravação acontece em massa depois do loop.
+  const toPersist: Prisma.PcFactoryRecordCreateManyInput[] = [];
+
   for (let index = 0; index < rows.length; index += 1) {
     const line = index + 2; // +1 cabeçalho, +1 base 1
 
@@ -299,7 +302,7 @@ export async function importPcFactoryRecords(
       }
       seenKeys.add(parsed.technicalKey);
 
-      const data = {
+      toPersist.push({
         resourceCode: parsed.resourceCode,
         resourceName: parsed.resourceName,
         productionLine: parsed.productionLine,
@@ -329,27 +332,17 @@ export async function importPcFactoryRecords(
         rootCause: parsed.rootCause,
         dataQualityIssue: parsed.dataQualityIssue,
         source: PcFactorySource.EXCEL,
-        importBatch
-      };
-
-      const existing = await prisma.pcFactoryRecord.findUnique({
-        where: { technicalKey: parsed.technicalKey },
-        select: { id: true }
+        importBatch,
+        technicalKey: parsed.technicalKey
       });
-
-      if (existing) {
-        await prisma.pcFactoryRecord.update({ where: { id: existing.id }, data });
-        result.updatedRows += 1;
-      } else {
-        await prisma.pcFactoryRecord.create({ data: { ...data, technicalKey: parsed.technicalKey } });
-        result.createdRows += 1;
-      }
-      result.importedRows += 1;
     } catch (error) {
       result.errorRows += 1;
       result.errors.push(toImportError(error, line));
     }
   }
+
+  // Gravação em massa (substitui o antigo N+1: 2 round-trips por linha contra o banco remoto).
+  await persistRecords(toPersist, result);
 
   result.resourcesDetected = resources.size;
   result.groupsDetected = Array.from(groups).sort();
@@ -361,6 +354,59 @@ export async function importPcFactoryRecords(
 
   await createImportHistory(result, options);
   return result;
+}
+
+/** Tamanho do lote para as operações em massa contra o banco. */
+const PERSIST_CHUNK = 500;
+
+/**
+ * Persiste os registros em massa. Em vez de 2 round-trips por linha (findUnique +
+ * update/create), faz: (1) checagem das chaves já existentes em poucas queries —
+ * só para contar created vs updated; (2) regravação por chunk com deleteMany +
+ * createMany dentro de uma transação. PcFactoryRecord é tabela-folha (sem FKs de
+ * entrada), então apagar e recriar a chave é seguro e idempotente.
+ */
+async function persistRecords(
+  records: Prisma.PcFactoryRecordCreateManyInput[],
+  result: PcFactoryImportResult
+): Promise<void> {
+  if (records.length === 0) return;
+
+  const keys = records.map((r) => r.technicalKey).filter((k): k is string => Boolean(k));
+
+  // (1) Quais chaves já existem — apenas para a contagem created/updated.
+  const existingKeys = new Set<string>();
+  try {
+    for (let i = 0; i < keys.length; i += PERSIST_CHUNK) {
+      const found = await prisma.pcFactoryRecord.findMany({
+        where: { technicalKey: { in: keys.slice(i, i + PERSIST_CHUNK) } },
+        select: { technicalKey: true }
+      });
+      for (const f of found) if (f.technicalKey) existingKeys.add(f.technicalKey);
+    }
+  } catch {
+    /* a checagem é só para a contagem; se falhar, a regravação abaixo segue normalmente */
+  }
+
+  // (2) Regrava por chunk: apaga as chaves do chunk e recria, de forma atômica.
+  for (let i = 0; i < records.length; i += PERSIST_CHUNK) {
+    const slice = records.slice(i, i + PERSIST_CHUNK);
+    const sliceKeys = slice.map((r) => r.technicalKey).filter((k): k is string => Boolean(k));
+    try {
+      await prisma.$transaction([
+        prisma.pcFactoryRecord.deleteMany({ where: { technicalKey: { in: sliceKeys } } }),
+        prisma.pcFactoryRecord.createMany({ data: slice, skipDuplicates: true })
+      ]);
+      for (const record of slice) {
+        if (record.technicalKey && existingKeys.has(record.technicalKey)) result.updatedRows += 1;
+        else result.createdRows += 1;
+        result.importedRows += 1;
+      }
+    } catch (error) {
+      result.errorRows += slice.length;
+      result.errors.push(toImportError(error, i + 2));
+    }
+  }
 }
 
 /** Lê o arquivo Excel e importa. Atalho usado pelo script CLI e pela API. */
