@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, CalendarRange, Loader2, Target } from "lucide-react";
+import { useMemo, useState } from "react";
+import { AlertTriangle, CalendarRange, Download, Loader2, Search, Target } from "lucide-react";
 import { toast } from "sonner";
 import { AREA_LABELS, STATUS_LABELS } from "@/components/team/CollaboratorFormModal";
-import type { TeamHoursResult } from "@/types/collaborators";
+import { normalizeNameKey } from "@/lib/name-normalizer";
+import type { CollaboratorArea, CollaboratorStatus, TeamHoursResult, TeamHoursRow } from "@/types/collaborators";
 
 type TeamHoursPanelProps = {
   initial: TeamHoursResult;
@@ -19,18 +20,24 @@ export function TeamHoursPanel({ initial }: TeamHoursPanelProps) {
   const [endDate, setEndDate] = useState(initial.endDate.slice(0, 10));
   const [loading, setLoading] = useState(false);
 
-  async function applyPeriod() {
-    if (loading) return;
-    if (startDate && endDate && startDate > endDate) {
+  const [areaFilter, setAreaFilter] = useState<CollaboratorArea | "">("");
+  const [statusFilter, setStatusFilter] = useState<CollaboratorStatus | "">("");
+  const [nameFilter, setNameFilter] = useState("");
+
+  async function fetchHours(start: string, end: string) {
+    if (start && end && start > end) {
       toast.error("A data inicial não pode ser maior que a final.");
       return;
     }
     setLoading(true);
     try {
-      const params = new URLSearchParams({ startDate, endDate });
+      const params = new URLSearchParams({ startDate: start, endDate: end });
       const response = await fetch(`/api/collaborators/hours?${params.toString()}`);
       if (!response.ok) throw new Error("request failed");
-      setData((await response.json()) as TeamHoursResult);
+      const result = (await response.json()) as TeamHoursResult;
+      setData(result);
+      setStartDate(result.startDate.slice(0, 10));
+      setEndDate(result.endDate.slice(0, 10));
     } catch {
       toast.error("Não foi possível carregar as horas do período.");
     } finally {
@@ -38,11 +45,81 @@ export function TeamHoursPanel({ initial }: TeamHoursPanelProps) {
     }
   }
 
-  const overallPercent = data.totalGoal > 0 ? (data.totalHours / data.totalGoal) * 100 : null;
+  function applyPreset(preset: "atual" | "passado" | "tri" | "ano") {
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const m = now.getUTCMonth();
+    let start: Date;
+    let end: Date;
+    if (preset === "atual") {
+      start = new Date(Date.UTC(y, m, 1));
+      end = new Date(Date.UTC(y, m + 1, 0));
+    } else if (preset === "passado") {
+      start = new Date(Date.UTC(y, m - 1, 1));
+      end = new Date(Date.UTC(y, m, 0));
+    } else if (preset === "tri") {
+      start = new Date(Date.UTC(y, m - 2, 1));
+      end = new Date(Date.UTC(y, m + 1, 0));
+    } else {
+      start = new Date(Date.UTC(y, 0, 1));
+      end = new Date(Date.UTC(y, 11, 31));
+    }
+    void fetchHours(start.toISOString().slice(0, 10), end.toISOString().slice(0, 10));
+  }
+
+  // Filtragem client-side (a carga já traz todos os colaboradores).
+  const nameKey = normalizeNameKey(nameFilter);
+  const filteredRows = useMemo(
+    () =>
+      data.rows.filter((row) => {
+        if (areaFilter && row.area !== areaFilter) return false;
+        if (statusFilter && row.status !== statusFilter) return false;
+        if (nameKey && !normalizeNameKey(`${row.name} ${row.matricula} ${row.role ?? ""}`).includes(nameKey)) return false;
+        return true;
+      }),
+    [data.rows, areaFilter, statusFilter, nameKey]
+  );
+
+  // Totais recalculados sobre o filtro atual.
+  const totalHours = round(filteredRows.reduce((sum, row) => sum + row.hours, 0));
+  const totalGoal = round(filteredRows.reduce((sum, row) => sum + row.monthlyGoal, 0));
+  const overallPercent = totalGoal > 0 ? (totalHours / totalGoal) * 100 : null;
+  const belowGoal = filteredRows.filter((row) => row.goalPercent !== null && row.goalPercent < 100).length;
+
+  function exportCsv() {
+    if (filteredRows.length === 0) {
+      toast.error("Nada para exportar no filtro atual.");
+      return;
+    }
+    const headers = ["Matrícula", "Nome", "Função", "Área", "Status", "Horas", "Meta (h)", "% da meta"];
+    const lines = [
+      headers.map(csvCell).join(";"),
+      ...filteredRows.map((row) =>
+        [
+          csvCell(row.matricula),
+          csvCell(row.name),
+          csvCell(row.role ?? ""),
+          csvCell(AREA_LABELS[row.area]),
+          csvCell(STATUS_LABELS[row.status]),
+          csvNumber(row.hours),
+          csvNumber(row.monthlyGoal),
+          row.goalPercent === null ? "" : csvNumber(row.goalPercent)
+        ].join(";")
+      )
+    ];
+    const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `horas-equipe_${startDate}_a_${endDate}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("CSV exportado.");
+  }
 
   return (
     <div className={`space-y-4 transition ${loading ? "opacity-70" : ""}`}>
-      {/* Controle de período */}
+      {/* Período + presets */}
       <div className="flex flex-wrap items-end gap-2">
         <div>
           <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">De</label>
@@ -54,30 +131,66 @@ export function TeamHoursPanel({ initial }: TeamHoursPanelProps) {
         </div>
         <button
           type="button"
-          onClick={applyPeriod}
+          onClick={() => fetchHours(startDate, endDate)}
           disabled={loading}
           className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-4 text-sm font-bold text-gold transition hover:bg-gold/25 disabled:opacity-70"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarRange className="h-4 w-4" />}
-          Aplicar período
+          Aplicar
+        </button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <PresetButton onClick={() => applyPreset("atual")}>Mês atual</PresetButton>
+          <PresetButton onClick={() => applyPreset("passado")}>Mês passado</PresetButton>
+          <PresetButton onClick={() => applyPreset("tri")}>Últimos 3 meses</PresetButton>
+          <PresetButton onClick={() => applyPreset("ano")}>Ano</PresetButton>
+        </div>
+        <button
+          type="button"
+          onClick={exportCsv}
+          className="ml-auto inline-flex h-10 items-center gap-2 rounded-lg border border-gold/20 px-4 text-sm font-semibold text-zinc-300 transition hover:border-gold/40 hover:text-white"
+        >
+          <Download className="h-4 w-4" /> Exportar CSV
         </button>
       </div>
 
+      {/* Filtros */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+          <input
+            value={nameFilter}
+            onChange={(e) => setNameFilter(e.target.value)}
+            placeholder="Filtrar por nome, matrícula ou função"
+            className="h-10 w-72 rounded-lg border border-white/14 bg-black/40 pl-9 pr-3 text-sm text-white outline-none transition focus:border-gold/70"
+          />
+        </div>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as CollaboratorStatus | "")} className={inputClass}>
+          <option value="" className="bg-[#0a0b0b]">Todos os status</option>
+          {(Object.keys(STATUS_LABELS) as CollaboratorStatus[]).map((s) => (
+            <option key={s} value={s} className="bg-[#0a0b0b]">{STATUS_LABELS[s]}</option>
+          ))}
+        </select>
+        <select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value as CollaboratorArea | "")} className={inputClass}>
+          <option value="" className="bg-[#0a0b0b]">Todas as áreas</option>
+          {(Object.keys(AREA_LABELS) as CollaboratorArea[]).map((a) => (
+            <option key={a} value={a} className="bg-[#0a0b0b]">{AREA_LABELS[a]}</option>
+          ))}
+        </select>
+        <span className="ml-auto text-[11px] text-zinc-500">{filteredRows.length} de {data.rows.length} colaborador(es)</span>
+      </div>
+
       {/* Resumo */}
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <SummaryCard label="Horas apontadas" value={`${fmt(data.totalHours)} h`} icon={Target} />
-        <SummaryCard label="Meta total da equipe" value={`${fmt(data.totalGoal)} h`} icon={Target} />
-        <SummaryCard
-          label="% da meta"
-          value={overallPercent === null ? "—" : `${fmt(overallPercent)}%`}
-          icon={Target}
-        />
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <SummaryCard label="Horas apontadas" value={`${fmt(totalHours)} h`} icon={Target} />
+        <SummaryCard label="Meta (filtro)" value={`${fmt(totalGoal)} h`} icon={Target} />
+        <SummaryCard label="% da meta" value={overallPercent === null ? "—" : `${fmt(overallPercent)}%`} icon={Target} />
+        <SummaryCard label="Abaixo da meta" value={`${belowGoal}`} icon={AlertTriangle} tone="danger" />
       </section>
 
       {/* Tabela horas x colaborador */}
       <article className="panel overflow-hidden rounded-lg">
-        {data.rows.length === 0 ? (
-          <div className="px-4 py-12 text-center text-sm text-zinc-500">Nenhum colaborador cadastrado.</div>
+        {filteredRows.length === 0 ? (
+          <div className="px-4 py-12 text-center text-sm text-zinc-500">Nenhum colaborador no filtro atual.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
@@ -92,7 +205,7 @@ export function TeamHoursPanel({ initial }: TeamHoursPanelProps) {
                 </tr>
               </thead>
               <tbody>
-                {data.rows.map((row) => (
+                {filteredRows.map((row) => (
                   <tr key={row.id} className="border-b border-zinc-100 text-zinc-800 last:border-0">
                     <td className="px-4 py-2.5">
                       <div className="font-semibold">{row.name}</div>
@@ -154,10 +267,10 @@ function GoalBar({ percent }: { percent: number | null }) {
   );
 }
 
-function SummaryCard({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Target }) {
+function SummaryCard({ label, value, icon: Icon, tone = "gold" }: { label: string; value: string; icon: typeof Target; tone?: "gold" | "danger" }) {
   return (
     <div className="panel flex items-center gap-3 rounded-lg p-4">
-      <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">
+      <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] ${tone === "danger" ? "bg-danger" : "bg-gold"}`}>
         <Icon className="h-5 w-5" strokeWidth={1.8} />
       </div>
       <div>
@@ -168,6 +281,30 @@ function SummaryCard({ label, value, icon: Icon }: { label: string; value: strin
   );
 }
 
+function PresetButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex h-8 items-center rounded-md border border-white/12 px-2.5 text-[11px] font-semibold text-zinc-300 transition hover:border-gold/40 hover:text-gold"
+    >
+      {children}
+    </button>
+  );
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 function fmt(value: number): string {
   return value.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+}
+
+function csvCell(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+function csvNumber(value: number): string {
+  return String(value).replace(".", ",");
 }
