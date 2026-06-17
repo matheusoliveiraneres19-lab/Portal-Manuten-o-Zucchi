@@ -32,6 +32,40 @@ export type CollaboratorListResult = {
   totalPages: number;
 };
 
+/* ------------------------------------------------------------------ */
+/* ETAPA 2 — Horas × colaborador                                      */
+/* ------------------------------------------------------------------ */
+
+/** Linha de horas da equipe: colaborador + horas apontadas no período. */
+export type TeamHoursRow = {
+  id: string;
+  matricula: string;
+  name: string;
+  role: string | null;
+  area: CollaboratorArea;
+  status: CollaboratorStatus;
+  monthlyGoal: number;
+  hours: number;
+  /** % da meta mensal (hours / monthlyGoal × 100). null se meta = 0. */
+  goalPercent: number | null;
+};
+
+/** Apontamento de horas sem colaborador cadastrado (gap de cadastro). */
+export type UnmatchedHoursRow = {
+  userName: string;
+  hours: number;
+};
+
+export type TeamHoursResult = {
+  startDate: string;
+  endDate: string;
+  rows: TeamHoursRow[];
+  unmatched: UnmatchedHoursRow[];
+  totalHours: number;
+  totalGoal: number;
+  matchedCollaborators: number;
+};
+
 /** Entrada de criação/atualização (campos opcionais usam defaults do schema). */
 export type CollaboratorInput = {
   matricula?: string;

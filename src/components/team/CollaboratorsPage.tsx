@@ -4,11 +4,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { m } from "framer-motion";
 import { Loader2, Search, UserPlus, Users } from "lucide-react";
 import { AREA_LABELS, CollaboratorFormModal, STATUS_LABELS } from "@/components/team/CollaboratorFormModal";
-import type { CollaboratorArea, CollaboratorListResult, CollaboratorRow, CollaboratorStatus } from "@/types/collaborators";
+import { TeamHoursPanel } from "@/components/team/TeamHoursPanel";
+import type {
+  CollaboratorArea,
+  CollaboratorListResult,
+  CollaboratorRow,
+  CollaboratorStatus,
+  TeamHoursResult
+} from "@/types/collaborators";
 
 type CollaboratorsPageProps = {
   initial: CollaboratorListResult;
+  initialHours: TeamHoursResult;
 };
+
+type TabKey = "colaboradores" | "horas";
 
 const STATUS_TONE: Record<CollaboratorStatus, string> = {
   ATIVO: "bg-[#3f8f6b]/15 text-[#5fd0a0]",
@@ -17,7 +27,8 @@ const STATUS_TONE: Record<CollaboratorStatus, string> = {
   DESLIGADO: "bg-danger/15 text-rose-300"
 };
 
-export function CollaboratorsPage({ initial }: CollaboratorsPageProps) {
+export function CollaboratorsPage({ initial, initialHours }: CollaboratorsPageProps) {
+  const [tab, setTab] = useState<TabKey>("colaboradores");
   const [result, setResult] = useState<CollaboratorListResult>(initial);
   const [status, setStatus] = useState<CollaboratorStatus | "">("");
   const [area, setArea] = useState<CollaboratorArea | "">("");
@@ -90,6 +101,20 @@ export function CollaboratorsPage({ initial }: CollaboratorsPageProps) {
         </div>
       </header>
 
+      {/* Abas */}
+      <div className="flex gap-1 border-b border-white/10">
+        <TabButton active={tab === "colaboradores"} onClick={() => setTab("colaboradores")}>
+          Colaboradores
+        </TabButton>
+        <TabButton active={tab === "horas"} onClick={() => setTab("horas")}>
+          Horas da equipe
+        </TabButton>
+      </div>
+
+      {tab === "horas" ? (
+        <TeamHoursPanel initial={initialHours} />
+      ) : (
+        <>
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
@@ -179,8 +204,25 @@ export function CollaboratorsPage({ initial }: CollaboratorsPageProps) {
       <p className="text-[11px] text-zinc-500">
         <span className="font-semibold text-gold">Dica:</span> clique em uma linha para editar o colaborador.
       </p>
+        </>
+      )}
 
       <CollaboratorFormModal open={modalOpen} initial={editing} onClose={() => setModalOpen(false)} onSaved={load} />
     </section>
+  );
+}
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative px-4 py-2 text-sm font-semibold transition ${
+        active ? "text-gold" : "text-zinc-400 hover:text-champagne"
+      }`}
+    >
+      {children}
+      {active ? <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gold" /> : null}
+    </button>
   );
 }
