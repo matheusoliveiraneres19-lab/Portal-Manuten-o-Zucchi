@@ -550,6 +550,43 @@ model TimeEntry {
   @@index([serviceOrderId])
 }
 
+enum CollaboratorArea {
+  MECANICA
+  ELETRICA
+  AUTOMACAO
+  OUTROS
+}
+
+enum CollaboratorStatus {
+  ATIVO
+  FERIAS
+  AFASTADO
+  DESLIGADO
+}
+
+/// Cadastro de colaboradores da manutenção (módulo Equipe e Horas).
+/// `nameKey` é o nome normalizado (minúsculo, sem acento) para casar com
+/// TimeEntry.userName nas análises de banco de horas.
+model Collaborator {
+  id            String             @id @default(cuid())
+  matricula     String             @unique
+  name          String
+  nameKey       String
+  role          String?
+  area          CollaboratorArea   @default(OUTROS)
+  shift         String?
+  monthlyGoal   Float              @default(220)
+  status        CollaboratorStatus @default(ATIVO)
+  admissionDate DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([matricula])
+  @@index([nameKey])
+  @@index([status])
+  @@index([area])
+}
+
 model Procedure {
   id          String            @id @default(cuid())
   title       String
