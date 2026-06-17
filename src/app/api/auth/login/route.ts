@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { UserStatus } from "@prisma/client";
-import { AUTH_COOKIE_MAX_AGE, AUTH_COOKIE_NAME, AUTH_COOKIE_VALUE } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, SESSION_MAX_AGE_SECONDS, getAuthSecret } from "@/lib/auth";
+import { signSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 const INVALID_CREDENTIALS_MESSAGE = "Login ou senha inválidos. Verifique suas credenciais e tente novamente.";
 const INACTIVE_USER_MESSAGE = "Usuário inativo. Entre em contato com o administrador.";
 const GENERIC_ERROR_MESSAGE = "Não foi possível validar o acesso. Verifique suas credenciais ou tente novamente.";
+const MISSING_SECRET_MESSAGE = "Configuração de segurança ausente (AUTH_SECRET). Contate o administrador.";
 
 const roleLabels: Record<string, string> = {
   ADMIN: "Administrador",
@@ -18,14 +20,10 @@ const roleLabels: Record<string, string> = {
   VISUALIZADOR: "Visualizador"
 };
 
-type SessionUser = { login: string; name: string; role: string };
-
 /**
- * Fallback temporário para ambiente de testes. Substituir por autenticação real em produção.
- *
- * Só é usado quando o banco (DATABASE_URL) não está disponível ou falha — por exemplo,
- * no deploy serverless da Netlify enquanto o SQLite local não é persistente. Mantém o
- * portal navegável em homologação. NÃO deve ser usado como autenticação definitiva.
+ * Fallback temporário, restrito a desenvolvimento. Só roda quando
+ * ALLOW_AUTH_FALLBACK === "true" E NODE_ENV !== "production". Em produção,
+ * uma falha de banco NUNCA libera o fallback (retorna 503).
  */
 const TEST_FALLBACK_USERS: Record<string, { password: string; name: string; role: string }> = {
   admin: { password: "admin123", name: "Administrador", role: "ADMIN" },
@@ -36,17 +34,46 @@ function databaseConfigured(): boolean {
   return Boolean(process.env.DATABASE_URL);
 }
 
-function buildSessionResponse(user: SessionUser): NextResponse {
-  const response = NextResponse.json({ ok: true, user });
-  response.cookies.set(AUTH_COOKIE_NAME, AUTH_COOKIE_VALUE, {
-    maxAge: AUTH_COOKIE_MAX_AGE,
-    path: "/",
-    sameSite: "lax"
+function fallbackAllowed(): boolean {
+  return process.env.ALLOW_AUTH_FALLBACK === "true" && process.env.NODE_ENV !== "production";
+}
+
+async function buildSessionResponse(
+  secret: string,
+  // role: papel "cru" do banco (ex.: ADMIN) — guardado no token assinado.
+  session: { login: string; name: string; role: string },
+  // displayRole: rótulo amigável devolvido ao front (ex.: Administrador).
+  displayRole: string
+): Promise<NextResponse> {
+  const token = await signSession(
+    { sub: session.login, name: session.name, role: session.role },
+    secret,
+    SESSION_MAX_AGE_SECONDS
+  );
+
+  const response = NextResponse.json({
+    ok: true,
+    user: { login: session.login, name: session.name, role: displayRole }
   });
+
+  response.cookies.set(AUTH_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: SESSION_MAX_AGE_SECONDS
+  });
+
   return response;
 }
 
 export async function POST(request: NextRequest) {
+  const secret = getAuthSecret();
+  if (!secret) {
+    console.error("[auth] AUTH_SECRET ausente ou com menos de 16 caracteres. Login bloqueado.");
+    return NextResponse.json({ ok: false, message: MISSING_SECRET_MESSAGE }, { status: 500 });
+  }
+
   try {
     const body = (await request.json().catch(() => null)) as { login?: unknown; password?: unknown } | null;
     const login = String(body?.login ?? "").trim().toLowerCase();
@@ -68,8 +95,7 @@ export async function POST(request: NextRequest) {
           if (user.status === UserStatus.INATIVO) {
             return NextResponse.json({ ok: false, message: INACTIVE_USER_MESSAGE }, { status: 403 });
           }
-          // Autenticação temporária (senha em texto puro). Em produção, usar bcrypt
-          // e sessão assinada/segura (cookie httpOnly/Secure).
+          // ATENÇÃO (Fase 2): trocar por bcrypt.compare(password, user.passwordHash).
           if (password !== user.passwordHash) {
             return NextResponse.json({ ok: false, message: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
           }
@@ -79,31 +105,36 @@ export async function POST(request: NextRequest) {
           } catch {
             /* ignora falha de escrita do lastAccess */
           }
-          return buildSessionResponse({
-            login: user.login,
-            name: user.name,
-            role: roleLabels[user.role] ?? user.role
-          });
+          return await buildSessionResponse(
+            secret,
+            { login: user.login, name: user.name, role: user.role },
+            roleLabels[user.role] ?? user.role
+          );
         }
-        // Usuário não encontrado no banco -> tenta o fallback de testes abaixo.
+        // Usuário não encontrado no banco -> tenta o fallback (apenas se permitido) abaixo.
       } catch (error) {
-        // Banco indisponível (ex.: SQLite local ausente no serverless da Netlify).
-        // Log apenas no servidor, sem dados sensíveis (sem login/senha).
+        // Banco indisponível. Log sem dados sensíveis (sem login/senha).
         console.error(
-          "[auth] Banco de dados indisponível; usando fallback de testes.",
+          "[auth] Banco de dados indisponível.",
           error instanceof Error ? error.message : "erro desconhecido"
         );
+        // Em produção, falha de banco NUNCA libera fallback: retorna 503 (erro).
+        if (process.env.NODE_ENV === "production") {
+          return NextResponse.json({ ok: false, message: GENERIC_ERROR_MESSAGE }, { status: 503 });
+        }
       }
     }
 
-    // 2) Fallback temporário para ambiente de testes. Substituir por autenticação real em produção.
-    const fallback = TEST_FALLBACK_USERS[login];
-    if (fallback && password === fallback.password) {
-      return buildSessionResponse({
-        login,
-        name: fallback.name,
-        role: roleLabels[fallback.role] ?? fallback.role
-      });
+    // 2) Fallback temporário — somente em desenvolvimento e com flag explícita.
+    if (fallbackAllowed()) {
+      const fallback = TEST_FALLBACK_USERS[login];
+      if (fallback && password === fallback.password) {
+        return await buildSessionResponse(
+          secret,
+          { login, name: fallback.name, role: fallback.role },
+          roleLabels[fallback.role] ?? fallback.role
+        );
+      }
     }
 
     return NextResponse.json({ ok: false, message: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });

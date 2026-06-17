@@ -1,21 +1,19 @@
 "use client";
 
-import {
-  AUTH_COOKIE_MAX_AGE,
-  AUTH_COOKIE_NAME,
-  AUTH_COOKIE_VALUE,
-  AUTH_STORAGE_KEY,
-  FALLBACK_USER
-} from "@/lib/auth";
+import { AUTH_STORAGE_KEY, FALLBACK_USER } from "@/lib/auth";
 import type { AuthUser } from "@/types/auth";
 
+/**
+ * O cookie de sessão (zucchi-auth) é HttpOnly e definido APENAS pelo servidor no
+ * login — o cliente não pode lê-lo nem escrevê-lo. Aqui guardamos somente o
+ * usuário de exibição (nome/cargo mostrados no header) no localStorage.
+ */
 export function createTemporarySession(user: AuthUser) {
-  document.cookie = `${AUTH_COOKIE_NAME}=${AUTH_COOKIE_VALUE}; path=/; max-age=${AUTH_COOKIE_MAX_AGE}; SameSite=Lax`;
   window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
 }
 
-export function clearTemporarySession() {
-  document.cookie = `${AUTH_COOKIE_NAME}=; path=/; max-age=0; SameSite=Lax`;
+/** Remove o usuário de exibição do localStorage (usado no logout). */
+export function clearStoredUser() {
   window.localStorage.removeItem(AUTH_STORAGE_KEY);
 }
 
