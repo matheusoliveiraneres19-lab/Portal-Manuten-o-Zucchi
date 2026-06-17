@@ -10,6 +10,7 @@ import { PcFactoryKpiCards } from "@/components/pc-factory/PcFactoryKpiCards";
 import { PcFactoryFilters } from "@/components/pc-factory/PcFactoryFilters";
 import { PcFactoryEmptyState } from "@/components/pc-factory/PcFactoryEmptyState";
 import { PcFactoryRecordsTable } from "@/components/pc-factory/PcFactoryRecordsTable";
+import { PcFactoryReliabilityTable } from "@/components/pc-factory/PcFactoryReliabilityTable";
 import { PcFactoryDetailsDrawer } from "@/components/pc-factory/PcFactoryDetailsDrawer";
 import { PcFactoryImportModal } from "@/components/pc-factory/PcFactoryImportModal";
 import { PcFactoryQualityPanel } from "@/components/pc-factory/PcFactoryQualityPanel";
@@ -45,6 +46,10 @@ const PcFactoryTrendChart = dynamic(() => import("@/components/pc-factory/PcFact
   ssr: false,
   loading: () => <ChartSkeleton className="xl:col-span-12" />
 });
+const PcFactoryRootCauseChart = dynamic(
+  () => import("@/components/pc-factory/PcFactoryRootCauseChart").then((m) => m.PcFactoryRootCauseChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
+);
 
 export type AppliedPcFactoryFilters = {
   startDate: string;
@@ -230,6 +235,9 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
             <PcFactoryStatusChart className="xl:col-span-5" slices={data.categoryDistribution} />
             <PcFactoryMaintenanceSplitChart className="xl:col-span-7" split={data.maintenanceSplit} />
+
+            <PcFactoryReliabilityTable className="xl:col-span-6" rows={data.criticalResources} onSelect={openDetails} />
+            <PcFactoryRootCauseChart className="xl:col-span-6" rows={data.rootCausePareto} />
 
             <PcFactoryRankingChart
               className="xl:col-span-6"

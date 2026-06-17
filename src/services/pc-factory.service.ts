@@ -24,6 +24,7 @@ import type {
   PcFactoryReferencePeriod,
   PcFactoryResourceDetails,
   PcFactoryResourceRow,
+  PcFactoryRootCauseSlice,
   PcFactoryTopResource,
   PcFactoryTrendPoint
 } from "@/types/pc-factory";
@@ -251,6 +252,15 @@ function mttr(maintenanceHours: number, maintenanceEvents: number): number | nul
   return maintenanceEvents > 0 ? safeRound(maintenanceHours / maintenanceEvents) : null;
 }
 
+/**
+ * MTBF gerencial (horas) = tempo produzindo / nº de eventos de manutenção.
+ * Aproxima o "tempo entre falhas" usando as horas em PRODUÇÃO como tempo de operação.
+ * null = sem eventos de manutenção (sem falhas → não há intervalo a medir).
+ */
+function mtbf(productionHours: number, maintenanceEvents: number): number | null {
+  return maintenanceEvents > 0 ? safeRound(productionHours / maintenanceEvents) : null;
+}
+
 function maintenancePercent(plannedHours: number, maintenanceHours: number): number | null {
   if (plannedHours <= 0) return null;
   return clampPercent((maintenanceHours / plannedHours) * 100);
@@ -290,6 +300,7 @@ function buildResourceRanking(records: AnalyticsRecord[]): PcFactoryResourceRow[
       stoppedHours: agg.stoppedHours,
       maintenanceEvents: agg.maintenanceEvents,
       mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
+      mtbf: mtbf(agg.productionHours, agg.maintenanceEvents),
       availabilityPercent: availability(agg.plannedHours, agg.stoppedHours)
     });
   }
@@ -341,6 +352,7 @@ export async function getPcFactoryDashboardKPIs(params: PcFactoryQueryParams): P
     automationEvents: agg.automationEvents,
     waitingEvents: agg.waitingEvents,
     mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
+    mtbf: mtbf(agg.productionHours, agg.maintenanceEvents),
     maintenancePercentOfPlanned: maintenancePercent(agg.plannedHours, agg.maintenanceHours),
     availabilityPercent: availability(agg.plannedHours, agg.stoppedHours),
     topMaintenanceResource: topByMaintenance(ranking)
@@ -494,6 +506,63 @@ export async function getPcFactoryTrend(params: PcFactoryQueryParams): Promise<P
         availabilityPercent: availability(agg.plannedHours, agg.stoppedHours)
       };
     });
+}
+
+/* ------------------------------------------------------------------ */
+/* 5b. Pareto de causas raiz de manutenção                            */
+/* ------------------------------------------------------------------ */
+
+/** Quantas causas mostrar antes de agrupar o resto em "Outras causas". */
+const ROOT_CAUSE_TOP_N = 10;
+
+/**
+ * Pareto das causas raiz dos eventos de manutenção: soma de horas e contagem por
+ * `rootCause`, ordenado desc, com % e % acumulado. Causas sem valor caem em
+ * "Não informada"; o excedente do top N vira "Outras causas". Usa groupBy (1 query).
+ */
+export async function getPcFactoryRootCausePareto(params: PcFactoryQueryParams): Promise<PcFactoryRootCauseSlice[]> {
+  const grouped = await prisma.pcFactoryRecord.groupBy({
+    by: ["rootCause"],
+    where: { AND: [buildWhere(params), { statusCategory: PcFactoryStatusCategory.MANUTENCAO }] },
+    _sum: { durationHours: true },
+    _count: { _all: true }
+  });
+
+  // Mescla null e "" no mesmo rótulo "Não informada".
+  const merged = new Map<string, { hours: number; events: number }>();
+  for (const group of grouped) {
+    const cause = group.rootCause?.trim() || "Não informada";
+    const current = merged.get(cause) ?? { hours: 0, events: 0 };
+    current.hours += group._sum.durationHours ?? 0;
+    current.events += group._count._all;
+    merged.set(cause, current);
+  }
+
+  const sorted = Array.from(merged.entries())
+    .map(([cause, value]) => ({ cause, hours: round(value.hours), events: value.events }))
+    .filter((item) => item.hours > 0)
+    .sort((a, b) => b.hours - a.hours);
+
+  if (sorted.length === 0) return [];
+
+  // Top N + agrupamento do excedente.
+  const top = sorted.slice(0, ROOT_CAUSE_TOP_N);
+  const rest = sorted.slice(ROOT_CAUSE_TOP_N);
+  if (rest.length > 0) {
+    top.push({
+      cause: "Outras causas",
+      hours: round(rest.reduce((sum, item) => sum + item.hours, 0)),
+      events: rest.reduce((sum, item) => sum + item.events, 0)
+    });
+  }
+
+  const total = top.reduce((sum, item) => sum + item.hours, 0);
+  let cumulative = 0;
+  return top.map((item) => {
+    const percent = total > 0 ? round((item.hours / total) * 100) : 0;
+    cumulative = round(Math.min(100, cumulative + percent));
+    return { ...item, percent, cumulativePercent: cumulative };
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -710,11 +779,12 @@ export async function getPcFactoryPageData(params: PcFactoryQueryParams = {}): P
   const agg = aggregateHours(records);
   const ranking = buildResourceRanking(records);
 
-  const [kpis, productionLines, groupSummary, trend, records_, filterOptions, dataQuality] = await Promise.all([
+  const [kpis, productionLines, groupSummary, trend, rootCausePareto, records_, filterOptions, dataQuality] = await Promise.all([
     getPcFactoryDashboardKPIs(params),
     getPcFactoryProductionLineSummary(params),
     getPcFactoryGroupSummary(params),
     getPcFactoryTrend(params),
+    getPcFactoryRootCausePareto(params),
     getPcFactoryRecords(params),
     getPcFactoryFilterOptions(),
     buildDataQuality(params)
@@ -739,6 +809,7 @@ export async function getPcFactoryPageData(params: PcFactoryQueryParams = {}): P
     productionLines,
     groupSummary,
     trend,
+    rootCausePareto,
     records: records_,
     filterOptions,
     dataQuality,
@@ -831,6 +902,7 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
       automationEvents: 0,
       waitingEvents: 0,
       mttr: null,
+      mtbf: null,
       maintenancePercentOfPlanned: null,
       availabilityPercent: null,
       topMaintenanceResource: null
@@ -845,6 +917,7 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
     productionLines: [],
     groupSummary: [],
     trend: [],
+    rootCausePareto: [],
     records: { data: [], total: 0, page: 1, pageSize: DEFAULT_PAGE_SIZE, totalPages: 1 },
     filterOptions: {
       resources: [],

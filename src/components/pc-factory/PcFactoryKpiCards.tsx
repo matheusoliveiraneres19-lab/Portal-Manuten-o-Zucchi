@@ -1,7 +1,7 @@
 "use client";
 
 import { m } from "framer-motion";
-import { AlarmClock, CalendarClock, CircleGauge, Cog, Cpu, Crown, Hammer, Percent, Timer, Wrench, Zap } from "lucide-react";
+import { AlarmClock, CalendarClock, CircleGauge, Cog, Cpu, Crown, Hammer, Hourglass, Percent, Timer, Wrench, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { PcFactoryKpis } from "@/types/pc-factory";
 
@@ -49,6 +49,13 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
       description: "Horas de manutenção / eventos.",
       icon: AlarmClock,
       tone: "gold"
+    },
+    {
+      title: "MTBF gerencial",
+      value: metric(kpis.mtbf),
+      description: "Horas produzindo / eventos de manutenção.",
+      icon: Hourglass,
+      tone: "blue"
     },
     {
       title: "% manutenção no planejado",

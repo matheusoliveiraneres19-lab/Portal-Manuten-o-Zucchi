@@ -75,6 +75,8 @@ export type PcFactoryKpis = {
   waitingEvents: number;
   /** MTTR gerencial (horas) = horas de manutenção / eventos. null = dados insuficientes. */
   mttr: number | null;
+  /** MTBF gerencial (horas) = horas produzindo / eventos de manutenção. null = dados insuficientes. */
+  mtbf: number | null;
   /** % manutenção sobre o tempo planejado. null = dados insuficientes. */
   maintenancePercentOfPlanned: number | null;
   /** Disponibilidade estimada (%). null = dados insuficientes. */
@@ -114,7 +116,17 @@ export type PcFactoryResourceRow = {
   stoppedHours: number;
   maintenanceEvents: number;
   mttr: number | null;
+  mtbf: number | null;
   availabilityPercent: number | null;
+};
+
+/** Fatia do Pareto de causas raiz de manutenção (ordenado por horas, com % acumulado). */
+export type PcFactoryRootCauseSlice = {
+  cause: string;
+  hours: number;
+  events: number;
+  percent: number;
+  cumulativePercent: number;
 };
 
 /** Agregação de manutenção por Grupo Portal (ex.: Indústria Granito). */
@@ -249,6 +261,8 @@ export type PcFactoryPageData = {
   productionLines: PcFactoryProductionLineRow[];
   groupSummary: PcFactoryGroupRow[];
   trend: PcFactoryTrendPoint[];
+  /** Pareto das causas raiz de manutenção (80/20). */
+  rootCausePareto: PcFactoryRootCauseSlice[];
   records: PcFactoryRecordsResult;
   filterOptions: PcFactoryFilterOptions;
   /** Diagnóstico de qualidade da importação refletido nos dados atuais. */
