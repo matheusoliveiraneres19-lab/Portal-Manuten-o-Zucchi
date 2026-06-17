@@ -34,6 +34,8 @@ const collaboratorSelect = {
   monthlyGoal: true,
   status: true,
   admissionDate: true,
+  vacationStartDate: true,
+  acquisitionPeriodStart: true,
   createdAt: true
 } satisfies Prisma.CollaboratorSelect;
 
@@ -50,6 +52,8 @@ function toRow(record: CollaboratorPayload): CollaboratorRow {
     monthlyGoal: record.monthlyGoal,
     status: record.status,
     admissionDate: record.admissionDate ? record.admissionDate.toISOString() : null,
+    vacationStartDate: record.vacationStartDate ? record.vacationStartDate.toISOString() : null,
+    acquisitionPeriodStart: record.acquisitionPeriodStart ? record.acquisitionPeriodStart.toISOString() : null,
     createdAt: record.createdAt.toISOString()
   };
 }
@@ -142,6 +146,24 @@ export async function getAreaGoals(): Promise<AreaGoal[]> {
     }
     return { area, goal, count, uniform: goals.size === 1 };
   });
+}
+
+/** Atualiza os campos de férias (período aquisitivo e início das férias). */
+export async function updateVacation(
+  id: string,
+  input: { vacationStartDate?: string | null; acquisitionPeriodStart?: string | null }
+): Promise<CollaboratorRow | null> {
+  const data: Prisma.CollaboratorUpdateInput = {};
+  if (input.vacationStartDate !== undefined) data.vacationStartDate = parseAdmissionDate(input.vacationStartDate);
+  if (input.acquisitionPeriodStart !== undefined) data.acquisitionPeriodStart = parseAdmissionDate(input.acquisitionPeriodStart);
+
+  try {
+    const updated = await prisma.collaborator.update({ where: { id }, data, select: collaboratorSelect });
+    return toRow(updated);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return null;
+    throw error;
+  }
 }
 
 /** Define a meta mensal por área (atualiza todos os colaboradores da área). */

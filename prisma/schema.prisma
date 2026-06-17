@@ -578,6 +578,10 @@ model Collaborator {
   monthlyGoal   Float              @default(220)
   status        CollaboratorStatus @default(ATIVO)
   admissionDate DateTime?
+  /// Início das próximas férias (editável por ADMIN/GESTOR).
+  vacationStartDate      DateTime?
+  /// Início do período aquisitivo de férias (default: data de admissão).
+  acquisitionPeriodStart DateTime?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 

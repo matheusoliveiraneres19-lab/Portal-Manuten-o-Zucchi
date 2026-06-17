@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { m } from "framer-motion";
 import { Loader2, Search, UserPlus, Users } from "lucide-react";
 import { AREA_LABELS, CollaboratorFormModal, STATUS_LABELS } from "@/components/team/CollaboratorFormModal";
@@ -28,6 +29,7 @@ const STATUS_TONE: Record<CollaboratorStatus, string> = {
 };
 
 export function CollaboratorsPage({ initial, initialHours }: CollaboratorsPageProps) {
+  const router = useRouter();
   const [tab, setTab] = useState<TabKey>("colaboradores");
   const [result, setResult] = useState<CollaboratorListResult>(initial);
   const [status, setStatus] = useState<CollaboratorStatus | "">("");
@@ -67,9 +69,8 @@ export function CollaboratorsPage({ initial, initialHours }: CollaboratorsPagePr
     setModalOpen(true);
   }
 
-  function openEdit(row: CollaboratorRow) {
-    setEditing(row);
-    setModalOpen(true);
+  function openDetail(row: CollaboratorRow) {
+    router.push(`/dashboard/equipe/${row.id}`);
   }
 
   return (
@@ -178,9 +179,9 @@ export function CollaboratorsPage({ initial, initialHours }: CollaboratorsPagePr
                 {result.data.map((row) => (
                   <tr
                     key={row.id}
-                    onClick={() => openEdit(row)}
+                    onClick={() => openDetail(row)}
                     className="cursor-pointer border-b border-zinc-100 text-zinc-800 transition last:border-0 hover:bg-gold/10"
-                    title="Editar colaborador"
+                    title="Abrir ficha do colaborador"
                   >
                     <td className="px-4 py-2.5 font-mono text-xs text-zinc-600">{row.matricula}</td>
                     <td className="px-4 py-2.5 font-semibold">{row.name}</td>
@@ -202,7 +203,7 @@ export function CollaboratorsPage({ initial, initialHours }: CollaboratorsPagePr
       </article>
 
       <p className="text-[11px] text-zinc-500">
-        <span className="font-semibold text-gold">Dica:</span> clique em uma linha para editar o colaborador.
+        <span className="font-semibold text-gold">Dica:</span> clique em uma linha para abrir a ficha do colaborador (horas, banco de horas e férias).
       </p>
         </>
       )}

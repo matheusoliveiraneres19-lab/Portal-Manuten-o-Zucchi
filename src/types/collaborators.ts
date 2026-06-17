@@ -13,7 +13,42 @@ export type CollaboratorRow = {
   monthlyGoal: number;
   status: CollaboratorStatus;
   admissionDate: string | null;
+  vacationStartDate: string | null;
+  acquisitionPeriodStart: string | null;
   createdAt: string;
+};
+
+/** Ponto de horas apontadas em um mês (para o gráfico de evolução). */
+export type CollaboratorMonthPoint = {
+  ym: string;
+  label: string;
+  hours: number;
+};
+
+/** Payload da ficha do colaborador (ETAPA 2). */
+export type CollaboratorDetailData = {
+  collaborator: CollaboratorRow;
+  monthly: CollaboratorMonthPoint[];
+  currentMonthHours: number;
+  /** Saldo do mês corrente (horas − meta). */
+  monthBalance: number;
+  /** Saldo do banco de horas acumulado (meses com apontamento). */
+  accumulatedBalance: number;
+  normalHours: number;
+  extraHours: number;
+  missingHours: number;
+  vacation: {
+    admissionDate: string | null;
+    vacationStartDate: string | null;
+    acquisitionPeriodStart: string | null;
+    acquisitionPeriodEnd: string | null;
+    legalLimit: string | null;
+    daysToVacation: number | null;
+    daysToLegalLimit: number | null;
+    expiringSoon: boolean;
+  };
+  /** true se a sessão pode editar férias (ADMIN/GESTOR). */
+  canEditVacation: boolean;
 };
 
 export type CollaboratorListParams = {
@@ -86,4 +121,6 @@ export type CollaboratorInput = {
   monthlyGoal?: number;
   status?: CollaboratorStatus;
   admissionDate?: string | null;
+  vacationStartDate?: string | null;
+  acquisitionPeriodStart?: string | null;
 };

@@ -11,11 +11,39 @@
 import { prisma } from "@/lib/prisma";
 import { normalizeNameKey } from "@/lib/name-normalizer";
 import { getHoursByCollaborator } from "@/services/time-entries.service";
-import type { DateRange } from "@/utils/date-range";
-import type { TeamHoursResult, TeamHoursRow, UnmatchedHoursRow } from "@/types/collaborators";
+import { monthRange, type DateRange } from "@/utils/date-range";
+import type { CollaboratorMonthPoint, TeamHoursResult, TeamHoursRow, UnmatchedHoursRow } from "@/types/collaborators";
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function monthLabel(date: Date): string {
+  return date.toLocaleDateString("pt-BR", { month: "short", year: "2-digit", timeZone: "UTC" }).replace(".", "");
+}
+
+/**
+ * Horas apontadas por mês de UM colaborador (reaproveita getHoursByCollaborator
+ * por mês — mesma fonte da verdade do banco de horas). `ref` = mês de referência.
+ */
+export async function getCollaboratorMonthlyHours(
+  nameKey: string,
+  monthsBack: number,
+  ref: Date
+): Promise<CollaboratorMonthPoint[]> {
+  const points: CollaboratorMonthPoint[] = [];
+  for (let i = monthsBack - 1; i >= 0; i -= 1) {
+    const first = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() - i, 1));
+    const year = first.getUTCFullYear();
+    const month = first.getUTCMonth() + 1;
+    const rows = await getHoursByCollaborator(monthRange(year, month));
+    let hours = 0;
+    for (const row of rows) {
+      if (normalizeNameKey(row.userName) === nameKey) hours = round(hours + row.hours);
+    }
+    points.push({ ym: `${year}-${String(month).padStart(2, "0")}`, label: monthLabel(first), hours });
+  }
+  return points;
 }
 
 export async function getTeamHours(period: DateRange): Promise<TeamHoursResult> {
