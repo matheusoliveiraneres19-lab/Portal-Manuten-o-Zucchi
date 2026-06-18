@@ -96,14 +96,18 @@ export async function POST(request: NextRequest) {
           if (user.status === UserStatus.INATIVO) {
             return NextResponse.json({ ok: false, message: INACTIVE_USER_MESSAGE }, { status: 403 });
           }
-          // Confere a senha com bcrypt (ou texto puro legado, migrado abaixo).
-          const passwordOk = await verifyPassword(password, user.passwordHash);
+          // Confere a senha de forma explícita: bcrypt quando já é hash; comparação
+          // direta quando ainda é texto puro legado (migrado logo abaixo).
+          const storedIsBcrypt = isBcryptHash(user.passwordHash);
+          const passwordOk = storedIsBcrypt
+            ? await verifyPassword(password, user.passwordHash)
+            : password === user.passwordHash;
           if (!passwordOk) {
             return NextResponse.json({ ok: false, message: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
           }
           // Migração transparente: se a senha ainda estava em texto puro, re-hasheia
           // com bcrypt no primeiro login bem-sucedido (best-effort, não bloqueia).
-          const needsRehash = !isBcryptHash(user.passwordHash);
+          const needsRehash = !storedIsBcrypt;
           try {
             await prisma.user.update({
               where: { id: user.id },

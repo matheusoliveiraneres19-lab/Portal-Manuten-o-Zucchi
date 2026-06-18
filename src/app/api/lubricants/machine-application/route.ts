@@ -3,13 +3,13 @@ import {
   deleteLubricantMachineApplication,
   saveLubricantMachineApplication
 } from "@/services/lubricants.service";
-import { requireApiSession } from "@/lib/auth-guard";
+import { requireRole } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  const { error } = await requireApiSession();
-  if (error) return error;
+  const denied = await requireRole(request, ["ADMIN", "GESTOR"]);
+  if (denied) return denied;
 
   try {
     const body = await request.json();
@@ -37,8 +37,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const { error } = await requireApiSession();
-  if (error) return error;
+  const denied = await requireRole(request, ["ADMIN", "GESTOR"]);
+  if (denied) return denied;
 
   const id = request.nextUrl.searchParams.get("id");
   if (!id) {

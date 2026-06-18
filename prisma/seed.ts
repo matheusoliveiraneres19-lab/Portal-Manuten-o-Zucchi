@@ -18,7 +18,7 @@ import {
   ServiceOrderStatus,
   UserStatus
 } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import { hashPassword } from "../src/lib/password";
 
 const prisma = new PrismaClient();
 const seedOwner = "Seed Zucchi";
@@ -59,7 +59,7 @@ async function cleanGeneratedSeedData() {
 async function seedUsers() {
   // Senha padrão de desenvolvimento ("admin123") armazenada como hash bcrypt.
   // Todos os usuários do seed compartilham a mesma senha, então um hash basta.
-  const passwordHash = await bcrypt.hash("admin123", 10);
+  const passwordHash = await hashPassword("admin123");
   const users = [
     ["Administrador", "admin", "admin@zucchi.local", Role.ADMIN, "Administrador do Portal", "Manutenção"],
     ["Manutenção Zucchi", "manutencao", "manutencao@zucchi.local", Role.GESTOR, "Gestão da Manutenção", "Manutenção"],

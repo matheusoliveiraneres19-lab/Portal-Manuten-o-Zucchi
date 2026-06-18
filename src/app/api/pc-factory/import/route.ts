@@ -1,13 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { importPcFactoryFromExcel } from "@/services/importacao/pc-factory-import.service";
-import { requireApiSession } from "@/lib/auth-guard";
+import { requireRole } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  const { error } = await requireApiSession();
-  if (error) return error;
+  const denied = await requireRole(request, ["ADMIN", "GESTOR"]);
+  if (denied) return denied;
 
   try {
     const formData = await request.formData();

@@ -6,7 +6,7 @@
  * a lista de roles para requireApiSession(["ADMIN", "GESTOR"]) — hoje as rotas
  * usam apenas a checagem de sessão (qualquer usuário autenticado).
  */
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { AUTH_COOKIE_NAME, getAuthSecret } from "@/lib/auth";
 import { verifySession, type SessionPayload } from "@/lib/session";
@@ -28,13 +28,35 @@ export async function requireSession(): Promise<SessionPayload> {
   return session;
 }
 
-// Os papéis (role) vêm do enum do banco (ADMIN, GESTOR, TECNICO, COMPRAS, VISUALIZADOR).
-export async function requireRole(...roles: string[]): Promise<SessionPayload> {
-  const session = await requireSession();
-  if (roles.length > 0 && !roles.includes(session.role)) {
-    throw new Error("Acesso negado.");
+/**
+ * Trava por papel para handlers de rota de API (runtime Node).
+ *
+ * Os papéis (role) vêm do enum do banco (ADMIN, GESTOR, TECNICO, COMPRAS,
+ * VISUALIZADOR) e são lidos do cookie de sessão da própria requisição.
+ *
+ * Retorna `NextResponse` (401 sem sessão / 403 sem papel) quando o acesso é
+ * negado, ou `null` quando está liberado. Use no INÍCIO do handler:
+ *
+ *   const denied = await requireRole(request, ["ADMIN", "GESTOR"]);
+ *   if (denied) return denied;
+ */
+export async function requireRole(request: NextRequest, roles: string[]): Promise<NextResponse | null> {
+  const secret = getAuthSecret();
+  if (!secret) {
+    return NextResponse.json(
+      { ok: false, message: "Configuração de segurança ausente (AUTH_SECRET)." },
+      { status: 500 }
+    );
   }
-  return session;
+  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
+  const session = await verifySession(token, secret);
+  if (!session) {
+    return NextResponse.json({ ok: false, message: "Não autenticado." }, { status: 401 });
+  }
+  if (roles.length > 0 && !roles.includes(session.role)) {
+    return NextResponse.json({ ok: false, message: "Acesso negado." }, { status: 403 });
+  }
+  return null;
 }
 
 type ApiGuardResult =

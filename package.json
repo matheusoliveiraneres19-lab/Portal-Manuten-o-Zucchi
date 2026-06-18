@@ -16,6 +16,8 @@
     "import:lubricants": "tsx scripts/import-lubricants.ts",
     "import:purchases": "tsx scripts/import-purchases.ts",
     "import:pc-factory": "tsx scripts/import-pc-factory.ts",
+    "auth:hash-passwords": "tsx scripts/hash-passwords.ts",
+    "auth:set-password": "tsx scripts/set-password.ts",
     "capture": "node scripts/capture-portal.mjs",
     "video": "remotion studio remotion/index.ts",
     "video:render": "remotion render remotion/index.ts PortalDemo out/portal-demo.mp4"

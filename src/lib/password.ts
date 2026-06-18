@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 
-const BCRYPT_ROUNDS = 10;
+const BCRYPT_ROUNDS = 12;
 
 /** Detecta se o valor armazenado já é um hash bcrypt ($2a$/$2b$/$2y$). */
 export function isBcryptHash(value: string): boolean {

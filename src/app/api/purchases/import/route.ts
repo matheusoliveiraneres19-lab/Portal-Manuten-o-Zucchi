@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { importPurchasesFromExcel } from "@/services/importacao/purchases-import.service";
-import { requireApiSession } from "@/lib/auth-guard";
+import { requireRole } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -15,8 +15,8 @@ function errorResponse(message: string, details: string, status: number) {
 }
 
 export async function POST(request: NextRequest) {
-  const { error: authError } = await requireApiSession();
-  if (authError) return authError;
+  const denied = await requireRole(request, ["ADMIN", "GESTOR", "COMPRAS"]);
+  if (denied) return denied;
 
   try {
     const contentType = request.headers.get("content-type") ?? "";
