@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth-guard";
 import { normalizeNameKey } from "@/lib/name-normalizer";
 import { getCollaboratorById } from "@/services/collaborators.service";
 import { getCollaboratorMonthlyHours } from "@/services/team-hours.service";
+import { listAttachments, listEpis, listTools } from "@/services/collaborator-assets.service";
 import { CollaboratorDetailPage } from "@/components/team/CollaboratorDetailPage";
 import type { CollaboratorDetailData } from "@/types/collaborators";
 
@@ -56,7 +57,15 @@ export default async function CollaboratorDetailRoute({ params }: { params: { id
     (vacStart === null || vacStart.getTime() > legalLimit.getTime());
 
   const session = await getSession();
-  const canEditVacation = session?.role === "ADMIN" || session?.role === "GESTOR";
+  const canManageAssets = session?.role === "ADMIN" || session?.role === "GESTOR";
+  const canEditVacation = canManageAssets;
+
+  // EPIs e ferramentas: visíveis a qualquer sessão. Anexos: só ADMIN/GESTOR.
+  const [epis, tools, attachments] = await Promise.all([
+    listEpis(params.id, now),
+    listTools(params.id),
+    canManageAssets ? listAttachments(params.id) : Promise.resolve([])
+  ]);
 
   const data: CollaboratorDetailData = {
     collaborator,
@@ -77,7 +86,11 @@ export default async function CollaboratorDetailRoute({ params }: { params: { id
       daysToLegalLimit,
       expiringSoon
     },
-    canEditVacation
+    epis,
+    tools,
+    attachments,
+    canEditVacation,
+    canManageAssets
   };
 
   return <CollaboratorDetailPage data={data} />;

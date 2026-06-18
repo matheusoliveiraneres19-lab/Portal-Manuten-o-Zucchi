@@ -25,7 +25,55 @@ export type CollaboratorMonthPoint = {
   hours: number;
 };
 
-/** Payload da ficha do colaborador (ETAPA 2). */
+/* ------------------------------------------------------------------ */
+/* ETAPA 3 — EPI, Ferramentas e Anexos                                */
+/* ------------------------------------------------------------------ */
+
+/** Status derivado de um EPI a partir da validade do CA. */
+export type EpiDerivedStatus = "VALIDO" | "A_VENCER" | "VENCIDO";
+
+/** EPI exposto pela API/serviço (datas em ISO; status já derivado no servidor). */
+export type EpiItemRow = {
+  id: string;
+  name: string;
+  caNumber: string;
+  caValidUntil: string;
+  deliveredAt: string | null;
+  notes: string | null;
+  status: EpiDerivedStatus;
+  /** Dias até vencer (negativo = vencido há N dias). */
+  daysToExpire: number;
+};
+
+/** Ferramenta sob responsabilidade do colaborador. */
+export type ToolItemRow = {
+  id: string;
+  name: string;
+  status: "EM_USO" | "DEVOLVIDA";
+  assignedAt: string | null;
+  returnedAt: string | null;
+  notes: string | null;
+};
+
+export type AttachmentKindValue = "EPI_FICHA" | "TERMO_FERRAMENTA" | "OUTRO";
+
+/** Metadado de anexo (o arquivo vive no Storage privado, nunca no banco). */
+export type AttachmentRow = {
+  id: string;
+  kind: AttachmentKindValue;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedAt: string;
+};
+
+/** EPI a vencer/vencido com o colaborador dono (para alerta futuro no dashboard). */
+export type ExpiringEpiRow = EpiItemRow & {
+  collaboratorId: string;
+  collaboratorName: string;
+};
+
+/** Payload da ficha do colaborador (ETAPA 2 + 3). */
 export type CollaboratorDetailData = {
   collaborator: CollaboratorRow;
   monthly: CollaboratorMonthPoint[];
@@ -47,8 +95,16 @@ export type CollaboratorDetailData = {
     daysToLegalLimit: number | null;
     expiringSoon: boolean;
   };
+  /** EPIs entregues ao colaborador (com status derivado). */
+  epis: EpiItemRow[];
+  /** Ferramentas sob responsabilidade. */
+  tools: ToolItemRow[];
+  /** Anexos — só preenchido para ADMIN/GESTOR. */
+  attachments: AttachmentRow[];
   /** true se a sessão pode editar férias (ADMIN/GESTOR). */
   canEditVacation: boolean;
+  /** true se a sessão pode gerenciar EPI/ferramentas/anexos (ADMIN/GESTOR). */
+  canManageAssets: boolean;
 };
 
 export type CollaboratorListParams = {

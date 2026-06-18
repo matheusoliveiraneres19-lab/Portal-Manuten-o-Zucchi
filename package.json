@@ -28,6 +28,7 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "@remotion/cli": "^4.0.473",
+    "@supabase/supabase-js": "^2.108.2",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",
     "framer-motion": "^12.40.0",

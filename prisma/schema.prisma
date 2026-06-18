@@ -564,6 +564,19 @@ enum CollaboratorStatus {
   DESLIGADO
 }
 
+/// Situação de uma ferramenta sob responsabilidade do colaborador.
+enum ToolStatus {
+  EM_USO
+  DEVOLVIDA
+}
+
+/// Natureza do anexo de um colaborador (ETAPA 3).
+enum AttachmentKind {
+  EPI_FICHA
+  TERMO_FERRAMENTA
+  OUTRO
+}
+
 /// Cadastro de colaboradores da manutenção (módulo Equipe e Horas).
 /// `nameKey` é o nome normalizado (minúsculo, sem acento) para casar com
 /// TimeEntry.userName nas análises de banco de horas.
@@ -584,11 +597,67 @@ model Collaborator {
   acquisitionPeriodStart DateTime?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
+  epiItems      EpiItem[]
+  toolItems     ToolItem[]
+  attachments   Attachment[]
 
   @@index([matricula])
   @@index([nameKey])
   @@index([status])
   @@index([area])
+}
+
+/// EPI entregue ao colaborador, com CA e validade (ETAPA 3).
+model EpiItem {
+  id             String       @id @default(cuid())
+  collaboratorId String
+  collaborator   Collaborator @relation(fields: [collaboratorId], references: [id], onDelete: Cascade)
+  name           String
+  /// Número do Certificado de Aprovação (CA) do EPI.
+  caNumber       String
+  /// Validade do CA — base do status derivado (Válido / a vencer / vencido).
+  caValidUntil   DateTime
+  deliveredAt    DateTime?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([collaboratorId])
+  @@index([caValidUntil])
+}
+
+/// Ferramenta sob responsabilidade do colaborador (ETAPA 3).
+model ToolItem {
+  id             String       @id @default(cuid())
+  collaboratorId String
+  collaborator   Collaborator @relation(fields: [collaboratorId], references: [id], onDelete: Cascade)
+  name           String
+  status         ToolStatus   @default(EM_USO)
+  assignedAt     DateTime?
+  returnedAt     DateTime?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([collaboratorId])
+  @@index([status])
+}
+
+/// Metadado de anexo (o arquivo fica no Supabase Storage, NÃO no banco) (ETAPA 3).
+model Attachment {
+  id             String         @id @default(cuid())
+  collaboratorId String
+  collaborator   Collaborator   @relation(fields: [collaboratorId], references: [id], onDelete: Cascade)
+  kind           AttachmentKind @default(OUTRO)
+  fileName       String
+  /// Caminho do objeto dentro do bucket privado (sem URL pública).
+  storagePath    String
+  contentType    String
+  sizeBytes      Int
+  uploadedAt     DateTime       @default(now())
+
+  @@index([collaboratorId])
+  @@index([kind])
 }
 
 model Procedure {

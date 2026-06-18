@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { AREA_LABELS, CollaboratorFormModal, STATUS_LABELS } from "@/components/team/CollaboratorFormModal";
 import { ChartSkeleton } from "@/components/ChartSkeleton";
+import { EpiSection } from "@/components/team/EpiSection";
+import { ToolsSection } from "@/components/team/ToolsSection";
 import type { CollaboratorDetailData } from "@/types/collaborators";
 
 const CollaboratorHoursChart = dynamic(
@@ -188,6 +190,22 @@ export function CollaboratorDetailPage({ data }: { data: CollaboratorDetailData 
           </div>
         ) : null}
       </article>
+
+      {/* EPIs */}
+      <EpiSection
+        collaboratorId={c.id}
+        epis={data.epis}
+        attachments={data.attachments.filter((a) => a.kind === "EPI_FICHA")}
+        canManage={data.canManageAssets}
+      />
+
+      {/* Ferramentas */}
+      <ToolsSection
+        collaboratorId={c.id}
+        tools={data.tools}
+        attachments={data.attachments.filter((a) => a.kind === "TERMO_FERRAMENTA")}
+        canManage={data.canManageAssets}
+      />
 
       <CollaboratorFormModal open={editOpen} initial={c} onClose={() => setEditOpen(false)} onSaved={() => router.refresh()} />
     </section>
