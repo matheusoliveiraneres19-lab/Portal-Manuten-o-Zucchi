@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -12,12 +12,14 @@ import {
   Download,
   FileSpreadsheet,
   FilterX,
+  Loader2,
   RefreshCw,
   Search,
   Upload,
   X
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { ResultadoImportacaoOrdensServico } from "@/types/importacao";
 import type {
   AppliedServiceOrderFilters,
   ServiceOrderListItem,
@@ -214,7 +216,12 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
         onClear={clearFilters}
       />
 
-      {showImportPanel ? <ImportPreviewPanel onClose={() => setShowImportPanel(false)} /> : null}
+      {showImportPanel ? (
+        <ImportPreviewPanel
+          onClose={() => setShowImportPanel(false)}
+          onImported={() => startTransition(() => router.refresh())}
+        />
+      ) : null}
 
       <ServiceOrderFilters
         draft={draft}
@@ -450,15 +457,46 @@ function ActionButton({ icon: Icon, label, active = false, disabled = false, tit
   );
 }
 
-function ImportPreviewPanel({ onClose }: { onClose: () => void }) {
+function ImportPreviewPanel({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [result, setResult] = useState<ResultadoImportacaoOrdensServico | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function handleUpload() {
+    if (!file) {
+      toast.error("Selecione um arquivo .xlsx.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/service-orders/import", { method: "POST", body: formData });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error ?? data?.message ?? "Falha ao importar a planilha.");
+      }
+      setResult(data as ResultadoImportacaoOrdensServico);
+      toast.success(`Importação concluída: ${data.createdRows} criadas, ${data.updatedRows} atualizadas`);
+      onImported();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao importar a planilha.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="rounded-lg border border-gold/25 bg-[#090a0a] p-4 shadow-premium">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-sm font-semibold text-gold">Importação Excel SAP/Fiori</h2>
           <p className="mt-1 max-w-3xl text-sm leading-relaxed text-zinc-300">
-            Área preparada para receber a planilha master de ordens. A próxima etapa irá validar colunas,
-            normalizar campos técnicos e registrar o lote no histórico de importação.
+            Envie o export cru do SAP (aba <strong className="text-zinc-200">&quot;Exportação SAPUI5&quot;</strong>) ou
+            a planilha já normalizada (aba <strong className="text-zinc-200">&quot;Ordens_Normalizadas&quot;</strong>).
+            As ordens são criadas/atualizadas por <strong className="text-zinc-200">OS + operação</strong> (reimportar
+            o mesmo arquivo não duplica).
           </p>
         </div>
         <button
@@ -470,6 +508,94 @@ function ImportPreviewPanel({ onClose }: { onClose: () => void }) {
           <X className="h-4 w-4" />
         </button>
       </div>
+
+      <label className="mt-4 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gold/35 bg-black/25 px-4 py-7 text-center transition hover:border-gold/55">
+        <FileSpreadsheet className="h-7 w-7 text-gold" />
+        <span className="text-sm font-semibold text-champagne">
+          {file ? file.name : "Clique para selecionar o arquivo .xlsx"}
+        </span>
+        <span className="text-[11px] text-zinc-500">
+          O layout é detectado automaticamente (export cru do SAP ou planilha normalizada).
+        </span>
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".xlsx,.xls"
+          className="hidden"
+          onChange={(event) => {
+            setFile(event.target.files?.[0] ?? null);
+            setResult(null);
+          }}
+        />
+      </label>
+
+      {result ? (
+        <div className="mt-4 space-y-3">
+          <dl className="grid grid-cols-2 gap-2 rounded-lg border border-gold/15 bg-black/25 p-3 text-xs sm:grid-cols-4">
+            <ImportSummary label="Total de linhas" value={result.totalRows} />
+            <ImportSummary label="Criadas" value={result.createdRows} tone="gold" />
+            <ImportSummary label="Atualizadas" value={result.updatedRows} />
+            <ImportSummary
+              label="Com erro"
+              value={result.errorRows}
+              tone={result.errorRows > 0 ? "danger" : "default"}
+            />
+          </dl>
+
+          {result.errors.length ? (
+            <div className="max-h-40 overflow-y-auto rounded-lg border border-danger/30 bg-danger/10 p-3 text-[11px] text-rose-200">
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-rose-300">
+                Linhas com erro ({result.errors.length})
+              </p>
+              {result.errors.map((error, index) => (
+                <p key={index} className="leading-relaxed">
+                  Linha {error.linha}
+                  {error.campo ? ` · ${error.campo}` : ""}: {error.mensagem}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-emerald-300">Nenhuma linha com erro.</p>
+          )}
+        </div>
+      ) : null}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gold/20 px-4 text-sm font-semibold text-zinc-300 transition hover:border-gold/40 hover:text-white"
+        >
+          {result ? "Fechar" : "Cancelar"}
+        </button>
+        <button
+          type="button"
+          onClick={handleUpload}
+          disabled={uploading || !file}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-5 text-sm font-bold text-gold transition hover:bg-gold/25 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+          {uploading ? "Importando..." : "Importar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ImportSummary({
+  label,
+  value,
+  tone = "default"
+}: {
+  label: string;
+  value: number;
+  tone?: "default" | "danger" | "gold";
+}) {
+  const valueClass = tone === "danger" ? "text-danger" : tone === "gold" ? "text-gold" : "text-champagne";
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <dt className="text-zinc-400">{label}</dt>
+      <dd className={`font-semibold ${valueClass}`}>{value.toLocaleString("pt-BR")}</dd>
     </div>
   );
 }

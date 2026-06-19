@@ -28,7 +28,9 @@ const normalizedServiceOrderColumns: Record<string, string> = {
   dataqualityissue: "dataQualityIssue"
 };
 
-export function readNormalizedExcelRows(filePath: string, sheetName = "Ordens_Normalizadas") {
+export const NORMALIZED_SERVICE_ORDER_SHEET = "Ordens_Normalizadas";
+
+export function readNormalizedExcelRows(filePath: string, sheetName = NORMALIZED_SERVICE_ORDER_SHEET) {
   const workbook = XLSX.readFile(filePath, {
     cellDates: true
   });
@@ -38,12 +40,23 @@ export function readNormalizedExcelRows(filePath: string, sheetName = "Ordens_No
     throw new Error(`A aba "${sheetName}" não foi encontrada na planilha.`);
   }
 
+  return readNormalizedWorksheet(worksheet);
+}
+
+/** Lê e mapeia as linhas de uma worksheet já no layout normalizado do portal. */
+export function readNormalizedWorksheet(worksheet: XLSX.WorkSheet) {
   const rows = XLSX.utils.sheet_to_json<ExcelRow>(worksheet, {
     defval: "",
     raw: true
   });
 
   return rows.map(normalizeServiceOrderExcelRow);
+}
+
+/** True quando os cabeçalhos batem com o layout já normalizado (osNumber + operationCode). */
+export function looksLikeNormalizedLayout(headers: string[]): boolean {
+  const keys = new Set(headers.map((header) => normalizarNomeColuna(header).replace(/_/g, "")));
+  return keys.has("osnumber") && keys.has("operationcode");
 }
 
 function normalizeServiceOrderExcelRow(row: ExcelRow) {

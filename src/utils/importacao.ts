@@ -91,8 +91,36 @@ export function limparTexto(value: unknown) {
     .replace(/\s+/g, " ");
 }
 
+/**
+ * Separa um campo composto no formato "R\u00f3tulo (c\u00f3digo)" do export cru do SAP.
+ * Pega o \u00daLTIMO grupo de par\u00eanteses (r\u00f3tulos podem ter par\u00eanteses internos),
+ * aplicando trim no r\u00f3tulo e no c\u00f3digo. Quando n\u00e3o h\u00e1 par\u00eanteses, devolve o
+ * texto inteiro como r\u00f3tulo e `code = null`.
+ *
+ * Ex.: "BIFIO DESALINHADO (4005060)" -> { label: "BIFIO DESALINHADO", code: "4005060" }
+ *      "aberto (0)"                  -> { label: "aberto", code: "0" }
+ *      "Servi\u00e7o Terceiro"            -> { label: "Servi\u00e7o Terceiro", code: null }
+ */
+export function splitLabelCode(value: unknown): { label: string; code: string | null; raw: string } {
+  const raw = limparTexto(value);
+  if (!raw) {
+    return { label: "", code: null, raw };
+  }
+
+  // `.*` \u00e9 guloso, ent\u00e3o captura at\u00e9 o \u00daLTIMO "(" -> \u00faltimo grupo de par\u00eanteses.
+  const match = raw.match(/^(.*)\(([^()]*)\)\s*$/);
+  if (match) {
+    return { label: limparTexto(match[1]), code: limparTexto(match[2]) || null, raw };
+  }
+
+  return { label: raw, code: null, raw };
+}
+
 export function padronizarStatusOS(value: unknown): ServiceOrderStatus | null {
-  const normalized = normalizeEnumText(value);
+  // O export cru do SAP traz o status como "r\u00f3tulo (c\u00f3digo)" (ex.: "aberto (0)").
+  // Separamos para casar tanto pelo r\u00f3tulo quanto pelo c\u00f3digo num\u00e9rico do SAP.
+  const { label, code } = splitLabelCode(value);
+  const normalized = normalizeEnumText(label || code || "");
   const map: Record<string, ServiceOrderStatus> = {
     aberta: ServiceOrderStatus.ABERTA,
     aberto: ServiceOrderStatus.ABERTA,
@@ -106,11 +134,33 @@ export function padronizarStatusOS(value: unknown): ServiceOrderStatus | null {
     fechada: ServiceOrderStatus.FECHADA,
     fechado: ServiceOrderStatus.FECHADA,
     concluida: ServiceOrderStatus.FECHADA,
+    // SAP: "Tecnicamente encerrado" (TECO) = ordem tecnicamente conclu\u00edda.
+    tecnicamente_encerrado: ServiceOrderStatus.FECHADA,
+    tecnicamente_encerrada: ServiceOrderStatus.FECHADA,
+    encerrado: ServiceOrderStatus.FECHADA,
+    encerrada: ServiceOrderStatus.FECHADA,
+    teco: ServiceOrderStatus.FECHADA,
     cancelada: ServiceOrderStatus.CANCELADA,
     cancelado: ServiceOrderStatus.CANCELADA
   };
 
-  return map[normalized] ?? null;
+  const byLabel = map[normalized];
+  if (byLabel) {
+    return byLabel;
+  }
+
+  // Fallback pelo c\u00f3digo do SAP (0 = aberto, 2 = liberado, 3 = tecnicamente encerrado).
+  const codeMap: Record<string, ServiceOrderStatus> = {
+    "0": ServiceOrderStatus.ABERTA,
+    "2": ServiceOrderStatus.LIBERADA,
+    "3": ServiceOrderStatus.FECHADA
+  };
+  const effectiveCode = code ?? (/^\d+$/.test(normalized) ? normalized : null);
+  if (effectiveCode && codeMap[effectiveCode]) {
+    return codeMap[effectiveCode];
+  }
+
+  return null;
 }
 
 export function padronizarTipoManutencao(value: unknown): MaintenanceType | null {

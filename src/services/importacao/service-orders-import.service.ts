@@ -1,3 +1,4 @@
+import * as XLSX from "xlsx";
 import {
   DataSource,
   EquipmentStatus,
@@ -21,6 +22,16 @@ import {
   padronizarStatusOS,
   padronizarTipoManutencao
 } from "@/utils/importacao";
+import {
+  NORMALIZED_SERVICE_ORDER_SHEET,
+  looksLikeNormalizedLayout,
+  readNormalizedWorksheet
+} from "@/utils/excel-normalizer";
+import {
+  SAP_UI5_SHEET,
+  looksLikeRawSapLayout,
+  parseSapWorksheet
+} from "@/utils/service-orders-sap-parser";
 
 type ImportServiceOrdersOptions = {
   fileName?: string;
@@ -147,6 +158,76 @@ export async function importServiceOrdersFromNormalizedRows(
   await createImportHistory(result, options);
 
   return result;
+}
+
+/**
+ * Lê um arquivo Excel (buffer) detectando o layout e repassa as linhas para o
+ * importador idempotente. Espelha `importPcFactoryFromExcel`.
+ *
+ * Layouts suportados:
+ *  - EXPORT CRU do SAP: aba "Exportação SAPUI5" (ou colunas "Ordem" + "Status
+ *    da ordem" + "Operação") -> parser que separa "Rótulo (código)".
+ *  - Planilha já normalizada: aba "Ordens_Normalizadas" (ou colunas
+ *    osNumber + operationCode) -> excel-normalizer.
+ */
+export async function importServiceOrdersFromExcel(
+  source: string | Buffer | ArrayBuffer,
+  options: ImportServiceOrdersOptions = {}
+): Promise<ResultadoImportacaoOrdensServico> {
+  const workbook =
+    typeof source === "string"
+      ? XLSX.readFile(source, { cellDates: true })
+      : XLSX.read(source, { type: "buffer", cellDates: true });
+
+  const { rows } = resolveServiceOrderRows(workbook);
+  return importServiceOrdersFromNormalizedRows(rows, options);
+}
+
+/** Resolve a aba/layout e devolve as linhas já no formato normalizado. */
+function resolveServiceOrderRows(workbook: XLSX.WorkBook): {
+  rows: LinhaOrdemServicoNormalizada[];
+  sheetUsed: string;
+} {
+  const findSheet = (name: string) =>
+    workbook.SheetNames.find((sheet) => sheet.trim().toLowerCase() === name.trim().toLowerCase());
+
+  // 1) Aba explícita do export cru do SAP.
+  const sapSheet = findSheet(SAP_UI5_SHEET);
+  if (sapSheet) {
+    return { rows: parseSapWorksheet(workbook.Sheets[sapSheet]), sheetUsed: sapSheet };
+  }
+
+  // 2) Aba explícita da planilha já normalizada.
+  const normalizedSheet = findSheet(NORMALIZED_SERVICE_ORDER_SHEET);
+  if (normalizedSheet) {
+    return { rows: readNormalizedWorksheet(workbook.Sheets[normalizedSheet]), sheetUsed: normalizedSheet };
+  }
+
+  // 3) Primeira aba: decide pelo cabeçalho.
+  const firstSheetName = workbook.SheetNames[0];
+  const firstSheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
+  if (!firstSheet) {
+    throw new Error("A planilha não contém abas com dados.");
+  }
+
+  const headers = readSheetHeaders(firstSheet);
+  if (looksLikeRawSapLayout(headers)) {
+    return { rows: parseSapWorksheet(firstSheet), sheetUsed: firstSheetName };
+  }
+  if (looksLikeNormalizedLayout(headers)) {
+    return { rows: readNormalizedWorksheet(firstSheet), sheetUsed: firstSheetName };
+  }
+
+  throw new Error(
+    `Layout não reconhecido. Esperado o export cru do SAP (aba "${SAP_UI5_SHEET}") ou a planilha normalizada (aba "${NORMALIZED_SERVICE_ORDER_SHEET}").`
+  );
+}
+
+/** Lê apenas a linha de cabeçalho da worksheet (primeira linha). */
+function readSheetHeaders(worksheet: XLSX.WorkSheet): string[] {
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, defval: "", raw: true });
+  const first = matrix[0];
+  return Array.isArray(first) ? first.map((cell) => String(cell ?? "")) : [];
 }
 
 function normalizeServiceOrderRow(row: LinhaOrdemServicoNormalizada, line: number): NormalizedServiceOrder {
