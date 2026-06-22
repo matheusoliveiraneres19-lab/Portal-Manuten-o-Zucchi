@@ -9,6 +9,7 @@ import {
 } from "@/services/shared/portal-rules";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
 import { toInputDate } from "@/utils/period";
+import { getEquipmentGroupingKey } from "@/utils/technical-object-normalizer";
 import type {
   CriticalEquipmentDetails,
   CriticalEquipmentFilterOptions,
@@ -52,6 +53,7 @@ const STATUS_ORDER: ServiceOrderStatusLabel[] = [
 type ServiceOrderRow = {
   equipmentName: string | null;
   equipmentCode: string | null;
+  technicalObjectRaw: string | null;
   status: ServiceOrderStatus;
   workedHours: number | null;
   openedAt: Date | null;
@@ -276,9 +278,10 @@ export async function getEquipmentHoursByResponsible(
     }))
     .sort((a, b) => b.totalHours - a.totalHours || b.totalOrders - a.totalOrders);
 
+  const grouping = getEquipmentGroupingKey(groupRows[0]);
   return {
-    equipmentName: cleanText(groupRows[0].equipmentName) || NO_NAME,
-    equipmentCode: cleanText(groupRows[0].equipmentCode) || NO_CODE,
+    equipmentName: grouping.name || cleanText(groupRows[0].equipmentName) || NO_NAME,
+    equipmentCode: grouping.code || NO_CODE,
     totalWorkedHours: Number(totalWorkedHours.toFixed(3)),
     responsibles
   };
@@ -399,6 +402,8 @@ function analyzeEquipments(
   type Accumulator = {
     equipmentName: string;
     equipmentCode: string;
+    machinePrefix: string;
+    dataQualityIssue: boolean;
     totalOrders: number;
     statusCounts: Record<ServiceOrderStatusLabel, number>;
     totalWorkedHours: number;
@@ -410,13 +415,17 @@ function analyzeEquipments(
   const groups = new Map<string, Accumulator>();
 
   for (const row of rows) {
-    const code = resolveCode(row);
+    const grouping = getEquipmentGroupingKey(row);
+    const code = grouping.key;
     let group = groups.get(code);
 
     if (!group) {
       group = {
-        equipmentName: cleanText(row.equipmentName) || NO_NAME,
-        equipmentCode: cleanText(row.equipmentCode) || NO_CODE,
+        equipmentName: grouping.name || cleanText(row.equipmentName) || NO_NAME,
+        // Código técnico / local de instalação resolvido (explícito ou extraído do objeto técnico).
+        equipmentCode: grouping.code || NO_CODE,
+        machinePrefix: grouping.prefix,
+        dataQualityIssue: grouping.dataQualityIssue,
         totalOrders: 0,
         statusCounts: emptyStatusCounts(),
         totalWorkedHours: 0,
@@ -425,6 +434,9 @@ function analyzeEquipments(
         planningGroups: new Map()
       };
       groups.set(code, group);
+    } else if (group.equipmentName === NO_NAME && (grouping.name || cleanText(row.equipmentName))) {
+      // Completa o nome se uma ordem posterior trouxer um nome melhor para o mesmo código.
+      group.equipmentName = grouping.name || cleanText(row.equipmentName);
     }
 
     group.totalOrders += 1;
@@ -483,6 +495,8 @@ function analyzeEquipments(
       position: 0,
       equipmentName: group.equipmentName,
       equipmentCode: group.equipmentCode,
+      machinePrefix: group.machinePrefix,
+      dataQualityIssue: group.dataQualityIssue,
       totalOrders: group.totalOrders,
       openOrders: group.statusCounts.ABERTA,
       releasedOrders: group.statusCounts.LIBERADA,
@@ -524,7 +538,10 @@ function buildSummary(items: CriticalEquipmentItem[], totalOrders: number): Crit
       ? Number((totalOrders / totalEquipmentsAnalyzed).toFixed(1))
       : 0,
     totalOpenOrders,
-    totalCriticalEquipments: items.filter((item) => item.criticalityScore >= CRITICALITY_SCORE_THRESHOLD).length
+    totalCriticalEquipments: items.filter((item) => item.criticalityScore >= CRITICALITY_SCORE_THRESHOLD).length,
+    ordersWithoutTechnicalCode: items
+      .filter((item) => item.dataQualityIssue)
+      .reduce((sum, item) => sum + item.totalOrders, 0)
   };
 }
 
@@ -547,11 +564,11 @@ function buildTrend(
   items: CriticalEquipmentItem[],
   limit: number
 ): CriticalEquipmentTrendPoint[] {
-  const topCodes = new Set(items.slice(0, limit).map((item) => item.equipmentCode));
+  const topKeys = new Set(items.slice(0, limit).map((item) => item.id));
   const byPeriod = new Map<string, number>();
 
   for (const row of rows) {
-    if (!row.openedAt || !topCodes.has(resolveCodeDisplay(row))) {
+    if (!row.openedAt || !topKeys.has(resolveCode(row))) {
       continue;
     }
     const key = row.openedAt.toISOString().slice(0, 7); // YYYY-MM
@@ -578,6 +595,7 @@ async function fetchRows(params: Partial<CriticalEquipmentFilters>): Promise<Ser
     select: {
       equipmentName: true,
       equipmentCode: true,
+      technicalObjectRaw: true,
       status: true,
       workedHours: true,
       openedAt: true,
@@ -732,7 +750,8 @@ function emptyPageData(period: { startDate: string; endDate: string }): Critical
       totalWorkedHours: 0,
       averageOrdersPerEquipment: 0,
       totalOpenOrders: 0,
-      totalCriticalEquipments: 0
+      totalCriticalEquipments: 0,
+      ordersWithoutTechnicalCode: 0
     },
     ranking: [],
     hours: [],
@@ -754,13 +773,13 @@ function emptyStatusCounts(): Record<ServiceOrderStatusLabel, number> {
   };
 }
 
-/** Chave de agrupamento (código quando houver; senão nome; senão genérico). */
-function resolveCode(row: ServiceOrderRow): string {
-  return cleanText(row.equipmentCode) || `nome:${cleanText(row.equipmentName)}` || "sem-id";
-}
-
-function resolveCodeDisplay(row: ServiceOrderRow): string {
-  return cleanText(row.equipmentCode) || NO_CODE;
+/**
+ * Chave de agrupamento da máquina: código técnico explícito → código extraído do
+ * objeto técnico (local de instalação) → nome → genérico. Fonte única em
+ * technical-object-normalizer para o ranking e o detalhe agruparem igual.
+ */
+function resolveCode(row: { equipmentCode: string | null; equipmentName: string | null; technicalObjectRaw: string | null }): string {
+  return getEquipmentGroupingKey(row).key;
 }
 
 function pickTop(counts: Map<string, number>): string {

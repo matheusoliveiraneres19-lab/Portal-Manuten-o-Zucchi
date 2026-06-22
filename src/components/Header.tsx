@@ -1,9 +1,10 @@
 import { Suspense } from "react";
-import { Search } from "lucide-react";
+import { CalendarDays, Search } from "lucide-react";
 import { AlertsButton } from "@/components/AlertsButton";
 import { AuthUserSummary } from "@/components/AuthUserSummary";
 import { LogoutButton } from "@/components/LogoutButton";
 import { PeriodFilter } from "@/components/PeriodFilter";
+import { formatDatePtBr, getTodayDate } from "@/utils/date";
 
 type HeaderProps = {
   defaultStartDate: string;
@@ -11,6 +12,10 @@ type HeaderProps = {
 };
 
 export function Header({ defaultStartDate, defaultEndDate }: HeaderProps) {
+  // Data atual dinâmica: o layout do dashboard é force-dynamic, então isto é
+  // recalculado a cada carregamento — nunca fica preso numa data fixa.
+  const today = formatDatePtBr(getTodayDate());
+
   return (
     <header className="sticky top-0 z-30 border-b border-gold/20 bg-[#070808]/95 px-4 py-3 text-white shadow-[0_8px_24px_rgba(0,0,0,0.24)] backdrop-blur sm:px-6 lg:px-7">
       <div className="mx-auto flex max-w-[1780px] flex-wrap items-center gap-3">
@@ -21,6 +26,11 @@ export function Header({ defaultStartDate, defaultEndDate }: HeaderProps) {
             </h1>
             <span className="rounded-md border border-gold/50 bg-gradient-to-r from-danger to-[#4a1518] px-3 py-1 text-xs font-bold tracking-wider text-champagne shadow">
               FASE 1
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-gold/20 bg-black/40 px-2.5 py-1 text-xs font-medium text-champagne">
+              <CalendarDays className="h-3.5 w-3.5 text-gold" />
+              <span className="text-zinc-400">Hoje</span>
+              <strong className="font-semibold text-white">{today}</strong>
             </span>
           </div>
         </div>

@@ -98,8 +98,19 @@ type AnalyticsRecord = {
   statusRaw: string | null;
   statusCategory: PcFactoryStatusCategory;
   durationHours: number;
+  realDurationHours: number | null;
   startDateTime: Date | null;
 };
+
+/**
+ * Base de TODOS os cálculos: "Tempo Decorrido Real" quando disponível, senão
+ * "Tempo Decorrido" (durationHours) como fallback. Nunca retorna NaN/negativo.
+ */
+function metricHours(record: { realDurationHours: number | null; durationHours: number }): number {
+  const real = record.realDurationHours;
+  const base = real !== null && real !== undefined && Number.isFinite(real) ? real : record.durationHours;
+  return Number.isFinite(base) && base > 0 ? base : 0;
+}
 
 // `cache` deduplica a carga de registros filtrados no MESMO render — o orquestrador
 // cria UM objeto `params` e o repassa a todas as sub-funções.
@@ -115,6 +126,7 @@ const loadRecords = cache(async (params: PcFactoryQueryParams): Promise<Analytic
       statusRaw: true,
       statusCategory: true,
       durationHours: true,
+      realDurationHours: true,
       startDateTime: true
     }
   });
@@ -167,7 +179,7 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
   let waitingEvents = 0;
 
   for (const record of records) {
-    const hours = Number.isFinite(record.durationHours) ? record.durationHours : 0;
+    const hours = metricHours(record); // Tempo Decorrido Real (fallback: Tempo Decorrido)
     const cat = record.statusCategory;
     totalHours += hours;
     byCategory.set(cat, (byCategory.get(cat) ?? 0) + hours);
@@ -253,12 +265,23 @@ function mttr(maintenanceHours: number, maintenanceEvents: number): number | nul
 }
 
 /**
- * MTBF gerencial (horas) = tempo produzindo / nº de eventos de manutenção.
- * Aproxima o "tempo entre falhas" usando as horas em PRODUÇÃO como tempo de operação.
- * null = sem eventos de manutenção (sem falhas → não há intervalo a medir).
+ * MTBF gerencial (horas) = (Tempo Planejado Real − Horas de Manutenção Real) / eventos.
+ * Aproxima o tempo operacional planejado disponível entre eventos de manutenção.
+ * null = sem eventos de manutenção ("Dados insuficientes").
  */
-function mtbf(productionHours: number, maintenanceEvents: number): number | null {
-  return maintenanceEvents > 0 ? safeRound(productionHours / maintenanceEvents) : null;
+function mtbf(plannedHours: number, maintenanceHours: number, maintenanceEvents: number): number | null {
+  if (maintenanceEvents <= 0) return null;
+  const operational = Math.max(0, plannedHours - maintenanceHours);
+  return safeRound(operational / maintenanceEvents);
+}
+
+/**
+ * MTTA gerencial estimado (horas) = horas em "Aguardando Manutenção" / nº de eventos
+ * de Aguardando Manutenção. É uma estimativa (ainda não há timestamp de chamado vs.
+ * início de atendimento). null = sem eventos de aguardando ("Dados insuficientes").
+ */
+function mtta(waitingHours: number, waitingEvents: number): number | null {
+  return waitingEvents > 0 ? safeRound(waitingHours / waitingEvents) : null;
 }
 
 function maintenancePercent(plannedHours: number, maintenanceHours: number): number | null {
@@ -299,8 +322,10 @@ function buildResourceRanking(records: AnalyticsRecord[]): PcFactoryResourceRow[
       lossHours: agg.lossHours,
       stoppedHours: agg.stoppedHours,
       maintenanceEvents: agg.maintenanceEvents,
+      waitingEvents: agg.waitingEvents,
       mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
-      mtbf: mtbf(agg.productionHours, agg.maintenanceEvents),
+      mtbf: mtbf(agg.plannedHours, agg.maintenanceHours, agg.maintenanceEvents),
+      mtta: mtta(agg.waitingHours, agg.waitingEvents),
       availabilityPercent: availability(agg.plannedHours, agg.stoppedHours)
     });
   }
@@ -352,7 +377,8 @@ export async function getPcFactoryDashboardKPIs(params: PcFactoryQueryParams): P
     automationEvents: agg.automationEvents,
     waitingEvents: agg.waitingEvents,
     mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
-    mtbf: mtbf(agg.productionHours, agg.maintenanceEvents),
+    mtbf: mtbf(agg.plannedHours, agg.maintenanceHours, agg.maintenanceEvents),
+    mtta: mtta(agg.waitingHours, agg.waitingEvents),
     maintenancePercentOfPlanned: maintenancePercent(agg.plannedHours, agg.maintenanceHours),
     availabilityPercent: availability(agg.plannedHours, agg.stoppedHours),
     topMaintenanceResource: topByMaintenance(ranking)
@@ -453,7 +479,10 @@ function buildGroupSummary(records: AnalyticsRecord[]): PcFactoryGroupRow[] {
       lossHours: agg.lossHours,
       stoppedHours: agg.stoppedHours,
       maintenanceEvents: agg.maintenanceEvents,
+      waitingEvents: agg.waitingEvents,
       mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
+      mtbf: mtbf(agg.plannedHours, agg.maintenanceHours, agg.maintenanceEvents),
+      mtta: mtta(agg.waitingHours, agg.waitingEvents),
       availabilityPercent: availability(agg.plannedHours, agg.stoppedHours)
     });
   }
@@ -671,6 +700,7 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
         statusRaw: true,
         statusCategory: true,
         durationHours: true,
+        realDurationHours: true,
         startDateTime: true
       }
     }),
@@ -708,7 +738,10 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
     waitingHours: agg.waitingHours,
     stoppedHours: agg.stoppedHours,
     maintenanceEvents: agg.maintenanceEvents,
+    waitingEvents: agg.waitingEvents,
     mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
+    mtbf: mtbf(agg.plannedHours, agg.maintenanceHours, agg.maintenanceEvents),
+    mtta: mtta(agg.waitingHours, agg.waitingEvents),
     availabilityPercent,
     categoryDistribution: categoryDistributionFromAggregate(agg),
     maintenanceTimeline: maintenance.map(toRecordRow),
@@ -905,6 +938,7 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
       waitingEvents: 0,
       mttr: null,
       mtbf: null,
+      mtta: null,
       maintenancePercentOfPlanned: null,
       availabilityPercent: null,
       topMaintenanceResource: null

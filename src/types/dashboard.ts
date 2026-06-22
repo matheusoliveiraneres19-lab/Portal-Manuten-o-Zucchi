@@ -132,6 +132,8 @@ export type TopMachineBreakIndexData = {
 export type HoursByCollaboratorData = {
   userName: string;
   hours: number;
+  /** Quantidade de Ordens de Serviço atribuídas ao colaborador no período. */
+  orders: number;
 };
 
 export type PurchasesByMonthData = {
