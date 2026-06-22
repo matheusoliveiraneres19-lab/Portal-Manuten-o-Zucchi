@@ -140,30 +140,92 @@ export async function createUser(input: CreateUserInput): Promise<ServiceResult<
   }
 }
 
-export type UpdateUserFlags = {
+export type UpdateUserInput = {
+  /** Dados de perfil editáveis. `email: ""` limpa o e-mail. */
+  name?: string;
+  email?: string;
+  role?: string;
+  /** Flags administrativas. */
+  status?: UserStatus;
   /** Força (ou desativa) a troca de senha no próximo acesso. */
   mustChangePassword?: boolean;
-  status?: UserStatus;
 };
 
-/** Atualiza flags administrativas de um usuário (sem tocar na senha). */
-export async function updateUserFlags(id: string, flags: UpdateUserFlags): Promise<ServiceResult<AdminUserRow>> {
+/** Atualiza perfil/flags de um usuário (sem tocar na senha). */
+export async function updateUser(id: string, input: UpdateUserInput): Promise<ServiceResult<AdminUserRow>> {
   const data: Prisma.UserUpdateInput = {};
-  if (typeof flags.mustChangePassword === "boolean") {
-    data.mustChangePassword = flags.mustChangePassword;
-    if (flags.mustChangePassword) {
+
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (!name) return { ok: false, status: 400, message: "Informe o nome.", field: "name" };
+    data.name = name;
+  }
+
+  if (input.role !== undefined) {
+    if (!isValidRole(input.role)) return { ok: false, status: 400, message: "Papel inválido.", field: "role" };
+    data.role = input.role as Role;
+  }
+
+  if (input.email !== undefined) {
+    const email = input.email.trim();
+    if (email) {
+      const clash = await prisma.user.findFirst({ where: { email, NOT: { id } }, select: { id: true } });
+      if (clash) return { ok: false, status: 409, message: "Já existe um usuário com este e-mail.", field: "email" };
+      data.email = email;
+    } else {
+      data.email = null;
+    }
+  }
+
+  if (input.status && (Object.values(UserStatus) as string[]).includes(input.status)) {
+    data.status = input.status;
+  }
+
+  if (typeof input.mustChangePassword === "boolean") {
+    data.mustChangePassword = input.mustChangePassword;
+    if (input.mustChangePassword) {
       data.temporaryPasswordCreatedAt = new Date();
     }
   }
-  if (flags.status && (Object.values(UserStatus) as string[]).includes(flags.status)) {
-    data.status = flags.status;
-  }
+
   if (Object.keys(data).length === 0) {
     return { ok: false, status: 400, message: "Nada para atualizar." };
   }
 
   try {
     const updated = await prisma.user.update({ where: { id }, data, select: SELECT });
+    return { ok: true, data: toRow(updated) };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return { ok: false, status: 404, message: "Usuário não encontrado." };
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { ok: false, status: 409, message: "E-mail já cadastrado.", field: "email" };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Redefine a senha de um usuário para uma NOVA senha temporária (hash bcrypt) e
+ * exige a troca no próximo acesso. Usado pela ação "Resetar senha" do admin.
+ */
+export async function resetUserPassword(id: string, temporaryPassword: string): Promise<ServiceResult<AdminUserRow>> {
+  const passwordError = validatePassword(temporaryPassword);
+  if (passwordError) return { ok: false, status: 400, message: passwordError, field: "temporaryPassword" };
+
+  const now = new Date();
+  try {
+    const updated = await prisma.user.update({
+      where: { id },
+      data: {
+        passwordHash: await hashPassword(temporaryPassword),
+        mustChangePassword: true,
+        temporaryPasswordCreatedAt: now,
+        temporaryPasswordExpiresAt: new Date(now.getTime() + TEMP_PASSWORD_TTL_DAYS * 24 * 60 * 60 * 1000)
+      },
+      select: SELECT
+    });
     return { ok: true, data: toRow(updated) };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
