@@ -100,9 +100,12 @@ function yearBounds(year: number): { start: Date; end: Date } {
   };
 }
 
-export async function resolveLubricantReference(
+// Memoizado por request (React.cache): a página chama resolveLubricantReference em ~8
+// sub-funções com os MESMOS params; sem isso, quando o usuário não fixa ano/mês, cada
+// chamada repetiria o aggregate de movementDate (linha abaixo) — 8 queries idênticas/request.
+export const resolveLubricantReference = cache(async (
   params: Partial<LubricantQueryParams> = {}
-): Promise<LubricantReferencePeriod> {
+): Promise<LubricantReferencePeriod> => {
   let year = params.year;
   let month = params.month;
 
@@ -132,7 +135,7 @@ export async function resolveLubricantReference(
     .replace(/^./, (c) => c.toUpperCase())}/${year}`;
 
   return { year, month, startDate: toInputDate(start), endDate: toInputDate(end), monthLabel };
-}
+});
 
 /* ------------------------------------------------------------------ */
 /* Agregações por material                                            */
