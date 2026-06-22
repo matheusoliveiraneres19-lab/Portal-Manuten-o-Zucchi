@@ -14,10 +14,11 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
+  UserCog,
   UsersRound
 } from "lucide-react";
 
-const menu = [
+const baseMenu = [
   { label: "Início", href: "/dashboard", icon: Home },
   { label: "Ordens de Serviço", href: "/dashboard/ordens-servico", icon: ClipboardList },
   { label: "Compras Realizadas", href: "/dashboard/compras-realizadas", icon: ShoppingCart },
@@ -31,8 +32,20 @@ const menu = [
   { label: "Configurações", href: "/dashboard/configuracoes", icon: Settings }
 ];
 
-export function Sidebar() {
+const ADMIN_MENU_ITEM = { label: "Usuários", href: "/dashboard/usuarios", icon: UserCog };
+
+type SidebarProps = {
+  /** "Usuários" (admin) só entra no menu quando o usuário logado é ADMIN. */
+  canManageUsers?: boolean;
+};
+
+export function Sidebar({ canManageUsers = false }: SidebarProps) {
   const pathname = usePathname();
+
+  // Insere "Usuários" logo antes de "Configurações" quando permitido.
+  const menu = canManageUsers
+    ? [...baseMenu.slice(0, -1), ADMIN_MENU_ITEM, baseMenu[baseMenu.length - 1]]
+    : baseMenu;
 
   return (
     <aside className="marble-dark fixed inset-y-0 left-0 z-40 hidden w-80 border-r border-gold/20 p-5 text-champagne shadow-2xl lg:flex lg:flex-col">
