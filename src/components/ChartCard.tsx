@@ -7,6 +7,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Legend,
   Line,
   LineChart,
@@ -17,8 +18,48 @@ import {
   XAxis,
   YAxis
 } from "recharts";
+import type { TooltipProps } from "recharts";
 import { LineChart as LineChartIcon } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
+
+/** Trunca nomes longos no eixo, preservando leitura (o nome completo vai no tooltip). */
+function truncateLabel(value: string, max = 18): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+const numberPtBr = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 });
+
+/**
+ * Tooltip do gráfico "Horas apontadas por colaborador": mostra nome completo,
+ * horas, quantidade de ordens e média de horas por ordem (quando disponíveis).
+ */
+function CollaboratorHoursTooltip({ active, payload }: TooltipProps<number, string>) {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+
+  const row = payload[0].payload as { name?: string; value?: number; orders?: number; avg?: number };
+  const hours = Number(row.value ?? 0);
+  const orders = Number(row.orders ?? 0);
+  const avg = Number(row.avg ?? 0);
+
+  return (
+    <div className="rounded-md border border-gold/30 bg-[#0a0b0b]/95 px-3 py-2 text-xs text-zinc-100 shadow-lg">
+      <p className="mb-1 max-w-[220px] font-semibold text-champagne">{row.name}</p>
+      <p>
+        Horas: <strong className="text-white">{numberPtBr.format(hours)}h</strong>
+      </p>
+      <p>
+        Ordens: <strong className="text-white">{numberPtBr.format(orders)}</strong>
+      </p>
+      {orders > 0 ? (
+        <p>
+          Média: <strong className="text-white">{numberPtBr.format(avg)}h/ordem</strong>
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 type ChartCardProps = {
   title: string;
@@ -85,12 +126,27 @@ export function ChartCard({
               </text>
             </PieChart>
           ) : kind === "bar-horizontal" ? (
-            <BarChart data={data} layout="vertical" margin={{ left: 18, right: 24 }}>
+            <BarChart data={data} layout="vertical" margin={{ left: 8, right: 36 }}>
               <CartesianGrid stroke="#eee4d6" strokeDasharray="3 3" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 11 }} />
-              <YAxis dataKey="name" type="category" width={94} tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Bar dataKey="value" fill="#2f6384" radius={[0, 3, 3, 0]} />
+              <YAxis
+                dataKey="name"
+                type="category"
+                width={140}
+                tick={{ fontSize: 11 }}
+                tickFormatter={(value: string) => truncateLabel(value)}
+                interval={0}
+              />
+              <Tooltip cursor={{ fill: "rgba(47,99,132,0.08)" }} content={<CollaboratorHoursTooltip />} />
+              <Bar dataKey="value" fill="#2f6384" radius={[0, 3, 3, 0]} barSize={14}>
+                <LabelList
+                  dataKey="value"
+                  position="right"
+                  className="fill-[#5a3d12]"
+                  fontSize={10}
+                  formatter={(value: number) => numberPtBr.format(value)}
+                />
+              </Bar>
             </BarChart>
           ) : kind === "bar" ? (
             <BarChart data={data}>

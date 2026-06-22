@@ -65,7 +65,7 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
           data={dashboard.collaboratorHours}
           kind="bar-horizontal"
           title="Horas apontadas por colaborador"
-          emptyTitle="Sem horas apontadas no período"
+          emptyTitle="Nenhuma hora apontada no período."
           emptyDescription="Aguardando importação de apontamentos de horas."
         />
         <ChartCard

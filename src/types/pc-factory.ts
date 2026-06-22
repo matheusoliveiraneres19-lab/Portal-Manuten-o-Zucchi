@@ -75,8 +75,10 @@ export type PcFactoryKpis = {
   waitingEvents: number;
   /** MTTR gerencial (horas) = horas de manutenção / eventos. null = dados insuficientes. */
   mttr: number | null;
-  /** MTBF gerencial (horas) = horas produzindo / eventos de manutenção. null = dados insuficientes. */
+  /** MTBF gerencial (horas) = (planejado real − manutenção real) / eventos. null = dados insuficientes. */
   mtbf: number | null;
+  /** MTTA gerencial estimado (horas) = horas Aguardando Manutenção / eventos de aguardando. null = dados insuficientes. */
+  mtta: number | null;
   /** % manutenção sobre o tempo planejado. null = dados insuficientes. */
   maintenancePercentOfPlanned: number | null;
   /** Disponibilidade estimada (%). null = dados insuficientes. */
@@ -115,8 +117,10 @@ export type PcFactoryResourceRow = {
   lossHours: number;
   stoppedHours: number;
   maintenanceEvents: number;
+  waitingEvents: number;
   mttr: number | null;
   mtbf: number | null;
+  mtta: number | null;
   availabilityPercent: number | null;
 };
 
@@ -142,7 +146,10 @@ export type PcFactoryGroupRow = {
   lossHours: number;
   stoppedHours: number;
   maintenanceEvents: number;
+  waitingEvents: number;
   mttr: number | null;
+  mtbf: number | null;
+  mtta: number | null;
   availabilityPercent: number | null;
 };
 
@@ -236,7 +243,10 @@ export type PcFactoryResourceDetails = {
   waitingHours: number;
   stoppedHours: number;
   maintenanceEvents: number;
+  waitingEvents: number;
   mttr: number | null;
+  mtbf: number | null;
+  mtta: number | null;
   availabilityPercent: number | null;
   categoryDistribution: PcFactoryCategorySlice[];
   maintenanceTimeline: PcFactoryRecordRow[];
@@ -335,6 +345,8 @@ export type PcFactoryImportResult = {
   operationalLossRows: number;
   otherRows: number;
   dataQualityRows: number;
+  /** Linhas sem "Tempo Decorrido Real" (caíram no fallback de durationHours). */
+  missingRealDurationRows: number;
   /** Aba efetivamente lida (Import_PC_FACTORY, ag-grid, etc.). */
   sheetUsed: string | null;
   periodDetected: { start: string | null; end: string | null };
@@ -375,10 +387,15 @@ export type PcFactoryExcelRow = {
   duration?: unknown;
   /** Duração explícita em minutos (coluna durationMinutes). */
   durationMinutes?: unknown;
-  /** Duração explícita em horas reais (coluna durationHours). */
+  /** Duração explícita em horas (coluna durationHours / "Tempo Decorrido"). */
   durationHours?: unknown;
+  /** "Tempo Decorrido Real" explícito em horas/minutos (aba ajustada), quando houver. */
+  realDurationHours?: unknown;
+  realDurationMinutes?: unknown;
   /** "Tempo Decorrido [hr]" da aba bruta — fração de dia (multiplicar por 24). */
   elapsedDayFraction?: unknown;
+  /** "Tempo Decorrido Real[hr]" da aba bruta — fração de dia (base principal dos KPIs). */
+  elapsedRealDayFraction?: unknown;
   orderNumber?: unknown;
   operationCode?: unknown;
   operationName?: unknown;

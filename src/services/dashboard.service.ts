@@ -62,21 +62,26 @@ import type {
 } from "@/types/dashboard";
 import { formatCurrency, formatDate, formatMonthName, formatPercent, formatShortDate, formatVolume } from "@/utils/formatters";
 import { dayKey, isWithinPeriod, toEndOfDay, toStartOfDay, withinPeriod } from "@/utils/date-range";
+import { getDefaultPortalPeriod, getTodayDate } from "@/utils/date";
 import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
 import { calculatePeriodVariation, getPreviousPeriod, toInputDate, type PeriodVariation } from "@/utils/period";
 
+/**
+ * Período padrão quando não há dados no banco: mês atual → hoje (dinâmico).
+ * Sem data fixa — acompanha o dia em que o portal é aberto.
+ */
 export function getDefaultDashboardPeriod(): DashboardPeriod {
-  return parsePeriod("2024-05");
+  return getDefaultPortalPeriod();
 }
 
 export function parsePeriod(period?: DashboardPeriodInput): DashboardPeriod {
   if (!period) {
-    return monthPeriod(2024, 5);
+    return getDefaultPortalPeriod();
   }
 
   if (typeof period === "string") {
     const [year, month] = period.split("-").map(Number);
-    return monthPeriod(year || 2024, month || 5);
+    return monthPeriod(year || getTodayDate().getUTCFullYear(), month || getTodayDate().getUTCMonth() + 1);
   }
 
   if (period.startDate && period.endDate) {
@@ -86,7 +91,10 @@ export function parsePeriod(period?: DashboardPeriodInput): DashboardPeriod {
     };
   }
 
-  return monthPeriod(period.year ?? 2024, period.month ?? 5);
+  return monthPeriod(
+    period.year ?? getTodayDate().getUTCFullYear(),
+    period.month ?? getTodayDate().getUTCMonth() + 1
+  );
 }
 
 export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promise<DashboardKPIsData> {
@@ -412,9 +420,13 @@ export async function getDashboardData(periodInput?: DashboardPeriodInput): Prom
 }
 
 /**
- * Quando nenhum período é informado, usa o intervalo real das Ordens de Serviço
- * (menor e maior data de abertura) em vez de um mês fixo. Assim o dashboard
- * reflete os dados importados da planilha automaticamente.
+ * Período padrão do portal quando nenhum período é informado na URL.
+ *
+ * - INÍCIO: menor data de abertura das Ordens de Serviço (regra global existente),
+ *   para o dashboard cobrir todo o histórico importado.
+ * - FIM: SEMPRE hoje (dinâmico). Não fica preso na maior data importada — ao
+ *   recarregar em outro dia, a data final acompanha o dia atual. Se existirem
+ *   registros com data futura, o fim é estendido até eles para não esconder dados.
  */
 export async function resolveDefaultDashboardPeriod(): Promise<DashboardPeriod> {
   try {
@@ -423,16 +435,18 @@ export async function resolveDefaultDashboardPeriod(): Promise<DashboardPeriod> 
       _max: { openedAt: true }
     });
 
-    const start = range._min.openedAt;
-    const end = range._max.openedAt;
+    const minOpened = range._min.openedAt;
 
-    if (!start || !end) {
+    if (!minOpened) {
       return getDefaultDashboardPeriod();
     }
 
+    const today = toEndOfDay(getTodayDate());
+    const maxOpened = range._max.openedAt ? toEndOfDay(range._max.openedAt) : today;
+
     return {
-      startDate: toStartOfDay(start),
-      endDate: toEndOfDay(end)
+      startDate: toStartOfDay(minOpened),
+      endDate: maxOpened > today ? maxOpened : today
     };
   } catch (error) {
     console.error("Falha ao resolver período padrão do dashboard. Usando período padrão.", error);
@@ -644,10 +658,7 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       time: item.title,
       icon: index === 0 ? Bell : AlertTriangle
     })),
-    collaboratorHours: data.hoursByCollaborator.map((item) => ({
-      name: item.userName,
-      value: item.hours
-    })),
+    collaboratorHours: buildCollaboratorHoursChart(data.hoursByCollaborator),
     monthlyPurchases: data.purchasesByMonth
       .filter((item) => item.value > 0)
       .map((item) => ({
@@ -679,4 +690,50 @@ function pickChartCheckpoints(points: OpenClosedServiceOrdersPoint[]) {
 
   const indexes = [0, 7, 14, 21, points.length - 1].filter((index, position, all) => all.indexOf(index) === position);
   return indexes.map((index) => points[index]).filter(Boolean);
+}
+
+/**
+ * Monta os dados do gráfico "Horas apontadas por colaborador" (aba Início):
+ * - ordena do maior para o menor (a fonte já entrega ordenado, reforçamos aqui);
+ * - mantém os TOP 10 e agrega o restante em "Outros (N)";
+ * - carrega horas, nº de ordens e média de horas por ordem para o tooltip;
+ * - sanitiza valores (sem NaN/Infinity) e descarta linhas zeradas.
+ *
+ * Mesma fonte da aba Equipe e Horas (getHoursByCollaborator), garantindo que os
+ * totais batam entre as duas telas.
+ */
+const COLLABORATOR_HOURS_TOP = 10;
+
+function buildCollaboratorHoursChart(rows: import("@/types/dashboard").HoursByCollaboratorData[]) {
+  const safe = rows
+    .map((row) => ({
+      name: row.userName,
+      hours: Number.isFinite(row.hours) && row.hours > 0 ? Number(row.hours.toFixed(2)) : 0,
+      orders: Number.isFinite(row.orders) && row.orders > 0 ? row.orders : 0
+    }))
+    .filter((row) => row.hours > 0)
+    .sort((a, b) => b.hours - a.hours);
+
+  const top = safe.slice(0, COLLABORATOR_HOURS_TOP);
+  const rest = safe.slice(COLLABORATOR_HOURS_TOP);
+
+  const points = top.map((row) => ({
+    name: row.name,
+    value: row.hours,
+    orders: row.orders,
+    avg: row.orders > 0 ? Number((row.hours / row.orders).toFixed(2)) : 0
+  }));
+
+  if (rest.length > 0) {
+    const restHours = Number(rest.reduce((sum, row) => sum + row.hours, 0).toFixed(2));
+    const restOrders = rest.reduce((sum, row) => sum + row.orders, 0);
+    points.push({
+      name: `Outros (${rest.length})`,
+      value: restHours,
+      orders: restOrders,
+      avg: restOrders > 0 ? Number((restHours / restOrders).toFixed(2)) : 0
+    });
+  }
+
+  return points;
 }

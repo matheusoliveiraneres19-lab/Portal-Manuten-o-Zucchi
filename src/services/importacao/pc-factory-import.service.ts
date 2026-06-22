@@ -97,8 +97,13 @@ const COLUMN_MAP: Record<string, keyof PcFactoryExcelRow> = {
   durationminutes: "durationMinutes",
   duracao_horas: "durationHours",
   durationhours: "durationHours",
-  tempo_decorrido_hr: "elapsedDayFraction", // ag-grid: "Tempo Decorrido [hr]"
-  tempo_decorrido_real_hr: "elapsedDayFraction", // ag-grid: "Tempo Decorrido Real[hr]" (preferido)
+  tempo_decorrido_hr: "elapsedDayFraction", // ag-grid: "Tempo Decorrido [hr]" (planejado/auditoria)
+  tempo_decorrido_real_hr: "elapsedRealDayFraction", // ag-grid: "Tempo Decorrido Real[hr]" (base dos KPIs)
+  tempo_decorrido_real: "elapsedRealDayFraction",
+  realdurationhours: "realDurationHours", // aba ajustada (Tempo Decorrido Real em horas)
+  realdurationminutes: "realDurationMinutes",
+  duracao_real_horas: "realDurationHours",
+  duracao_real_minutos: "realDurationMinutes",
   duracao: "duration",
   tempo: "duration",
   // Ordem / operação / produto
@@ -250,6 +255,7 @@ export async function importPcFactoryRecords(
     operationalLossRows: 0,
     otherRows: 0,
     dataQualityRows: 0,
+    missingRealDurationRows: 0,
     sheetUsed,
     periodDetected: { start: null, end: null },
     resourcesDetected: 0,
@@ -284,6 +290,7 @@ export async function importPcFactoryRecords(
       // Auditoria de classificação (conta TODAS as linhas válidas, inclusive as excluídas do tempo planejado).
       tallyClassification(result, parsed.statusRaw, parsed.statusCategory);
       if (parsed.dataQualityIssue) result.dataQualityRows += 1;
+      if (parsed.realDurationHours === null) result.missingRealDurationRows += 1;
       result.totalHours = round(result.totalHours + parsed.durationHours);
       if (parsed.isMaintenanceKpi) result.maintenanceHours = round(result.maintenanceHours + parsed.durationHours);
       resources.add(parsed.resourceName);
@@ -319,6 +326,8 @@ export async function importPcFactoryRecords(
         endDateTime: parsed.endDateTime,
         durationMinutes: parsed.durationMinutes,
         durationHours: parsed.durationHours,
+        realDurationMinutes: parsed.realDurationMinutes,
+        realDurationHours: parsed.realDurationHours,
         initialResponsible: parsed.initialResponsible,
         finalResponsible: parsed.finalResponsible,
         operatorName: parsed.operatorName,
@@ -435,6 +444,8 @@ type ParsedRow = {
   endDateTime: Date | null;
   durationMinutes: number;
   durationHours: number;
+  realDurationMinutes: number | null;
+  realDurationHours: number | null;
   initialResponsible: string | null;
   finalResponsible: string | null;
   operatorName: string | null;
@@ -460,7 +471,16 @@ function parseRow(row: PcFactoryExcelRow, line: number): ParseOutcome {
   const startDateTime = combineDateAndTime(parsePcFactoryDate(row.startDate), row.startTime);
   const endDateTime = combineDateAndTime(parsePcFactoryDate(row.endDate), row.endTime);
   const durationFallback = resolveFallbackMinutes(row);
-  const durationMinutes = computeDurationMinutes(startDateTime, endDateTime, durationFallback);
+
+  // "Tempo Decorrido Real" (base principal dos KPIs). Pode não existir na planilha.
+  const realDurationMinutes = resolveRealDurationMinutes(row);
+
+  // Duração-base do registro ("Tempo Decorrido"). Se a planilha só trouxe o Tempo
+  // Decorrido Real, usamos ele como base para não descartar a linha por falta de duração.
+  let durationMinutes = computeDurationMinutes(startDateTime, endDateTime, durationFallback);
+  if (durationMinutes <= 0 && realDurationMinutes !== null && realDurationMinutes > 0) {
+    durationMinutes = realDurationMinutes;
+  }
   const hasDuration = durationMinutes > 0;
   const hasDates = Boolean(startDateTime || endDateTime);
 
@@ -507,6 +527,8 @@ function parseRow(row: PcFactoryExcelRow, line: number): ParseOutcome {
       endDateTime,
       durationMinutes,
       durationHours: Math.round((durationMinutes / 60) * 100) / 100,
+      realDurationMinutes,
+      realDurationHours: realDurationMinutes === null ? null : Math.round((realDurationMinutes / 60) * 100) / 100,
       initialResponsible: optionalText(row.initialResponsible),
       finalResponsible: optionalText(row.finalResponsible),
       operatorName: optionalText(row.operatorName),
@@ -562,6 +584,27 @@ function resolveFallbackMinutes(row: PcFactoryExcelRow): number | null {
   }
 
   return parseDurationToMinutes(row.duration);
+}
+
+/**
+ * Resolve o "Tempo Decorrido Real" em minutos, quando a planilha o traz:
+ * 1) realDurationMinutes explícito; 2) realDurationHours real (×60);
+ * 3) "Tempo Decorrido Real[hr]" da aba bruta (fração de dia, regra <1.5 → ×24).
+ * Retorna null quando a coluna real não existe — aí os cálculos caem em durationHours.
+ */
+function resolveRealDurationMinutes(row: PcFactoryExcelRow): number | null {
+  const explicitMinutes = parsePlainNumber(row.realDurationMinutes);
+  if (explicitMinutes !== null && explicitMinutes >= 0) return round(explicitMinutes);
+
+  const explicitHours = parsePlainNumber(row.realDurationHours);
+  if (explicitHours !== null && explicitHours >= 0) return round(explicitHours * 60);
+
+  if (row.elapsedRealDayFraction !== undefined && row.elapsedRealDayFraction !== "") {
+    const fromElapsed = parseAgGridElapsedToMinutes(row.elapsedRealDayFraction);
+    if (fromElapsed !== null) return fromElapsed;
+  }
+
+  return null;
 }
 
 function parsePlainNumber(value: unknown): number | null {

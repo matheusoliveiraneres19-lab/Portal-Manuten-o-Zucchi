@@ -34,6 +34,7 @@ export function PcFactoryReliabilityTable({ rows, className = "", onSelect }: Pc
                 <th className="px-3 py-2 text-right">Quebras</th>
                 <th className="px-3 py-2 text-right">MTBF</th>
                 <th className="px-3 py-2 text-right">MTTR</th>
+                <th className="px-3 py-2 text-right">MTTA</th>
                 <th className="px-3 py-2 text-right">Paradas</th>
                 <th className="py-2 pl-3 text-right">Disponib.</th>
               </tr>
@@ -53,6 +54,7 @@ export function PcFactoryReliabilityTable({ rows, className = "", onSelect }: Pc
                   <td className="px-3 py-2 text-right tabular-nums">{row.maintenanceEvents.toLocaleString("pt-BR")}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatHours(row.mtbf)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatHours(row.mttr)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatHours(row.mtta)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatHours(row.stoppedHours)}</td>
                   <td className="py-2 pl-3 text-right">
                     <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold ${availabilityClass(row.availabilityPercent)}`}>

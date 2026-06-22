@@ -9,7 +9,6 @@ import {
   Factory,
   FileBarChart,
   FileText,
-  Gauge,
   Home,
   LockKeyhole,
   Settings,
@@ -20,7 +19,6 @@ import {
 
 const menu = [
   { label: "Início", href: "/dashboard", icon: Home },
-  { label: "Dashboard Geral", href: "/dashboard/geral", icon: Gauge },
   { label: "Ordens de Serviço", href: "/dashboard/ordens-servico", icon: ClipboardList },
   { label: "Compras Realizadas", href: "/dashboard/compras-realizadas", icon: ShoppingCart },
   { label: "Compras Pendentes", href: "/dashboard/compras-pendentes", icon: FileBarChart },

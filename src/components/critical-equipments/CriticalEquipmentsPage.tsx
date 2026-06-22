@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CalendarRange, ShieldAlert } from "lucide-react";
+import { AlertTriangle, CalendarRange, ShieldAlert } from "lucide-react";
 import { formatPeriodRange } from "@/utils/period";
 import { CriticalEquipmentDetailsDrawer } from "@/components/critical-equipments/CriticalEquipmentDetailsDrawer";
 import { EquipmentHoursByResponsibleModal } from "@/components/critical-equipments/EquipmentHoursByResponsibleModal";
@@ -246,6 +246,20 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
       ) : (
         <>
           <CriticalEquipmentKpiCards summary={data.summary} />
+
+          {data.summary.ordersWithoutTechnicalCode > 0 ? (
+            <div className="flex items-start gap-2 rounded-lg border border-gold/30 bg-gold/5 px-3 py-2 text-[12px] text-champagne">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
+              <span>
+                Algumas ordens não possuem local de instalação estruturado (
+                <strong className="font-semibold text-white">
+                  {data.summary.ordersWithoutTechnicalCode.toLocaleString("pt-BR")}
+                </strong>{" "}
+                ordem(ns) agrupadas pelo nome do equipamento). Preencha o objeto técnico/local de instalação na origem
+                para um agrupamento mais preciso.
+              </span>
+            </div>
+          ) : null}
 
           <p className="text-[11px] text-zinc-500">
             <span className="font-semibold text-gold">Dica:</span> clique em um equipamento nos gráficos ou na tabela

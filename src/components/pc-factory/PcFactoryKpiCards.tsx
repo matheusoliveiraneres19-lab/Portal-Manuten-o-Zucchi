@@ -53,9 +53,16 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
     {
       title: "MTBF gerencial",
       value: metric(kpis.mtbf),
-      description: "Horas produzindo / eventos de manutenção.",
+      description: "(Planejado real − manutenção) / eventos.",
       icon: Hourglass,
       tone: "blue"
+    },
+    {
+      title: "MTTA gerencial estimado",
+      value: metric(kpis.mtta),
+      description: "Horas aguardando manutenção / eventos de aguardando.",
+      icon: CalendarClock,
+      tone: "red"
     },
     {
       title: "% manutenção no planejado",

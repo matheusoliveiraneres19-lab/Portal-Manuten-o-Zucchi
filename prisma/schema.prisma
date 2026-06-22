@@ -707,9 +707,13 @@ model PcFactoryRecord {
   /// Janela do evento.
   startDateTime      DateTime?
   endDateTime        DateTime?
-  /// Duração do evento (sempre positiva), em minutos e horas.
+  /// Duração do evento (sempre positiva), em minutos e horas — "Tempo Decorrido".
   durationMinutes    Float
   durationHours      Float
+  /// "Tempo Decorrido Real" (base principal dos KPIs: MTBF/MTTR/MTTA/disponibilidade).
+  /// Nulo quando a planilha não trouxe a coluna — nesse caso usa-se durationHours como fallback.
+  realDurationMinutes Float?
+  realDurationHours   Float?
   /// Responsáveis e operador do evento.
   initialResponsible String?
   finalResponsible   String?

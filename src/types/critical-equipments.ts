@@ -20,7 +20,12 @@ export type CriticalEquipmentItem = {
   id: string;
   position: number;
   equipmentName: string;
+  /** Código técnico / local de instalação resolvido (ex.: ZC-SR-G07-MF-0006). */
   equipmentCode: string;
+  /** Prefixo/família da máquina derivado do código (ex.: ZC-SR-G07-MF). */
+  machinePrefix: string;
+  /** true quando a máquina não tem local de instalação estruturado (agrupada por nome). */
+  dataQualityIssue: boolean;
   totalOrders: number;
   openOrders: number;
   releasedOrders: number;
@@ -47,6 +52,8 @@ export type CriticalEquipmentSummary = {
   averageOrdersPerEquipment: number;
   totalOpenOrders: number;
   totalCriticalEquipments: number;
+  /** Nº de ordens sem local de instalação estruturado (agrupadas só por nome). */
+  ordersWithoutTechnicalCode: number;
 };
 
 export type CriticalEquipmentTrendPoint = {
