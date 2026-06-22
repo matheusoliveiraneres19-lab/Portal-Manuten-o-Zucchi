@@ -10,10 +10,12 @@ import {
   EyeOff,
   KeyRound,
   Loader2,
+  Pencil,
   RefreshCw,
   ShieldAlert,
   UserPlus,
-  UsersRound
+  UsersRound,
+  X
 } from "lucide-react";
 import type { AdminUserRow } from "@/services/users.service";
 
@@ -63,8 +65,77 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
   const [created, setCreated] = useState<{ login: string; password: string } | null>(null);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
 
+  // Edição de usuário (modal) e credenciais geradas no reset de senha.
+  const [editing, setEditing] = useState<AdminUserRow | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editRole, setEditRole] = useState("TECNICO");
+  const [editError, setEditError] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [resetInfo, setResetInfo] = useState<{ login: string; password: string } | null>(null);
+
   function refresh() {
     startTransition(() => router.refresh());
+  }
+
+  function openEdit(user: AdminUserRow) {
+    setEditing(user);
+    setEditName(user.name);
+    setEditEmail(user.email ?? "");
+    setEditRole(user.role);
+    setEditError("");
+  }
+
+  async function saveEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editing || editSaving) return;
+    setEditSaving(true);
+    setEditError("");
+    try {
+      const response = await fetch(`/api/users/${editing.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editName, email: editEmail, role: editRole })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) {
+        setEditError(result.message ?? "Falha ao salvar.");
+        return;
+      }
+      toast.success("Usuário atualizado.");
+      setEditing(null);
+      refresh();
+    } catch {
+      setEditError("Falha ao salvar. Tente novamente.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function resetPassword(user: AdminUserRow) {
+    if (rowBusy) return;
+    const newPassword = generatePassword();
+    setRowBusy(user.id);
+    setResetInfo(null);
+    try {
+      const response = await fetch(`/api/users/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resetPassword: newPassword })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) {
+        toast.error(result.message ?? "Falha ao resetar senha.");
+        return;
+      }
+      toast.success("Senha redefinida. O usuário trocará no próximo acesso.");
+      setResetInfo({ login: user.login, password: newPassword });
+      refresh();
+    } catch {
+      toast.error("Falha ao resetar senha.");
+    } finally {
+      setRowBusy(null);
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -255,6 +326,26 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
             {isPending ? <Loader2 className="h-4 w-4 animate-spin text-gold" /> : null}
           </h2>
 
+          {resetInfo ? (
+            <div className="mb-3 rounded-lg border border-[#3f8f6b]/40 bg-[#3f8f6b]/10 p-3 text-sm text-[#2f6e51]">
+              <div className="mb-1 flex items-center justify-between font-semibold">
+                <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> Nova senha temporária gerada</span>
+                <button onClick={() => setResetInfo(null)} className="text-[#2f6e51]/70 hover:text-[#2f6e51]" aria-label="Fechar">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="font-mono text-[13px] text-zinc-800">
+                Login: <strong>{resetInfo.login}</strong> · Senha: <strong>{resetInfo.password}</strong>
+              </p>
+              <button
+                onClick={async () => { try { await navigator.clipboard.writeText(`Login: ${resetInfo.login}\nSenha temporária: ${resetInfo.password}`); toast.success("Credenciais copiadas."); } catch { toast.error("Não foi possível copiar."); } }}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-[#3f8f6b]/40 px-2.5 py-1 text-xs font-semibold transition hover:bg-[#3f8f6b]/15"
+              >
+                <Copy className="h-3.5 w-3.5" /> Copiar credenciais
+              </button>
+            </div>
+          ) : null}
+
           {users.length === 0 ? (
             <p className="py-8 text-center text-sm text-zinc-500">Nenhum usuário para exibir.</p>
           ) : (
@@ -295,7 +386,23 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
                           )}
                         </td>
                         <td className="py-2 pl-2">
-                          <div className="flex items-center justify-end gap-1.5">
+                          <div className="flex flex-wrap items-center justify-end gap-1.5">
+                            <button
+                              disabled={busy}
+                              onClick={() => openEdit(user)}
+                              title="Editar usuário"
+                              className="inline-flex items-center gap-1 rounded-md border border-zinc-300 px-2 py-1 text-[11px] font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50"
+                            >
+                              <Pencil className="h-3 w-3" /> Editar
+                            </button>
+                            <button
+                              disabled={busy}
+                              onClick={() => resetPassword(user)}
+                              title="Gerar nova senha temporária"
+                              className="inline-flex items-center gap-1 rounded-md border border-gold/30 px-2 py-1 text-[11px] font-semibold text-[#7a5a16] transition hover:bg-gold/10 disabled:opacity-50"
+                            >
+                              {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <KeyRound className="h-3 w-3" />} Resetar senha
+                            </button>
                             {!user.mustChangePassword ? (
                               <button
                                 disabled={busy}
@@ -303,7 +410,7 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
                                 title="Forçar troca de senha no próximo acesso"
                                 className="inline-flex items-center gap-1 rounded-md border border-gold/30 px-2 py-1 text-[11px] font-semibold text-[#7a5a16] transition hover:bg-gold/10 disabled:opacity-50"
                               >
-                                {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Forçar troca
+                                <RefreshCw className="h-3 w-3" /> Forçar troca
                               </button>
                             ) : null}
                             {!isSelf ? (
@@ -328,6 +435,54 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
           )}
         </article>
       </div>
+
+      {editing ? (
+        <div className="fixed inset-0 z-[90] grid place-items-center bg-black/60 p-4" onMouseDown={() => setEditing(null)}>
+          <div className="panel w-full max-w-md rounded-lg p-5" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-extrabold uppercase tracking-wide text-[#5a3d12]">
+                <Pencil className="h-4 w-4" /> Editar usuário
+              </h3>
+              <button onClick={() => setEditing(null)} className="text-zinc-500 hover:text-zinc-800" aria-label="Fechar">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form className="space-y-3" onSubmit={saveEdit}>
+              <Field label="Login (não editável)">
+                <input className={`${inputClass} opacity-60`} value={editing.login} readOnly disabled />
+              </Field>
+              <Field label="Nome">
+                <input className={inputClass} value={editName} onChange={(e) => setEditName(e.target.value)} disabled={editSaving} />
+              </Field>
+              <Field label="E-mail (opcional)">
+                <input className={inputClass} type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} placeholder="usuario@zucchi.local" disabled={editSaving} />
+              </Field>
+              <Field label="Papel">
+                <select className={inputClass} value={editRole} onChange={(e) => setEditRole(e.target.value)} disabled={editSaving}>
+                  {ROLE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </Field>
+
+              {editError ? (
+                <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{editError}</div>
+              ) : null}
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setEditing(null)} disabled={editSaving} className="inline-flex h-10 items-center rounded-lg border border-zinc-300 px-4 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-60">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={editSaving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/55 bg-[linear-gradient(180deg,#f5d48a,#d49c45_55%,#b77b2c)] px-4 text-sm font-bold text-[#11100d] transition hover:brightness-110 disabled:opacity-70">
+                  {editSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Salvar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
