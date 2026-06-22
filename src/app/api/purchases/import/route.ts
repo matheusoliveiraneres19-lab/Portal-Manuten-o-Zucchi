@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const maxDuration = 26;
 
 const CLI_HINT =
-  'Para planilhas muito grandes, utilize a importação via CLI ("npm run import:purchases") para evitar o limite de tempo do Netlify.';
+  'Para planilhas muito grandes, utilize a importação via CLI ("npm run import:purchases") para evitar o limite de tempo da função serverless.';
 
 function errorResponse(message: string, details: string, status: number) {
   return NextResponse.json({ success: false, message, details, errors: [] }, { status });

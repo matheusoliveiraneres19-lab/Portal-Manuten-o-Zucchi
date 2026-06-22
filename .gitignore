@@ -54,5 +54,5 @@ yarn-error.log*
 # Capturas do portal para o video Remotion (regeneraveis: npm run capture)
 /public/captures
 
-# Local Netlify folder
-.netlify
+# Local Vercel folder
+.vercel
