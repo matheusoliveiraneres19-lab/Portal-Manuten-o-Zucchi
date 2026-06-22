@@ -12,6 +12,11 @@ export type SessionPayload = {
   name: string;
   role: string;
   exp: number;
+  /**
+   * Sessão de PRIMEIRO ACESSO (limitada): quando true, o usuário só pode trocar a
+   * senha (/primeiro-acesso) — não acessa o dashboard. Ausente em sessões normais.
+   */
+  mustChange?: boolean;
 };
 
 function base64urlEncode(bytes: Uint8Array): string {
@@ -62,12 +67,15 @@ function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
  * `payload.assinatura` (ambos em base64url, sem padding).
  */
 export async function signSession(
-  payload: { sub: string; name: string; role: string },
+  payload: { sub: string; name: string; role: string; mustChange?: boolean },
   secret: string,
   maxAgeSeconds: number
 ): Promise<string> {
   const exp = Math.floor(Date.now() / 1000) + maxAgeSeconds;
-  const fullPayload: SessionPayload = { ...payload, exp };
+  // Só inclui mustChange quando true, para manter o token enxuto e compatível.
+  const fullPayload: SessionPayload = payload.mustChange
+    ? { sub: payload.sub, name: payload.name, role: payload.role, mustChange: true, exp }
+    : { sub: payload.sub, name: payload.name, role: payload.role, exp };
   const encodedPayload = base64urlEncode(new TextEncoder().encode(JSON.stringify(fullPayload)));
   const signature = await hmacSha256(encodedPayload, secret);
   return `${encodedPayload}.${base64urlEncode(signature)}`;
