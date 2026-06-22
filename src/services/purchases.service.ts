@@ -11,6 +11,7 @@
  */
 import { ItemNature, Prisma, PurchaseStatus, PurchaseType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { cache } from "react";
 import {
   getPurchaseRecordReferenceDate,
   resolvePurchaseValue,
@@ -496,8 +497,15 @@ export async function getPurchaseValuesByOrder(params: PurchaseQueryParams = {},
 /* TAREFA 4.5 — Compras por categoria (Grupo Merc)                    */
 /* ------------------------------------------------------------------ */
 
-export async function getPurchasesByCategory(params: PurchaseQueryParams = {}): Promise<PurchaseCategoryRow[]> {
-  const records = await prisma.purchaseRecord.findMany({
+/**
+ * Carrega UMA vez por request as linhas de compras do recorte atual (buildBaseWhere),
+ * com o superset de colunas usado pelas agregações de Compras Realizadas. Memoizado com
+ * React.cache: como o orquestrador (getCompletedPurchasesPageData) passa o MESMO `params`,
+ * as funções abaixo compartilham uma única varredura em vez de 5 findMany idênticos —
+ * que, com o pooler em connection_limit=1, eram executados em série.
+ */
+const loadCompletedPurchaseRows = cache(async (params: PurchaseQueryParams = {}) =>
+  prisma.purchaseRecord.findMany({
     where: buildBaseWhere(params),
     select: {
       goodsGroupCode: true,
@@ -505,9 +513,17 @@ export async function getPurchasesByCategory(params: PurchaseQueryParams = {}): 
       purchaseType: true,
       itemNature: true,
       netTotal: true,
-      grossTotal: true
+      grossTotal: true,
+      purchaseOrderDate: true,
+      requisitionDate: true,
+      expectedDeliveryDate: true,
+      supplierName: true
     }
-  });
+  })
+);
+
+export async function getPurchasesByCategory(params: PurchaseQueryParams = {}): Promise<PurchaseCategoryRow[]> {
+  const records = await loadCompletedPurchaseRows(params);
 
   const byCategory = new Map<string, PurchaseCategoryRow>();
   for (const record of records) {
@@ -563,10 +579,7 @@ export async function getPurchasesByCategory(params: PurchaseQueryParams = {}): 
 /* ------------------------------------------------------------------ */
 
 export async function getRegularizationVsNormal(params: PurchaseQueryParams = {}): Promise<RegularizationVsNormal> {
-  const records = await prisma.purchaseRecord.findMany({
-    where: buildBaseWhere(params),
-    select: { purchaseType: true, netTotal: true, grossTotal: true }
-  });
+  const records = await loadCompletedPurchaseRows(params);
 
   const totals = {
     regularizationCount: 0,
@@ -770,16 +783,7 @@ export async function getPurchaseProcessTimes(params: PurchaseQueryParams = {}):
 /* ------------------------------------------------------------------ */
 
 async function getMonthlyPurchaseValue(params: PurchaseQueryParams = {}): Promise<PurchaseMonthlyPoint[]> {
-  const records = await prisma.purchaseRecord.findMany({
-    where: buildBaseWhere(params),
-    select: {
-      purchaseOrderDate: true,
-      requisitionDate: true,
-      expectedDeliveryDate: true,
-      netTotal: true,
-      grossTotal: true
-    }
-  });
+  const records = await loadCompletedPurchaseRows(params);
 
   const totals = new Map<string, number>();
   for (const record of records) {
@@ -803,10 +807,7 @@ async function getMonthlyPurchaseValue(params: PurchaseQueryParams = {}): Promis
 }
 
 async function getNatureDistribution(params: PurchaseQueryParams = {}): Promise<PurchaseNatureSlice[]> {
-  const records = await prisma.purchaseRecord.findMany({
-    where: buildBaseWhere(params),
-    select: { itemNature: true, netTotal: true, grossTotal: true }
-  });
+  const records = await loadCompletedPurchaseRows(params);
 
   const totals = new Map<ItemNature, { value: number; count: number }>();
   for (const record of records) {
@@ -831,14 +832,14 @@ async function getNatureDistribution(params: PurchaseQueryParams = {}): Promise<
 }
 
 async function getTopSuppliers(params: PurchaseQueryParams = {}, limit = 10): Promise<PurchaseSupplierSlice[]> {
-  const records = await prisma.purchaseRecord.findMany({
-    where: mergeWhere(buildBaseWhere(params), { supplierName: { not: null } }),
-    select: { supplierName: true, netTotal: true, grossTotal: true }
-  });
+  const records = await loadCompletedPurchaseRows(params);
 
   const totals = new Map<string, { totalValue: number; count: number }>();
   for (const record of records) {
-    const name = record.supplierName!;
+    if (!record.supplierName) {
+      continue;
+    }
+    const name = record.supplierName;
     const entry = totals.get(name) ?? { totalValue: 0, count: 0 };
     entry.totalValue += resolvePurchaseValue(record.netTotal, record.grossTotal) ?? 0;
     entry.count += 1;
