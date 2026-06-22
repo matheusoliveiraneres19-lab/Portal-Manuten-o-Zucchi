@@ -8,7 +8,9 @@ import { createTemporarySession } from "@/lib/auth.client";
 import { cn } from "@/lib/utils";
 import type { AuthUser } from "@/types/auth";
 
-type LoginResponse = { ok: true; user: AuthUser } | { ok: false; message: string };
+type LoginResponse =
+  | { ok: true; user: AuthUser; mustChangePassword?: boolean; message?: string }
+  | { ok: false; message: string };
 
 type Status = "idle" | "loading" | "success";
 type ErrorField = "login" | "password" | "both" | null;
@@ -21,6 +23,7 @@ export function LoginForm() {
   const [error, setError] = useState("");
   const [errorField, setErrorField] = useState<ErrorField>(null);
   const [status, setStatus] = useState<Status>("idle");
+  const [firstAccess, setFirstAccess] = useState(false);
 
   const isBusy = status !== "idle";
 
@@ -69,6 +72,18 @@ export function LoginForm() {
         setStatus("idle");
         shake();
         toast.error(result.message);
+        return;
+      }
+
+      // Primeiro acesso: senha correta, mas é obrigatório criar uma nova senha
+      // antes de entrar no portal. Não guarda sessão de exibição nem vai para "/".
+      if (result.mustChangePassword) {
+        setFirstAccess(true);
+        setStatus("success");
+        toast.info("Primeiro acesso detectado. Crie uma nova senha para continuar.");
+        window.setTimeout(() => {
+          window.location.assign("/primeiro-acesso");
+        }, 850);
         return;
       }
 
@@ -252,7 +267,9 @@ export function LoginForm() {
               <span className="grid h-16 w-16 place-items-center rounded-full border border-gold/40 bg-black/40 text-gold shadow-[0_0_40px_rgba(196,154,69,0.25)]">
                 <Loader2 className="h-7 w-7 animate-spin" strokeWidth={1.6} />
               </span>
-              <p className="font-serif text-2xl text-gold">Preparando seu ambiente de manutenção...</p>
+              <p className="font-serif text-2xl text-gold">
+                {firstAccess ? "Preparando alteração de senha..." : "Preparando seu ambiente de manutenção..."}
+              </p>
               <p className="text-sm text-zinc-400">Zucchi Luxury Stones</p>
             </m.div>
           </m.div>

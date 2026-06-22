@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { UserStatus } from "@prisma/client";
-import { AUTH_COOKIE_NAME, SESSION_MAX_AGE_SECONDS, getAuthSecret } from "@/lib/auth";
+import { AUTH_COOKIE_NAME, FIRST_ACCESS_MAX_AGE_SECONDS, SESSION_MAX_AGE_SECONDS, getAuthSecret } from "@/lib/auth";
 import { signSession } from "@/lib/session";
 import { hashPassword, isBcryptHash, verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
@@ -44,25 +44,32 @@ async function buildSessionResponse(
   // role: papel "cru" do banco (ex.: ADMIN) — guardado no token assinado.
   session: { login: string; name: string; role: string },
   // displayRole: rótulo amigável devolvido ao front (ex.: Administrador).
-  displayRole: string
+  displayRole: string,
+  // Primeiro acesso: sessão LIMITADA (só troca de senha), com TTL curto.
+  options: { mustChange?: boolean } = {}
 ): Promise<NextResponse> {
+  const mustChange = options.mustChange === true;
+  const maxAge = mustChange ? FIRST_ACCESS_MAX_AGE_SECONDS : SESSION_MAX_AGE_SECONDS;
+
   const token = await signSession(
-    { sub: session.login, name: session.name, role: session.role },
+    { sub: session.login, name: session.name, role: session.role, mustChange },
     secret,
-    SESSION_MAX_AGE_SECONDS
+    maxAge
   );
 
-  const response = NextResponse.json({
-    ok: true,
-    user: { login: session.login, name: session.name, role: displayRole }
-  });
+  const user = { login: session.login, name: session.name, role: displayRole };
+  const response = NextResponse.json(
+    mustChange
+      ? { ok: true, mustChangePassword: true, user, message: "É necessário criar uma nova senha para continuar." }
+      : { ok: true, user }
+  );
 
   response.cookies.set(AUTH_COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: SESSION_MAX_AGE_SECONDS
+    maxAge
   });
 
   return response;
@@ -89,7 +96,7 @@ export async function POST(request: NextRequest) {
       try {
         const user = await prisma.user.findUnique({
           where: { login },
-          select: { id: true, login: true, name: true, passwordHash: true, role: true, status: true }
+          select: { id: true, login: true, name: true, passwordHash: true, role: true, status: true, mustChangePassword: true }
         });
 
         if (user && user.passwordHash) {
@@ -105,6 +112,9 @@ export async function POST(request: NextRequest) {
           if (!passwordOk) {
             return NextResponse.json({ ok: false, message: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
           }
+          // Primeiro acesso: senha correta, mas precisa redefinir antes de entrar.
+          const mustChange = user.mustChangePassword === true;
+
           // Migração transparente: se a senha ainda estava em texto puro, re-hasheia
           // com bcrypt no primeiro login bem-sucedido (best-effort, não bloqueia).
           const needsRehash = !storedIsBcrypt;
@@ -113,6 +123,8 @@ export async function POST(request: NextRequest) {
               where: { id: user.id },
               data: {
                 lastAccess: new Date(),
+                // lastLoginAt só conta como login efetivo quando NÃO é troca obrigatória.
+                ...(mustChange ? {} : { lastLoginAt: new Date() }),
                 ...(needsRehash ? { passwordHash: await hashPassword(password) } : {})
               }
             });
@@ -122,7 +134,8 @@ export async function POST(request: NextRequest) {
           return await buildSessionResponse(
             secret,
             { login: user.login, name: user.name, role: user.role },
-            roleLabels[user.role] ?? user.role
+            roleLabels[user.role] ?? user.role,
+            { mustChange }
           );
         }
         // Usuário não encontrado no banco -> tenta o fallback (apenas se permitido) abaixo.

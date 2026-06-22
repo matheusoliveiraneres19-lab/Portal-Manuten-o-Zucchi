@@ -204,6 +204,14 @@ model User {
   position     String?
   sector       String?
   lastAccess   DateTime?
+  /// Primeiro acesso: quando true, o usuário é obrigado a trocar a senha temporária
+  /// antes de acessar o portal (não entra no dashboard até redefinir a senha).
+  mustChangePassword         Boolean   @default(false)
+  /// Auditoria do ciclo de vida da senha (sem nunca armazenar a senha em texto puro).
+  passwordChangedAt          DateTime?
+  lastLoginAt                DateTime?
+  temporaryPasswordCreatedAt DateTime?
+  temporaryPasswordExpiresAt DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   timeEntries  TimeEntry[]
