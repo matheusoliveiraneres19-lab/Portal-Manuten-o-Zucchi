@@ -1,6 +1,7 @@
-import type { ItemNature, PurchaseType } from "@prisma/client";
+import type { ItemNature, PurchaseOperationalStatus, PurchaseType } from "@prisma/client";
+import type { PurchaseKind } from "@/utils/purchase-classification";
 
-export type { ItemNature, PurchaseType };
+export type { ItemNature, PurchaseOperationalStatus, PurchaseType, PurchaseKind };
 
 /* ------------------------------------------------------------------ */
 /* Importação                                                         */
@@ -17,6 +18,7 @@ export type PurchaseExcelRow = {
   materialCode?: unknown;
   itemDescription?: unknown;
   quantity?: unknown;
+  pendingQuantity?: unknown;
   receiptCompletedFlag?: unknown;
   deletionCode?: unknown;
   unit?: unknown;
@@ -48,6 +50,7 @@ export type ParsedPurchaseRecord = {
   materialCode: string | null;
   itemDescription: string;
   quantity: number | null;
+  pendingQuantity: number | null;
   unit: string | null;
   requisitionDate: Date | null;
   purchaseOrderDate: Date | null;
@@ -69,6 +72,10 @@ export type ParsedPurchaseRecord = {
   deletionCode: string | null;
   purchaseType: PurchaseType;
   itemNature: ItemNature;
+  /** Status canônico (regras do HTML) derivado por classifyPurchaseRecord. */
+  operationalStatus: PurchaseOperationalStatus;
+  isService: boolean;
+  isBlocked: boolean;
   hasPurchaseOrder: boolean;
   hasMigo: boolean;
   hasMiro: boolean;
@@ -118,6 +125,14 @@ export type PurchaseImportResult = {
   totalServices: number;
   totalMaterials: number;
   totalValue: number;
+  /** Contagens canônicas por status operacional (REGRA 16). */
+  totalBlocked: number;
+  totalReceived: number;
+  totalReceivedLate: number;
+  totalPendingPurchase: number;
+  totalNotDelivered: number;
+  /** Fornecedores distintos detectados na planilha. */
+  suppliersDetected: number;
   errors: PurchaseImportError[];
   /** Período detectado na planilha (menor/maior data + meses encontrados). */
   periodDetected?: PurchaseImportPeriod;
@@ -131,30 +146,18 @@ export type PurchaseImportResult = {
 /* Consulta / filtros                                                 */
 /* ------------------------------------------------------------------ */
 
-/** Campo de data sobre o qual o filtro de período atua. */
+/** Campo de data sobre o qual o filtro de período atua (REGRA 14). */
 export type PurchaseDateField =
   | "requisitionDate"
   | "purchaseOrderDate"
   | "expectedDeliveryDate"
-  | "receiptDate"
-  | "migoDate"
-  | "miroDate";
+  | "receiptDate";
 
-/** Status operacional de compra (multi-seleção; OR dentro do grupo). */
-export type PurchaseOperationalStatus =
-  | "sem-pedido"
-  | "com-pedido"
-  | "pendente-migo"
-  | "com-migo"
-  | "pendente-miro"
-  | "com-miro"
-  | "atrasado-aberto"
-  | "recebido-atraso"
-  | "recebimento-concluido"
-  | "y04"
-  | "y01"
-  | "servico"
-  | "material";
+/**
+ * Filtro de "Tipo" da compra (REGRA 14): material físico, serviço,
+ * regularização (Y04) ou item bloqueado.
+ */
+export type PurchaseKindFilter = "material" | "servico" | "regularizacao" | "bloqueado";
 
 /**
  * Parâmetros de consulta/filtro. Multi-seleção em arrays: dentro de um mesmo
@@ -166,8 +169,10 @@ export type PurchaseQueryParams = {
   suppliers?: string[];
   categories?: string[];
   purchasingGroups?: string[];
-  itemNatures?: ItemNature[];
-  operationalStatuses?: PurchaseOperationalStatus[];
+  /** Filtro de Tipo (material/serviço/regularização/bloqueado). */
+  kinds?: PurchaseKindFilter[];
+  /** Filtro por status operacional canônico (enum). */
+  statuses?: PurchaseOperationalStatus[];
   requesters?: string[];
   /** Período sobre o campo escolhido (default: data de referência). */
   dateField?: PurchaseDateField;
@@ -181,26 +186,44 @@ export type PurchaseQueryParams = {
 /* Indicadores                                                        */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Resumo canônico de compras (regras do HTML). Serve as duas páginas:
+ * cada card escolhe os campos relevantes. Bloqueados NUNCA entram nos
+ * totais Y01; aparecem só em `blocked`.
+ */
 export type PurchaseKpis = {
+  /** Total de registros do recorte (sem bloqueados). */
   totalRecords: number;
-  requisitionsWithoutPurchaseOrder: number;
-  requisitionsWithPurchaseOrder: number;
-  completedWithMigo: number;
-  completedWithMiro: number;
-  lateOrders: number;
-  lateOpenOrders: number;
-  lateReceivedOrders: number;
+  /** Base de análise Y01 (não serviço, não Y04, não bloqueado). */
+  baseY01: number;
+  /** Recebidos (RECEBIDO + RECEBIDO_COM_ATRASO) na base Y01. */
+  received: number;
+  /** Recebidos no prazo (RECEBIDO). */
+  receivedOnTime: number;
+  /** Recebidos com atraso (RECEBIDO_COM_ATRASO). */
+  receivedLate: number;
+  /** Pendente de compra (sem pedido e sem recebimento). */
+  pendingPurchase: number;
+  /** Em atraso (previsão vencida, sem recebimento). */
+  lateOpen: number;
+  /** Não entregue / dentro do prazo. */
+  notDelivered: number;
+  /** Total pendente Y01 = pendingPurchase + lateOpen + notDelivered. */
+  totalPending: number;
+  /** Regularizações Y04 (separadas dos KPIs Y01). */
   regularizationsY04: number;
-  normalPurchasesY01: number;
+  /** Regularizações Y04 recebidas. */
+  regularizationsY04Received: number;
+  /** Serviços (separados dos KPIs Y01). */
+  services: number;
+  /** Serviços recebidos. */
+  servicesReceived: number;
+  /** Itens bloqueados/ignorados (auditoria). */
+  blocked: number;
+  /** Valores (R$). */
   totalValue: number;
-  totalServices: number;
-  totalMaterials: number;
   pendingValue: number;
-  pendingServices: number;
-  averageRequisitionToOrderDays: number | null;
-  averageOrderToReceiptDays: number | null;
-  averageMigoToMiroDays: number | null;
-  averageTotalProcessDays: number | null;
+  receivedValue: number;
 };
 
 export type PurchaseRow = {
@@ -211,28 +234,29 @@ export type PurchaseRow = {
   materialCode: string | null;
   itemDescription: string;
   quantity: number | null;
+  pendingQuantity: number | null;
   unit: string | null;
   value: number | null;
   requisitionDate: string | null;
   purchaseOrderDate: string | null;
   expectedDeliveryDate: string | null;
   receiptDate: string | null;
-  migoNumber: string | null;
-  miroNumber: string | null;
-  hasMigo: boolean;
-  hasMiro: boolean;
-  hasPurchaseOrder: boolean;
-  isReceiptCompleted: boolean;
-  isLateOpen: boolean;
-  isLateReceived: boolean;
+  /** Status operacional canônico + rótulo legível (badge). */
+  operationalStatus: PurchaseOperationalStatus;
+  statusLabel: string;
+  isService: boolean;
+  isBlocked: boolean;
+  isRegularization: boolean;
+  purchaseKind: PurchaseKind;
+  /** Dias em atraso (em aberto) ou de atraso no recebimento. */
   delayDays: number | null;
+  hasPurchaseOrder: boolean;
   purchasingGroup: string | null;
   purchaseType: PurchaseType;
   goodsGroupCode: string | null;
   goodsGroupDescription: string | null;
   itemNature: ItemNature;
   requester: string | null;
-  statusLabel: string;
 };
 
 export type PaginatedPurchases = {
@@ -324,11 +348,33 @@ export type PurchaseMonthlyPoint = {
   period: string; // yyyy-mm
   label: string;
   value: number;
+  count: number;
 };
 
 export type PurchaseSupplierSlice = {
   supplierName: string;
   totalValue: number;
+  count: number;
+};
+
+/** Fatia de distribuição por status operacional (gráfico "Status das pendências"). */
+export type PurchaseStatusSlice = {
+  status: PurchaseOperationalStatus;
+  label: string;
+  count: number;
+  color: string;
+};
+
+/** Contagem por grupo de mercadoria (pendências / Y04 por grupo). */
+export type PurchaseGroupCount = {
+  code: string;
+  description: string;
+  count: number;
+};
+
+/** Contagem por requisitante (requisitantes com mais pendências). */
+export type PurchaseRequesterCount = {
+  requester: string;
   count: number;
 };
 
@@ -345,8 +391,8 @@ export type PurchaseFilterOptions = {
   categories: Array<{ value: string; label: string }>;
   purchasingGroups: Array<{ value: string; label: string }>;
   requesters: string[];
-  purchaseTypes: PurchaseType[];
-  natures: ItemNature[];
+  /** Status operacionais presentes no recorte (para o filtro de Status). */
+  statuses: PurchaseOperationalStatus[];
   years: number[];
 };
 
@@ -362,7 +408,12 @@ export type PurchasesPeriodWindow = {
 export type PendingPurchasesPageData = {
   period: PurchasesPeriodWindow;
   kpis: PurchaseKpis;
-  late: LatePurchasesResult;
+  /** Gráficos da REGRA 11. */
+  lateByMonth: PurchaseMonthlyPoint[];
+  topLateSuppliers: PurchaseSupplierSlice[];
+  pendingByGoodsGroup: PurchaseGroupCount[];
+  statusDistribution: PurchaseStatusSlice[];
+  topRequesters: PurchaseRequesterCount[];
   purchases: PaginatedPurchases;
   filterOptions: PurchaseFilterOptions;
   source: "database" | "empty";
@@ -371,11 +422,12 @@ export type PendingPurchasesPageData = {
 export type CompletedPurchasesPageData = {
   period: PurchasesPeriodWindow;
   kpis: PurchaseKpis;
-  monthly: PurchaseMonthlyPoint[];
-  byCategory: PurchaseCategoryRow[];
-  regularizationVsNormal: RegularizationVsNormal;
-  natureDistribution: PurchaseNatureSlice[];
-  topSuppliers: PurchaseSupplierSlice[];
+  /** Gráficos da REGRA 12. */
+  receivedByMonth: PurchaseMonthlyPoint[];
+  receivedLateByMonth: PurchaseMonthlyPoint[];
+  topDelayedReceiptSuppliers: PurchaseSupplierSlice[];
+  receivedByGoodsGroup: PurchaseGroupCount[];
+  regularizationByGoodsGroup: PurchaseGroupCount[];
   processTimes: PurchaseProcessTimes;
   purchases: PaginatedPurchases;
   filterOptions: PurchaseFilterOptions;

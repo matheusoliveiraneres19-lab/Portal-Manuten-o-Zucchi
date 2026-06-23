@@ -2,10 +2,10 @@
 
 import { X } from "lucide-react";
 import {
-  ITEM_NATURE_LABELS,
+  PURCHASE_KIND_FILTER_LABELS,
   PURCHASE_OPERATIONAL_STATUS_LABELS
-} from "@/utils/purchases-normalizer";
-import type { ItemNature } from "@/types/purchases";
+} from "@/utils/purchase-classification";
+import type { PurchaseOperationalStatus } from "@/types/purchases";
 import { countActiveFilters, type AppliedPurchaseFilters } from "@/components/purchases/filters";
 
 type Chip = { key: keyof AppliedPurchaseFilters; value?: string; label: string };
@@ -22,11 +22,11 @@ export function PurchaseActiveChips({ filters, onRemove }: PurchaseActiveChipsPr
   filters.suppliers.forEach((value) => chips.push({ key: "suppliers", value, label: `Fornecedor: ${value}` }));
   filters.categories.forEach((value) => chips.push({ key: "categories", value, label: `Categoria: ${value}` }));
   filters.purchasingGroups.forEach((value) => chips.push({ key: "purchasingGroups", value, label: `Grupo: ${value}` }));
-  filters.itemNatures.forEach((value) =>
-    chips.push({ key: "itemNatures", value, label: `Natureza: ${ITEM_NATURE_LABELS[value as ItemNature] ?? value}` })
+  filters.kinds.forEach((value) =>
+    chips.push({ key: "kinds", value, label: `Tipo: ${PURCHASE_KIND_FILTER_LABELS[value] ?? value}` })
   );
-  filters.operationalStatuses.forEach((value) =>
-    chips.push({ key: "operationalStatuses", value, label: `Status: ${PURCHASE_OPERATIONAL_STATUS_LABELS[value] ?? value}` })
+  filters.statuses.forEach((value) =>
+    chips.push({ key: "statuses", value, label: `Status: ${PURCHASE_OPERATIONAL_STATUS_LABELS[value as PurchaseOperationalStatus] ?? value}` })
   );
   filters.requesters.forEach((value) => chips.push({ key: "requesters", value, label: `Requisitante: ${value}` }));
 
