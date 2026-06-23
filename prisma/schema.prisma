@@ -96,6 +96,22 @@ enum ItemNature {
   SERVICO
 }
 
+/// Status operacional canônico de uma linha de compra (regras do HTML
+/// acompanhamento_compras_v3). Classificação ÚNICA e mutuamente exclusiva,
+/// derivada por classifyPurchaseRecord() na importação. Precedência:
+/// BLOQUEADO > SERVICO > REGULARIZACAO(Y04) > baldes Y01.
+enum PurchaseOperationalStatus {
+  RECEBIDO
+  RECEBIDO_COM_ATRASO
+  PENDENTE_COMPRA
+  EM_ATRASO
+  NAO_ENTREGUE
+  SERVICO
+  REGULARIZACAO
+  BLOQUEADO
+  INDEFINIDO
+}
+
 /// Origem do registro de compra importado.
 enum PurchaseRecordSource {
   EXCEL
@@ -334,6 +350,8 @@ model PurchaseRecord {
   materialCode           String?
   itemDescription        String
   quantity               Float?
+  /// Quantidade ainda pendente de recebimento (coluna "Quant Pendente").
+  pendingQuantity        Float?
   unit                   String?
   /// Datas do processo.
   requisitionDate        DateTime?
@@ -361,6 +379,12 @@ model PurchaseRecord {
   /// Classificações derivadas.
   purchaseType           PurchaseType         @default(OUTROS)
   itemNature             ItemNature           @default(MATERIAL)
+  /// Status operacional canônico (regras do HTML), derivado por classifyPurchaseRecord.
+  operationalStatus      PurchaseOperationalStatus @default(INDEFINIDO)
+  /// Serviço (Descr grupo Merc / texto do material) — separado dos KPIs Y01.
+  isService              Boolean              @default(false)
+  /// Item bloqueado (termo "bloq") — auditoria; fora dos KPIs principais.
+  isBlocked              Boolean              @default(false)
   hasPurchaseOrder       Boolean              @default(false)
   hasMigo                Boolean              @default(false)
   hasMiro                Boolean              @default(false)
@@ -392,9 +416,13 @@ model PurchaseRecord {
   @@index([goodsGroupCode])
   @@index([purchaseType])
   @@index([itemNature])
+  @@index([operationalStatus])
+  @@index([isService])
+  @@index([isBlocked])
   @@index([purchaseOrderDate])
   @@index([requisitionDate])
   @@index([expectedDeliveryDate])
+  @@index([receiptDate])
   @@index([hasPurchaseOrder])
   @@index([isReceiptCompleted])
   @@index([isLateOpen])

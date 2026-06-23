@@ -1,6 +1,6 @@
 import type {
-  ItemNature,
   PurchaseDateField,
+  PurchaseKindFilter,
   PurchaseOperationalStatus,
   PurchaseQueryParams
 } from "@/types/purchases";
@@ -11,8 +11,10 @@ export type AppliedPurchaseFilters = {
   suppliers: string[];
   categories: string[];
   purchasingGroups: string[];
-  itemNatures: string[];
-  operationalStatuses: string[];
+  /** Tipo: material / servico / regularizacao / bloqueado. */
+  kinds: string[];
+  /** Status operacional canônico (enum). */
+  statuses: string[];
   requesters: string[];
   /** "" = data de referência (padrão); senão um campo de data específico. */
   dateField: string;
@@ -25,8 +27,8 @@ export const EMPTY_PURCHASE_FILTERS: AppliedPurchaseFilters = {
   suppliers: [],
   categories: [],
   purchasingGroups: [],
-  itemNatures: [],
-  operationalStatuses: [],
+  kinds: [],
+  statuses: [],
   requesters: [],
   dateField: "",
   startDate: "",
@@ -38,27 +40,23 @@ export const MULTI_FILTER_KEYS = [
   "suppliers",
   "categories",
   "purchasingGroups",
-  "itemNatures",
-  "operationalStatuses",
+  "kinds",
+  "statuses",
   "requesters"
 ] as const;
 
-const DATE_FIELDS = ["requisitionDate", "purchaseOrderDate", "expectedDeliveryDate", "receiptDate", "migoDate", "miroDate"];
-const NATURES = ["MATERIAL", "SERVICO"];
-const OPERATIONAL_STATUSES = [
-  "sem-pedido",
-  "com-pedido",
-  "pendente-migo",
-  "com-migo",
-  "pendente-miro",
-  "com-miro",
-  "atrasado-aberto",
-  "recebido-atraso",
-  "recebimento-concluido",
-  "y04",
-  "y01",
-  "servico",
-  "material"
+const DATE_FIELDS = ["requisitionDate", "purchaseOrderDate", "expectedDeliveryDate", "receiptDate"];
+export const PURCHASE_KIND_VALUES = ["material", "servico", "regularizacao", "bloqueado"];
+export const PURCHASE_STATUS_VALUES = [
+  "EM_ATRASO",
+  "PENDENTE_COMPRA",
+  "NAO_ENTREGUE",
+  "RECEBIDO",
+  "RECEBIDO_COM_ATRASO",
+  "REGULARIZACAO",
+  "SERVICO",
+  "BLOQUEADO",
+  "INDEFINIDO"
 ];
 
 /** Conta quantos grupos/filtros estão ativos. */
@@ -84,8 +82,8 @@ export function purchaseFiltersToParams(filters: AppliedPurchaseFilters): URLSea
   setCsv("fornecedores", filters.suppliers);
   setCsv("categorias", filters.categories);
   setCsv("grupos", filters.purchasingGroups);
-  setCsv("naturezas", filters.itemNatures);
-  setCsv("status", filters.operationalStatuses);
+  setCsv("tipos", filters.kinds);
+  setCsv("status", filters.statuses);
   setCsv("requisitantes", filters.requesters);
   if (filters.dateField) params.set("campoData", filters.dateField);
   if (filters.startDate) params.set("startDate", filters.startDate);
@@ -128,8 +126,8 @@ export function parsePurchaseQueryParams(searchParams: SearchParams): PurchaseQu
     suppliers: csvParam(searchParams.fornecedores),
     categories: csvParam(searchParams.categorias),
     purchasingGroups: csvParam(searchParams.grupos),
-    itemNatures: csvParam(searchParams.naturezas, NATURES) as ItemNature[],
-    operationalStatuses: csvParam(searchParams.status, OPERATIONAL_STATUSES) as PurchaseOperationalStatus[],
+    kinds: csvParam(searchParams.tipos, PURCHASE_KIND_VALUES) as PurchaseKindFilter[],
+    statuses: csvParam(searchParams.status, PURCHASE_STATUS_VALUES) as PurchaseOperationalStatus[],
     requesters: csvParam(searchParams.requisitantes),
     dateField: dateFieldRaw && DATE_FIELDS.includes(dateFieldRaw) ? (dateFieldRaw as PurchaseDateField) : undefined,
     startDate: firstParam(searchParams.startDate),
@@ -146,8 +144,8 @@ export function queryParamsToFilters(params: PurchaseQueryParams): AppliedPurcha
     suppliers: params.suppliers ?? [],
     categories: params.categories ?? [],
     purchasingGroups: params.purchasingGroups ?? [],
-    itemNatures: params.itemNatures ?? [],
-    operationalStatuses: params.operationalStatuses ?? [],
+    kinds: params.kinds ?? [],
+    statuses: params.statuses ?? [],
     requesters: params.requesters ?? [],
     dateField: params.dateField ?? "",
     startDate: params.startDate ?? "",

@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { AlarmClock, FileCheck2, FileX2, Repeat2, ShoppingCart, Truck, Upload, Wallet, Wrench } from "lucide-react";
+import { AlarmClock, Ban, FileX2, Repeat2, ShoppingCart, Truck, Upload, Wallet, Wrench } from "lucide-react";
+import { ChartSkeleton } from "@/components/ChartSkeleton";
 import { PurchaseKpiCards, type PurchaseKpiCard } from "@/components/purchases/PurchaseKpiCards";
 import { PurchaseFilters } from "@/components/purchases/PurchaseFilters";
 import { PurchaseActiveChips } from "@/components/purchases/PurchaseActiveChips";
 import { PurchaseTable } from "@/components/purchases/PurchaseTable";
-import { PurchaseLatePanel } from "@/components/purchases/PurchaseLatePanel";
 import { PurchaseEmptyState } from "@/components/purchases/PurchaseEmptyState";
 import { PurchaseImportModal } from "@/components/purchases/PurchaseImportModal";
 import {
@@ -16,9 +17,23 @@ import {
   purchaseFiltersToParams,
   type AppliedPurchaseFilters
 } from "@/components/purchases/filters";
+import { goodsGroupsToRank, requestersToRank, suppliersToRank } from "@/components/purchases/PurchaseInsightCharts";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import { formatCurrency } from "@/utils/formatters";
 import type { PendingPurchasesPageData } from "@/types/purchases";
+
+const PurchaseMonthlyCountChart = dynamic(
+  () => import("@/components/purchases/PurchaseInsightCharts").then((m) => m.PurchaseMonthlyCountChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-7" /> }
+);
+const PurchaseRankBarChart = dynamic(
+  () => import("@/components/purchases/PurchaseInsightCharts").then((m) => m.PurchaseRankBarChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-5" /> }
+);
+const PurchaseStatusChart = dynamic(
+  () => import("@/components/purchases/PurchaseInsightCharts").then((m) => m.PurchaseStatusChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-5" /> }
+);
 
 type PurchasesPendingPageProps = {
   data: PendingPurchasesPageData;
@@ -78,14 +93,14 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
 
   const kpis = data.kpis;
   const cards: PurchaseKpiCard[] = [
-    { title: "Requisições sem pedido", value: int(kpis.requisitionsWithoutPurchaseOrder), description: "Aguardando criação do pedido", icon: FileX2, tone: "gold" },
-    { title: "Requisições com pedido", value: int(kpis.requisitionsWithPurchaseOrder), description: "Pedido de compra criado", icon: FileCheck2, tone: "blue" },
-    { title: "Pendentes de MIGO", value: int(Math.max(0, kpis.requisitionsWithPurchaseOrder - kpis.completedWithMigo)), description: "Pedido sem entrada (MIGO)", icon: Truck, tone: "blue" },
-    { title: "Pendentes de MIRO", value: int(Math.max(0, kpis.totalRecords - kpis.completedWithMiro)), description: "Sem fatura lançada (MIRO)", icon: Wrench, tone: "blue" },
-    { title: "Pedidos atrasados", value: int(kpis.lateOrders), description: `${int(kpis.lateOpenOrders)} em aberto · ${int(kpis.lateReceivedOrders)} c/ atraso`, icon: AlarmClock, tone: "red" },
-    { title: "Valor pendente", value: formatCurrency(kpis.pendingValue), description: "Total das compras pendentes", icon: Wallet, tone: "gold" },
-    { title: "Regularizações Y04", value: int(kpis.regularizationsY04), description: "Compras classificadas como regularização", icon: Repeat2, tone: "red" },
-    { title: "Serviços pendentes", value: int(kpis.pendingServices), description: "Serviços ainda não concluídos", icon: ShoppingCart, tone: "gold" }
+    { title: "Total pendente", value: int(kpis.totalPending), description: "Compras Y01 ainda não recebidas", icon: ShoppingCart, tone: "gold" },
+    { title: "Em atraso", value: int(kpis.lateOpen), description: "Previsão vencida, sem recebimento", icon: AlarmClock, tone: "red" },
+    { title: "Pendente de compra", value: int(kpis.pendingPurchase), description: "Sem pedido e sem recebimento", icon: FileX2, tone: "gold" },
+    { title: "Não entregue / no prazo", value: int(kpis.notDelivered), description: "Pedido criado, dentro do prazo", icon: Truck, tone: "blue" },
+    { title: "Regularizações Y04", value: int(kpis.regularizationsY04), description: "Fora dos KPIs principais Y01", icon: Repeat2, tone: "red" },
+    { title: "Serviços", value: int(kpis.services), description: "Separados dos materiais Y01", icon: Wrench, tone: "gold" },
+    { title: "Bloqueados / ignorados", value: int(kpis.blocked), description: "Auditoria — fora dos KPIs", icon: Ban, tone: "blue" },
+    { title: "Valor pendente", value: formatCurrency(kpis.pendingValue), description: "Total das pendências Y01", icon: Wallet, tone: "gold" }
   ];
 
   const isEmpty = data.source === "empty";
@@ -104,7 +119,8 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
           </div>
           <h1 className="font-serif text-3xl leading-tight text-white sm:text-4xl">Compras Pendentes</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300 sm:text-base">
-            Acompanhe requisições sem pedido, pedidos em aberto, atrasos de entrega, MIGO, MIRO e pendências de recebimento.
+            Em atraso, pendente de compra e não entregues (Y01), com Regularizações Y04, serviços e
+            bloqueados separados dos indicadores principais.
           </p>
         </div>
       </header>
@@ -137,7 +153,43 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
       ) : (
         <>
           <PurchaseKpiCards cards={cards} />
-          <PurchaseLatePanel late={data.late} />
+
+          <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
+            <PurchaseMonthlyCountChart
+              className="xl:col-span-7"
+              title="Atrasos por mês"
+              subtitle="Itens em atraso pela previsão de entrega."
+              color="#f87171"
+              points={data.lateByMonth}
+            />
+            <PurchaseStatusChart
+              className="xl:col-span-5"
+              title="Status das pendências"
+              subtitle="Distribuição por status operacional."
+              slices={data.statusDistribution}
+            />
+            <PurchaseRankBarChart
+              className="xl:col-span-6"
+              title="Top fornecedores em atraso"
+              subtitle="Fornecedores com mais itens em atraso."
+              color="#f87171"
+              items={suppliersToRank(data.topLateSuppliers)}
+            />
+            <PurchaseRankBarChart
+              className="xl:col-span-6"
+              title="Pendências por grupo de mercadoria"
+              subtitle="Pendentes Y01 + Y04 por grupo."
+              color="#0f4d68"
+              items={goodsGroupsToRank(data.pendingByGoodsGroup)}
+            />
+            <PurchaseRankBarChart
+              className="xl:col-span-12"
+              title="Requisitantes com mais pendências"
+              color="#7b551f"
+              items={requestersToRank(data.topRequesters)}
+            />
+          </section>
+
           <PurchaseTable data={data.purchases} variant="pending" onPageChange={(page) => navigate(appliedFilters, page)} />
         </>
       )}

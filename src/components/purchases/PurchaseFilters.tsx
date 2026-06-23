@@ -4,12 +4,12 @@ import { Check, FilterX, SlidersHorizontal } from "lucide-react";
 import { DateRangeFilter } from "@/components/service-orders/filters/DateRangeFilter";
 import { MultiSelectFilter } from "@/components/common/MultiSelectFilter";
 import {
-  ITEM_NATURE_LABELS,
   PURCHASE_DATE_FIELD_LABELS,
-  PURCHASE_OPERATIONAL_STATUSES
-} from "@/utils/purchases-normalizer";
-import type { ItemNature, PurchaseFilterOptions } from "@/types/purchases";
-import type { AppliedPurchaseFilters } from "@/components/purchases/filters";
+  PURCHASE_KIND_FILTER_LABELS,
+  PURCHASE_OPERATIONAL_STATUS_LABELS
+} from "@/utils/purchase-classification";
+import type { PurchaseFilterOptions } from "@/types/purchases";
+import { PURCHASE_KIND_VALUES, type AppliedPurchaseFilters } from "@/components/purchases/filters";
 
 type PurchaseFiltersProps = {
   draft: AppliedPurchaseFilters;
@@ -24,10 +24,7 @@ const selectClassName =
   "h-10 w-full rounded-lg border border-gold/15 bg-black/35 px-3 text-sm text-zinc-100 outline-none transition [color-scheme:dark] focus:border-gold/55 focus:bg-black/50";
 const labelClassName = "mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400";
 
-const NATURE_OPTIONS = (["MATERIAL", "SERVICO"] as ItemNature[]).map((value) => ({
-  value,
-  label: ITEM_NATURE_LABELS[value]
-}));
+const KIND_OPTIONS = PURCHASE_KIND_VALUES.map((value) => ({ value, label: PURCHASE_KIND_FILTER_LABELS[value] ?? value }));
 const DATE_FIELD_OPTIONS = Object.entries(PURCHASE_DATE_FIELD_LABELS).map(([value, label]) => ({ value, label }));
 
 export function PurchaseFilters({ draft, options, isPending, onChange, onApply, onClear }: PurchaseFiltersProps) {
@@ -64,17 +61,17 @@ export function PurchaseFilters({ draft, options, isPending, onChange, onApply, 
           searchPlaceholder="Buscar grupo..."
         />
         <MultiSelectFilter
-          label="Natureza"
-          options={NATURE_OPTIONS}
-          selectedValues={draft.itemNatures}
-          onChange={(values) => onChange("itemNatures", values)}
-          placeholder="Material e serviço"
+          label="Tipo"
+          options={KIND_OPTIONS}
+          selectedValues={draft.kinds}
+          onChange={(values) => onChange("kinds", values)}
+          placeholder="Material, serviço, Y04, bloqueado"
         />
         <MultiSelectFilter
-          label="Status operacional"
-          options={PURCHASE_OPERATIONAL_STATUSES}
-          selectedValues={draft.operationalStatuses}
-          onChange={(values) => onChange("operationalStatuses", values)}
+          label="Status"
+          options={options.statuses.map((status) => ({ value: status, label: PURCHASE_OPERATIONAL_STATUS_LABELS[status] }))}
+          selectedValues={draft.statuses}
+          onChange={(values) => onChange("statuses", values)}
           placeholder="Todos os status"
           searchPlaceholder="Buscar status..."
         />

@@ -15,6 +15,7 @@ import {
   parsePurchaseNumber,
   resolvePurchaseValue
 } from "@/utils/purchases-normalizer";
+import { classifyPurchaseRecord } from "@/utils/purchase-classification";
 import type {
   ParsedPurchaseRecord,
   PurchaseExcelRow,
@@ -42,6 +43,9 @@ const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   quantid: "quantity",
   quantidade: "quantity",
   qtd: "quantity",
+  quant_pendente: "pendingQuantity",
+  quantidade_pendente: "pendingQuantity",
+  qtd_pendente: "pendingQuantity",
   recebimto_concluido: "receiptCompletedFlag",
   recebimento_concluido: "receiptCompletedFlag",
   codigo_de_eliminacao: "deletionCode",
@@ -66,6 +70,8 @@ const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   total_liquido: "netTotal",
   recebimento: "receiptNumber",
   data_recebimento: "receiptDate",
+  data_de_recebimento: "receiptDate",
+  dt_recebimento: "receiptDate",
   migo: "migoNumber",
   data_migo: "migoDate",
   grupo_merc: "goodsGroupCode",
@@ -74,7 +80,9 @@ const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   requisitante: "requester",
   miro: "miroNumber",
   data_miro: "miroDate",
-  grupo_comp: "purchasingGroup"
+  grupo_comp: "purchasingGroup",
+  grupo_de_compras: "purchasingGroup",
+  grupo_compras: "purchasingGroup"
 };
 
 type ImportOptions = {
@@ -154,6 +162,12 @@ function emptyResult(totalRows: number): PurchaseImportResult {
     totalServices: 0,
     totalMaterials: 0,
     totalValue: 0,
+    totalBlocked: 0,
+    totalReceived: 0,
+    totalReceivedLate: 0,
+    totalPendingPurchase: 0,
+    totalNotDelivered: 0,
+    suppliersDetected: 0,
     errors: []
   };
 }
@@ -166,7 +180,7 @@ const UPDATE_CONCURRENCY = 20; // updates paralelos por lote
  * Importa registros de compra em LOTE — sem consulta 1-por-linha.
  *  1) parse + dedupe em memória; 2) descobre chaves existentes numa consulta;
  *  3) createMany dos novos + updates dos existentes em chunks paralelos.
- * Isso evita o timeout da função serverless do Netlify em planilhas grandes
+ * Isso evita o timeout da função serverless (Vercel) em planilhas grandes
  * (antes eram ~2 queries por linha, o que estourava o limite e importava parcial).
  */
 export async function importPurchaseRows(
@@ -216,6 +230,9 @@ export async function importPurchaseRows(
     accumulate(result, parsed);
   }
   result.totalValue = round(result.totalValue);
+  result.suppliersDetected = new Set(
+    parsedList.map((parsed) => parsed.supplierName).filter((name): name is string => Boolean(name))
+  ).size;
 
   // 5) Qualidade dos dados: período detectado e avisos.
   result.periodDetected = detectPeriod(parsedList);
@@ -324,10 +341,12 @@ export async function importPurchasesFromExcel(
   return importPurchaseRows(rows, options);
 }
 
-/** Soma os indicadores do resumo a partir de um registro não-ignorado. */
+/** Soma os indicadores do resumo (REGRA 16) a partir de um registro parseado. */
 function accumulate(result: PurchaseImportResult, parsed: ParsedPurchaseRecord): void {
-  if (parsed.ignored) {
+  // Bloqueados contam só como auditoria; fora dos demais indicadores.
+  if (parsed.isBlocked) {
     result.ignoredRows += 1;
+    result.totalBlocked += 1;
     return;
   }
 
@@ -342,22 +361,38 @@ function accumulate(result: PurchaseImportResult, parsed: ParsedPurchaseRecord):
   if (parsed.hasMiro) {
     result.totalMiro += 1;
   }
-  if (parsed.isLateOpen) {
-    result.totalLateOpen += 1;
-  }
-  if (parsed.isLateReceived) {
-    result.totalLateReceived += 1;
-  }
   if (parsed.purchaseType === "REGULARIZACAO") {
     result.totalRegularizations += 1;
   }
   if (parsed.purchaseType === "NORMAL") {
     result.totalNormalPurchases += 1;
   }
-  if (parsed.itemNature === "SERVICO") {
+  if (parsed.isService) {
     result.totalServices += 1;
   } else {
     result.totalMaterials += 1;
+  }
+
+  // Contagens canônicas por status operacional.
+  switch (parsed.operationalStatus) {
+    case "RECEBIDO":
+      result.totalReceived += 1;
+      break;
+    case "RECEBIDO_COM_ATRASO":
+      result.totalReceived += 1;
+      result.totalReceivedLate += 1;
+      break;
+    case "EM_ATRASO":
+      result.totalLateOpen += 1;
+      break;
+    case "PENDENTE_COMPRA":
+      result.totalPendingPurchase += 1;
+      break;
+    case "NAO_ENTREGUE":
+      result.totalNotDelivered += 1;
+      break;
+    default:
+      break;
   }
 
   const value = resolvePurchaseValue(parsed.netTotal, parsed.grossTotal);
@@ -389,6 +424,7 @@ function parseRow(row: PurchaseExcelRow, line: number, now: Date): ParsedPurchas
   const netTotal = parsePurchaseNumber(row.netTotal);
   const grossTotal = parsePurchaseNumber(row.grossTotal);
   const quantity = parsePurchaseNumber(row.quantity);
+  const pendingQuantity = parsePurchaseNumber(row.pendingQuantity);
 
   const supplierName = optionalText(row.supplierName);
   const goodsGroupDescription = optionalText(row.goodsGroupDescription);
@@ -418,6 +454,22 @@ function parseRow(row: PurchaseExcelRow, line: number, now: Date): ParsedPurchas
     deletionCode
   });
 
+  // REGRA CENTRAL: status canônico (mesma função usada por services e UI).
+  const classification = classifyPurchaseRecord(
+    {
+      purchasingGroup: row.purchasingGroup,
+      goodsGroupDescription,
+      itemDescription: description,
+      materialCode,
+      supplierName,
+      deletionCode,
+      purchaseOrderNumber,
+      receiptDate,
+      expectedDeliveryDate
+    },
+    now
+  );
+
   const technicalKey = buildPurchaseTechnicalKey({
     requisitionNumber,
     purchaseOrderNumber,
@@ -436,6 +488,7 @@ function parseRow(row: PurchaseExcelRow, line: number, now: Date): ParsedPurchas
     materialCode,
     itemDescription: description,
     quantity,
+    pendingQuantity,
     unit: optionalText(row.unit),
     requisitionDate,
     purchaseOrderDate,
@@ -457,6 +510,9 @@ function parseRow(row: PurchaseExcelRow, line: number, now: Date): ParsedPurchas
     deletionCode,
     purchaseType: classifyPurchaseType(row.purchasingGroup),
     itemNature: classifyItemNature(goodsGroupDescription, description),
+    operationalStatus: classification.operationalStatus,
+    isService: classification.isService,
+    isBlocked: classification.isBlocked,
     hasPurchaseOrder: flags.hasPurchaseOrder,
     hasMigo: flags.hasMigo,
     hasMiro: flags.hasMiro,

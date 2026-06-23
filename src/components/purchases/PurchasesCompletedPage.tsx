@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { BadgeCheck, Boxes, ClipboardCheck, Clock, Receipt, Repeat2, ShoppingCart, Truck, Upload, Wallet } from "lucide-react";
+import { AlarmClock, Ban, BadgeCheck, ClipboardCheck, Repeat2, ShoppingCart, Upload, Wallet, Wrench } from "lucide-react";
 import { ChartSkeleton } from "@/components/ChartSkeleton";
 import { PurchaseKpiCards, type PurchaseKpiCard } from "@/components/purchases/PurchaseKpiCards";
 import { PurchaseFilters } from "@/components/purchases/PurchaseFilters";
@@ -17,33 +17,22 @@ import {
   purchaseFiltersToParams,
   type AppliedPurchaseFilters
 } from "@/components/purchases/filters";
+import { goodsGroupsToRank, suppliersToRank } from "@/components/purchases/PurchaseInsightCharts";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import { formatCurrency } from "@/utils/formatters";
 import type { CompletedPurchasesPageData } from "@/types/purchases";
 
-const PurchaseMonthlyChart = dynamic(
-  () => import("@/components/purchases/PurchaseMonthlyChart").then((m) => m.PurchaseMonthlyChart),
-  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-7" /> }
-);
-const PurchaseCategoryChart = dynamic(
-  () => import("@/components/purchases/PurchaseCategoryChart").then((m) => m.PurchaseCategoryChart),
-  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-5" /> }
-);
-const PurchaseTypeChart = dynamic(
-  () => import("@/components/purchases/PurchaseTypeChart").then((m) => m.PurchaseTypeChart),
+const PurchaseMonthlyCountChart = dynamic(
+  () => import("@/components/purchases/PurchaseInsightCharts").then((m) => m.PurchaseMonthlyCountChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
 );
-const PurchaseNatureChart = dynamic(
-  () => import("@/components/purchases/PurchaseNatureChart").then((m) => m.PurchaseNatureChart),
+const PurchaseRankBarChart = dynamic(
+  () => import("@/components/purchases/PurchaseInsightCharts").then((m) => m.PurchaseRankBarChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
-);
-const PurchaseSuppliersChart = dynamic(
-  () => import("@/components/purchases/PurchaseSuppliersChart").then((m) => m.PurchaseSuppliersChart),
-  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-7" /> }
 );
 const PurchaseProcessTimeChart = dynamic(
   () => import("@/components/purchases/PurchaseProcessTimeChart").then((m) => m.PurchaseProcessTimeChart),
-  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-5" /> }
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-12" /> }
 );
 
 type PurchasesCompletedPageProps = {
@@ -104,14 +93,13 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
 
   const kpis = data.kpis;
   const cards: PurchaseKpiCard[] = [
-    { title: "Valor total comprado", value: formatCurrency(kpis.totalValue), description: "Soma do valor no período", icon: Wallet, tone: "gold" },
-    { title: "Pedidos concluídos", value: int(data.purchases.total), description: "Pedido + recebimento + MIRO", icon: ClipboardCheck, tone: "green" },
-    { title: "Compras com MIGO", value: int(kpis.completedWithMigo), description: "Entrada de mercadoria lançada", icon: Truck, tone: "blue" },
-    { title: "Compras com MIRO", value: int(kpis.completedWithMiro), description: "Fatura lançada (MIRO)", icon: Receipt, tone: "blue" },
-    { title: "Regularizações Y04", value: int(kpis.regularizationsY04), description: "Compras de regularização", icon: Repeat2, tone: "red" },
-    { title: "Compras normais Y01", value: int(kpis.normalPurchasesY01), description: "Compras planejadas", icon: BadgeCheck, tone: "green" },
-    { title: "Serviços realizados", value: int(kpis.totalServices), description: `${int(kpis.totalMaterials)} itens de material`, icon: Boxes, tone: "gold" },
-    { title: "Tempo médio total", value: kpis.averageTotalProcessDays !== null ? `${int(kpis.averageTotalProcessDays)} d` : "—", description: "Requisição → MIRO/recebimento", icon: Clock, tone: "blue" }
+    { title: "Total recebido", value: int(kpis.received), description: "Itens Y01 com data de recebimento", icon: ClipboardCheck, tone: "green" },
+    { title: "Recebidos no prazo", value: int(kpis.receivedOnTime), description: "Recebimento ≤ previsão", icon: BadgeCheck, tone: "green" },
+    { title: "Recebidos com atraso", value: int(kpis.receivedLate), description: "Recebimento > previsão", icon: AlarmClock, tone: "red" },
+    { title: "Regularizações Y04 recebidas", value: int(kpis.regularizationsY04Received), description: `de ${int(kpis.regularizationsY04)} Y04 no total`, icon: Repeat2, tone: "red" },
+    { title: "Serviços recebidos", value: int(kpis.servicesReceived), description: `de ${int(kpis.services)} serviços no total`, icon: Wrench, tone: "gold" },
+    { title: "Bloqueados / ignorados", value: int(kpis.blocked), description: "Auditoria — fora dos KPIs", icon: Ban, tone: "blue" },
+    { title: "Valor recebido", value: formatCurrency(kpis.receivedValue), description: "Total recebido no período", icon: Wallet, tone: "gold" }
   ];
 
   const isEmpty = data.source === "empty";
@@ -130,7 +118,8 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
           </div>
           <h1 className="font-serif text-3xl leading-tight text-white sm:text-4xl">Compras Realizadas</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300 sm:text-base">
-            Analise pedidos concluídos, valores comprados, fornecedores, categorias, regularizações, MIGO e MIRO.
+            Recebimentos no prazo e com atraso, por mês, fornecedor e grupo de mercadoria, com
+            Regularizações Y04 e serviços recebidos separados.
           </p>
         </div>
       </header>
@@ -165,12 +154,39 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
           <PurchaseKpiCards cards={cards} />
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-            <PurchaseMonthlyChart className="xl:col-span-7" points={data.monthly} />
-            <PurchaseCategoryChart className="xl:col-span-5" rows={data.byCategory} />
-            <PurchaseTypeChart className="xl:col-span-6" data={data.regularizationVsNormal} />
-            <PurchaseNatureChart className="xl:col-span-6" slices={data.natureDistribution} />
-            <PurchaseSuppliersChart className="xl:col-span-7" suppliers={data.topSuppliers} />
-            <PurchaseProcessTimeChart className="xl:col-span-5" times={data.processTimes} />
+            <PurchaseMonthlyCountChart
+              className="xl:col-span-6"
+              title="Recebidos por mês"
+              subtitle="Itens recebidos pela data de recebimento."
+              color="#4ade80"
+              points={data.receivedByMonth}
+            />
+            <PurchaseMonthlyCountChart
+              className="xl:col-span-6"
+              title="Recebidos com atraso por mês"
+              subtitle="Recebimento após a previsão."
+              color="#fb923c"
+              points={data.receivedLateByMonth}
+            />
+            <PurchaseRankBarChart
+              className="xl:col-span-6"
+              title="Top fornecedores com atraso no recebimento"
+              color="#fb923c"
+              items={suppliersToRank(data.topDelayedReceiptSuppliers)}
+            />
+            <PurchaseRankBarChart
+              className="xl:col-span-6"
+              title="Recebidos por grupo de mercadoria"
+              color="#0f4d68"
+              items={goodsGroupsToRank(data.receivedByGoodsGroup)}
+            />
+            <PurchaseRankBarChart
+              className="xl:col-span-6"
+              title="Regularização Y04 por grupo de mercadoria"
+              color="#c084fc"
+              items={goodsGroupsToRank(data.regularizationByGoodsGroup)}
+            />
+            <PurchaseProcessTimeChart className="xl:col-span-6" times={data.processTimes} />
           </section>
 
           <PurchaseTable data={data.purchases} variant="completed" onPageChange={(page) => navigate(appliedFilters, page)} />
