@@ -31,6 +31,11 @@ const PcFactoryRankingChart = dynamic(() => import("@/components/pc-factory/PcFa
   ssr: false,
   loading: () => <ChartSkeleton className="xl:col-span-6" />
 });
+const PcFactoryCriticalMachinesStackedChart = dynamic(
+  () =>
+    import("@/components/pc-factory/PcFactoryCriticalMachinesStackedChart").then((m) => m.PcFactoryCriticalMachinesStackedChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
+);
 const PcFactoryLineSummaryChart = dynamic(
   () => import("@/components/pc-factory/PcFactoryLineSummaryChart").then((m) => m.PcFactoryLineSummaryChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
@@ -240,14 +245,9 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
             <PcFactoryReliabilityTable className="xl:col-span-6" rows={data.criticalResources} onSelect={openDetails} />
             <PcFactoryRootCauseChart className="xl:col-span-6" rows={data.rootCausePareto} />
 
-            <PcFactoryRankingChart
+            <PcFactoryCriticalMachinesStackedChart
               className="xl:col-span-6"
-              title="Ranking de máquinas críticas"
-              subtitle="Top 10 por horas de manutenção (Mecânica + Elétrica + Aguardando)."
               rows={data.criticalResources}
-              metric="maintenanceHours"
-              color={PC_FACTORY_COLORS.MANUTENCAO}
-              emptyDescription="Sem manutenção no período."
               onSelect={openDetails}
             />
             <PcFactoryRankingChart
