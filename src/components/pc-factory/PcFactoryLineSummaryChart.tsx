@@ -2,6 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
+import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryProductionLineRow } from "@/types/pc-factory";
 
 type PcFactoryLineSummaryChartProps = {
@@ -56,9 +57,9 @@ export function PcFactoryLineSummaryChart({ rows, className = "" }: PcFactoryLin
 }
 
 function colorFor(value: number): string {
-  if (value >= 85) return "#3f8f6b";
-  if (value >= 70) return "#c49a45";
-  return "#a6192e";
+  if (value >= 85) return PC_FACTORY_COLORS.PRODUCAO;
+  if (value >= 70) return PC_FACTORY_COLORS.AGUARDANDO_MANUTENCAO;
+  return PC_FACTORY_COLORS.PARADA_PERDA;
 }
 
 function truncate(value: string): string {

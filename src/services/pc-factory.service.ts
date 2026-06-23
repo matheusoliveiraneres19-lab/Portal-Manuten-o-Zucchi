@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { PcFactoryStatusCategory, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import {
   PC_FACTORY_CATEGORY_COLORS,
   PC_FACTORY_CATEGORY_LABELS,
@@ -409,10 +410,10 @@ function categoryDistributionFromAggregate(agg: HoursAggregate): PcFactoryCatego
 
 function maintenanceSplitFromAggregate(agg: HoursAggregate): PcFactoryMaintenanceSplit[] {
   return [
-    { key: "MECANICA" as const, label: "Manutenção Mecânica", hours: agg.mechanicalHours, events: agg.mechanicalEvents, color: "#c49a45" },
-    { key: "ELETRICA" as const, label: "Manutenção Elétrica", hours: agg.electricalHours, events: agg.electricalEvents, color: "#0f4d68" },
-    { key: "AUTOMACAO" as const, label: "Manutenção Automação", hours: agg.automationHours, events: agg.automationEvents, color: "#7a4fb5" },
-    { key: "AGUARDANDO" as const, label: "Aguardando Manutenção", hours: agg.waitingHours, events: agg.waitingEvents, color: "#a6192e" }
+    { key: "MECANICA" as const, label: "Manutenção Mecânica", hours: agg.mechanicalHours, events: agg.mechanicalEvents, color: PC_FACTORY_COLORS.MANUTENCAO_MECANICA },
+    { key: "ELETRICA" as const, label: "Manutenção Elétrica", hours: agg.electricalHours, events: agg.electricalEvents, color: PC_FACTORY_COLORS.MANUTENCAO_ELETRICA },
+    { key: "AUTOMACAO" as const, label: "Manutenção Automação", hours: agg.automationHours, events: agg.automationEvents, color: PC_FACTORY_COLORS.MANUTENCAO_AUTOMACAO },
+    { key: "AGUARDANDO" as const, label: "Aguardando Manutenção", hours: agg.waitingHours, events: agg.waitingEvents, color: PC_FACTORY_COLORS.AGUARDANDO_MANUTENCAO }
   ].filter((item) => item.hours > 0);
 }
 

@@ -16,6 +16,7 @@ import { PcFactoryImportModal } from "@/components/pc-factory/PcFactoryImportMod
 import { PcFactoryQualityPanel } from "@/components/pc-factory/PcFactoryQualityPanel";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import { PC_FACTORY_CATEGORY_LABELS } from "@/utils/pc-factory-normalizer";
+import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryPageData, PcFactoryResourceDetails, PcFactoryStatusCategory } from "@/types/pc-factory";
 
 const PcFactoryStatusChart = dynamic(() => import("@/components/pc-factory/PcFactoryStatusChart").then((m) => m.PcFactoryStatusChart), {
@@ -245,7 +246,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
               subtitle="Top 10 por horas de manutenção (Mecânica + Elétrica + Aguardando)."
               rows={data.criticalResources}
               metric="maintenanceHours"
-              color="#c49a45"
+              color={PC_FACTORY_COLORS.MANUTENCAO}
               emptyDescription="Sem manutenção no período."
               onSelect={openDetails}
             />
@@ -255,7 +256,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
               subtitle="Top 10 máquinas por horas em Manutenção Mecânica."
               rows={data.topMechanical}
               metric="mechanicalHours"
-              color="#8a6d2f"
+              color={PC_FACTORY_COLORS.MANUTENCAO_MECANICA}
               emptyDescription="Sem manutenção mecânica no período."
               onSelect={openDetails}
             />
@@ -265,7 +266,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
               subtitle="Top 10 máquinas por horas em Manutenção Elétrica."
               rows={data.topElectrical}
               metric="electricalHours"
-              color="#0f4d68"
+              color={PC_FACTORY_COLORS.MANUTENCAO_ELETRICA}
               emptyDescription="Sem manutenção elétrica no período."
               onSelect={openDetails}
             />
@@ -275,7 +276,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
               subtitle="Top 10 máquinas por horas em Manutenção Automação."
               rows={data.topAutomation}
               metric="automationHours"
-              color="#7a4fb5"
+              color={PC_FACTORY_COLORS.MANUTENCAO_AUTOMACAO}
               emptyDescription="Sem manutenção de automação no período."
               onSelect={openDetails}
             />
@@ -285,7 +286,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
               subtitle="Top 10 máquinas por horas em Aguardando Manutenção."
               rows={data.topWaiting}
               metric="waitingHours"
-              color="#a6192e"
+              color={PC_FACTORY_COLORS.AGUARDANDO_MANUTENCAO}
               emptyDescription="Sem espera por manutenção no período."
               onSelect={openDetails}
             />

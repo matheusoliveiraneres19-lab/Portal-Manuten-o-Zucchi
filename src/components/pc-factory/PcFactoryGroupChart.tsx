@@ -2,14 +2,13 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
+import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryGroupRow } from "@/types/pc-factory";
 
 type PcFactoryGroupChartProps = {
   rows: PcFactoryGroupRow[];
   className?: string;
 };
-
-const PALETTE = ["#c49a45", "#0f4d68", "#7a4fb5", "#3f8f6b", "#a6192e", "#8a6d2f", "#5a3d12", "#6b7280"];
 
 /** Barras horizontais — horas de manutenção por Grupo Portal (ex.: Indústria Granito). */
 export function PcFactoryGroupChart({ rows, className = "" }: PcFactoryGroupChartProps) {
@@ -43,8 +42,8 @@ export function PcFactoryGroupChart({ rows, className = "" }: PcFactoryGroupChar
                 ]}
               />
               <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={22}>
-                {data.map((entry, index) => (
-                  <Cell key={entry.group} fill={PALETTE[index % PALETTE.length]} />
+                {data.map((entry) => (
+                  <Cell key={entry.group} fill={PC_FACTORY_COLORS.MANUTENCAO} />
                 ))}
                 <LabelList
                   dataKey="value"

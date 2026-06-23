@@ -16,6 +16,7 @@
  *     mas NÃO é evento de manutenção/KPI).
  */
 import { PcFactoryStatusCategory } from "@prisma/client";
+import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 
 /* ------------------------------------------------------------------ */
 /* Normalização de texto para comparação                              */
@@ -201,13 +202,13 @@ export const PC_FACTORY_CATEGORY_LABELS: Record<PcFactoryStatusCategory, string>
 };
 
 export const PC_FACTORY_CATEGORY_COLORS: Record<PcFactoryStatusCategory, string> = {
-  MANUTENCAO: "#c49a45",
-  PRODUCAO: "#3f8f6b",
-  SETUP: "#0f4d68",
-  PARADA_PERDA: "#a6192e",
-  OPERACIONAL: "#6b7280",
-  EXCLUIR_TEMPO_PLANEJADO: "#4b5563",
-  OUTROS: "#9ca3af"
+  MANUTENCAO: PC_FACTORY_COLORS.MANUTENCAO,
+  PRODUCAO: PC_FACTORY_COLORS.PRODUCAO,
+  SETUP: PC_FACTORY_COLORS.SETUP,
+  PARADA_PERDA: PC_FACTORY_COLORS.PARADA_PERDA,
+  OPERACIONAL: PC_FACTORY_COLORS.OPERACIONAL,
+  EXCLUIR_TEMPO_PLANEJADO: PC_FACTORY_COLORS.FORA_PLANEJADO,
+  OUTROS: PC_FACTORY_COLORS.OUTROS
 };
 
 export const PC_FACTORY_CATEGORY_ORDER: PcFactoryStatusCategory[] = [

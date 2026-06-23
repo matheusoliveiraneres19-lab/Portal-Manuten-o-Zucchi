@@ -2,6 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
+import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryProductionLineRow } from "@/types/pc-factory";
 
 type PcFactoryCompositionChartProps = {
@@ -38,9 +39,9 @@ export function PcFactoryCompositionChart({ rows, className = "" }: PcFactoryCom
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${v}h`} />
               <Tooltip formatter={(value: number, name) => [`${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h`, name]} />
               <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
-              <Bar dataKey="Produção" stackId="t" fill="#3f8f6b" />
-              <Bar dataKey="Manutenção" stackId="t" fill="#c49a45" />
-              <Bar dataKey="Perdas" stackId="t" fill="#a6192e" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Produção" stackId="t" fill={PC_FACTORY_COLORS.PRODUCAO} />
+              <Bar dataKey="Manutenção" stackId="t" fill={PC_FACTORY_COLORS.MANUTENCAO} />
+              <Bar dataKey="Perdas" stackId="t" fill={PC_FACTORY_COLORS.PARADA_PERDA} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
