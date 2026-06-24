@@ -1,7 +1,7 @@
 "use client";
 
 import { m } from "framer-motion";
-import { AlarmClock, CalendarClock, CircleGauge, Cog, Cpu, Crown, Hammer, Hourglass, Percent, Timer, Wrench, Zap } from "lucide-react";
+import { CalendarClock, CircleGauge, Cog, Cpu, Crown, Hammer, Timer, Wrench, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { PcFactoryKpis } from "@/types/pc-factory";
 
@@ -43,34 +43,10 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
       icon: Hammer,
       tone: "blue"
     },
-    {
-      title: "MTTR gerencial",
-      value: metric(kpis.mttr),
-      description: "Horas de manutenção / eventos.",
-      icon: AlarmClock,
-      tone: "gold"
-    },
-    {
-      title: "MTBF gerencial",
-      value: metric(kpis.mtbf),
-      description: "(Planejado real − manutenção) / eventos.",
-      icon: Hourglass,
-      tone: "blue"
-    },
-    {
-      title: "MTTA gerencial estimado",
-      value: metric(kpis.mtta),
-      description: "Horas aguardando manutenção / eventos de aguardando.",
-      icon: CalendarClock,
-      tone: "red"
-    },
-    {
-      title: "% manutenção no planejado",
-      value: percent(kpis.maintenancePercentOfPlanned),
-      description: "Horas de manutenção sobre o tempo planejado.",
-      icon: Percent,
-      tone: "red"
-    },
+    // Ocultos da visualização principal a pedido do negócio (jun/2026): MTTR, MTBF,
+    // MTTA e % manutenção no planejado. Os cálculos seguem no service (kpis.mttr,
+    // kpis.mtbf, kpis.mtta, kpis.maintenancePercentOfPlanned) para uso futuro em
+    // relatórios técnicos — só não são renderizados aqui.
     {
       title: "Disponibilidade estimada",
       value: percent(kpis.availabilityPercent),
@@ -116,7 +92,7 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
   ];
 
   return (
-    <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {cards.map((card, index) => {
         const Icon = card.icon;
         return (
@@ -152,10 +128,6 @@ function int(value: number): string {
 
 function hours(value: number): string {
   return `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h`;
-}
-
-function metric(value: number | null): string {
-  return value === null ? "Dados insuficientes" : `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h`;
 }
 
 function percent(value: number | null): string {

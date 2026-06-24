@@ -2,6 +2,7 @@
 
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
+import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryTrendPoint } from "@/types/pc-factory";
 
 type PcFactoryTrendChartProps = {
@@ -39,8 +40,8 @@ export function PcFactoryTrendChart({ points, className = "" }: PcFactoryTrendCh
                 ]}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar yAxisId="hours" dataKey="maintenanceHours" name="Horas de manutenção" fill="#c49a45" radius={[4, 4, 0, 0]} barSize={26} />
-              <Line yAxisId="pct" type="monotone" dataKey="availabilityPercent" name="Disponibilidade" stroke="#3f8f6b" strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
+              <Bar yAxisId="hours" dataKey="maintenanceHours" name="Horas de manutenção" fill={PC_FACTORY_COLORS.MANUTENCAO} radius={[4, 4, 0, 0]} barSize={26} />
+              <Line yAxisId="pct" type="monotone" dataKey="availabilityPercent" name="Disponibilidade" stroke={PC_FACTORY_COLORS.PRODUCAO} strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
             </ComposedChart>
           </ResponsiveContainer>
         </div>

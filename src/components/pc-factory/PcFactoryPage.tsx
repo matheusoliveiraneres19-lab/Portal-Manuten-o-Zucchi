@@ -16,6 +16,7 @@ import { PcFactoryImportModal } from "@/components/pc-factory/PcFactoryImportMod
 import { PcFactoryQualityPanel } from "@/components/pc-factory/PcFactoryQualityPanel";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import { PC_FACTORY_CATEGORY_LABELS } from "@/utils/pc-factory-normalizer";
+import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryPageData, PcFactoryResourceDetails, PcFactoryStatusCategory } from "@/types/pc-factory";
 
 const PcFactoryStatusChart = dynamic(() => import("@/components/pc-factory/PcFactoryStatusChart").then((m) => m.PcFactoryStatusChart), {
@@ -30,6 +31,11 @@ const PcFactoryRankingChart = dynamic(() => import("@/components/pc-factory/PcFa
   ssr: false,
   loading: () => <ChartSkeleton className="xl:col-span-6" />
 });
+const PcFactoryCriticalMachinesStackedChart = dynamic(
+  () =>
+    import("@/components/pc-factory/PcFactoryCriticalMachinesStackedChart").then((m) => m.PcFactoryCriticalMachinesStackedChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
+);
 const PcFactoryLineSummaryChart = dynamic(
   () => import("@/components/pc-factory/PcFactoryLineSummaryChart").then((m) => m.PcFactoryLineSummaryChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
@@ -174,7 +180,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-400">
             <span className="flex items-center gap-1.5">
               <Info className="h-3.5 w-3.5 text-gold" />
-              Manutenção = Mecânica + Elétrica + Aguardando Manutenção. Fora de Turno e Recurso Não Programado saem do tempo planejado.
+              Manutenção = grupo “Manutenção” do PC-Factory (Mecânica, Elétrica, Automação, Planejada, Terceiros e Aguardando). Base: Tempo Decorrido.
             </span>
             <span className="flex items-center gap-1.5">
               <Activity className="h-3.5 w-3.5 text-gold" />
@@ -233,20 +239,15 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
           </p>
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-            <PcFactoryStatusChart className="xl:col-span-5" slices={data.categoryDistribution} />
+            <PcFactoryStatusChart className="xl:col-span-5" slices={data.statusDistribution} />
             <PcFactoryMaintenanceSplitChart className="xl:col-span-7" split={data.maintenanceSplit} />
 
             <PcFactoryReliabilityTable className="xl:col-span-6" rows={data.criticalResources} onSelect={openDetails} />
             <PcFactoryRootCauseChart className="xl:col-span-6" rows={data.rootCausePareto} />
 
-            <PcFactoryRankingChart
+            <PcFactoryCriticalMachinesStackedChart
               className="xl:col-span-6"
-              title="Ranking de máquinas críticas"
-              subtitle="Top 10 por horas de manutenção (Mecânica + Elétrica + Aguardando)."
               rows={data.criticalResources}
-              metric="maintenanceHours"
-              color="#c49a45"
-              emptyDescription="Sem manutenção no período."
               onSelect={openDetails}
             />
             <PcFactoryRankingChart
@@ -255,7 +256,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
               subtitle="Top 10 máquinas por horas em Manutenção Mecânica."
               rows={data.topMechanical}
               metric="mechanicalHours"
-              color="#8a6d2f"
+              color={PC_FACTORY_COLORS.MANUTENCAO_MECANICA}
               emptyDescription="Sem manutenção mecânica no período."
               onSelect={openDetails}
             />
@@ -265,7 +266,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
               subtitle="Top 10 máquinas por horas em Manutenção Elétrica."
               rows={data.topElectrical}
               metric="electricalHours"
-              color="#0f4d68"
+              color={PC_FACTORY_COLORS.MANUTENCAO_ELETRICA}
               emptyDescription="Sem manutenção elétrica no período."
               onSelect={openDetails}
             />
@@ -275,7 +276,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
               subtitle="Top 10 máquinas por horas em Manutenção Automação."
               rows={data.topAutomation}
               metric="automationHours"
-              color="#7a4fb5"
+              color={PC_FACTORY_COLORS.MANUTENCAO_AUTOMACAO}
               emptyDescription="Sem manutenção de automação no período."
               onSelect={openDetails}
             />
@@ -285,7 +286,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
               subtitle="Top 10 máquinas por horas em Aguardando Manutenção."
               rows={data.topWaiting}
               metric="waitingHours"
-              color="#a6192e"
+              color={PC_FACTORY_COLORS.AGUARDANDO_MANUTENCAO}
               emptyDescription="Sem espera por manutenção no período."
               onSelect={openDetails}
             />

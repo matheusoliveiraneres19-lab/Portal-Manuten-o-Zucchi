@@ -12,6 +12,7 @@ import {
   YAxis
 } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
+import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryRootCauseSlice } from "@/types/pc-factory";
 
 type PcFactoryRootCauseChartProps = {
@@ -68,7 +69,7 @@ export function PcFactoryRootCauseChart({ rows, className = "" }: PcFactoryRootC
               />
               <Bar yAxisId="hours" dataKey="hours" name="Horas" radius={[4, 4, 0, 0]} barSize={26}>
                 {rows.map((row) => (
-                  <Cell key={row.cause} fill="#c49a45" />
+                  <Cell key={row.cause} fill={PC_FACTORY_COLORS.MANUTENCAO} />
                 ))}
               </Bar>
               <Line
@@ -76,7 +77,7 @@ export function PcFactoryRootCauseChart({ rows, className = "" }: PcFactoryRootC
                 type="monotone"
                 dataKey="cumulativePercent"
                 name="% acumulado"
-                stroke="#0f4d68"
+                stroke={PC_FACTORY_COLORS.OPERACIONAL}
                 strokeWidth={2}
                 dot={{ r: 3 }}
               />

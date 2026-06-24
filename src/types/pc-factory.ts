@@ -1,6 +1,22 @@
 import type { PcFactoryStatusCategory } from "@prisma/client";
+import type { PcFactoryManagementGroup } from "@/utils/pc-factory-normalizer";
 
 export type { PcFactoryStatusCategory };
+export type { PcFactoryManagementGroup };
+
+/**
+ * Linha da Tabela Gerencial (Management View do PC-Factory): um dos 6 grupos, com horas
+ * de "Tempo Decorrido", % do total, e % / horas acumuladas (como na tela do PC-Factory).
+ */
+export type PcFactoryManagementGroupRow = {
+  group: PcFactoryManagementGroup;
+  label: string;
+  color: string;
+  totalHours: number;
+  percent: number;
+  cumulativeHours: number;
+  cumulativePercent: number;
+};
 
 /* ------------------------------------------------------------------ */
 /* Parâmetros de consulta/análise                                     */
@@ -94,8 +110,22 @@ export type PcFactoryCategorySlice = {
   percent: number;
 };
 
+/**
+ * Fatia da "Distribuição de horas por classificação" agrupada pelo STATUS REAL da
+ * planilha (statusRaw). A cor (`colorHex`) segue a planilha quando disponível
+ * (statusColorHex), com fallback por statusKey; `colorSource` permite auditar a origem.
+ */
+export type PcFactoryStatusSlice = {
+  statusRaw: string;
+  statusKey: string;
+  hours: number;
+  percent: number;
+  colorHex: string;
+  colorSource: "planilha" | "fallback" | "neutro";
+};
+
 export type PcFactoryMaintenanceSplit = {
-  key: "MECANICA" | "ELETRICA" | "AUTOMACAO" | "AGUARDANDO";
+  key: "MECANICA" | "ELETRICA" | "AUTOMACAO" | "PLANEJADA" | "TERCEIROS" | "AGUARDANDO";
   label: string;
   hours: number;
   events: number;
@@ -262,6 +292,10 @@ export type PcFactoryPageData = {
   reference: PcFactoryReferencePeriod;
   kpis: PcFactoryKpis;
   categoryDistribution: PcFactoryCategorySlice[];
+  /** Distribuição de horas pelos STATUS REAIS da planilha, com cor (planilha/fallback). */
+  statusDistribution: PcFactoryStatusSlice[];
+  /** Tabela Gerencial — 6 grupos do PC-Factory por "Tempo Decorrido" (base oficial). */
+  managementTable: PcFactoryManagementGroupRow[];
   maintenanceSplit: PcFactoryMaintenanceSplit[];
   criticalResources: PcFactoryResourceRow[];
   topMechanical: PcFactoryResourceRow[];
@@ -322,6 +356,14 @@ export type PcFactoryIgnoredReasons = {
   other: number;
 };
 
+/** Cor detectada para um status na importação (TAREFA 7 — auditoria da origem). */
+export type PcFactoryStatusColorInfo = {
+  statusRaw: string;
+  statusKey: string;
+  colorHex: string;
+  source: "excel-column" | "excel-cell-fill" | "fallback" | "neutro";
+};
+
 export type PcFactoryImportResult = {
   totalRows: number;
   importedRows: number;
@@ -353,6 +395,11 @@ export type PcFactoryImportResult = {
   resourcesDetected: number;
   groupsDetected: string[];
   statusDetected: string[];
+  /** Cores por status (TAREFA 7): total de status, quantos vieram da planilha vs fallback. */
+  statusColorsTotal: number;
+  statusColorsFromSheet: number;
+  statusColorsFallback: number;
+  statusColors: PcFactoryStatusColorInfo[];
   errors: PcFactoryImportError[];
 };
 
@@ -366,8 +413,11 @@ export type PcFactoryExcelRow = {
   productionLine?: unknown;
   groupPortal?: unknown;
   sector?: unknown;
+  statusCode?: unknown;
   status?: unknown;
   statusDetails?: unknown;
+  /** Cor explícita do status, se a planilha trouxer coluna de cor (Cor/Color/Status Color…). */
+  statusColor?: unknown;
   /** Colunas pré-calculadas da aba ajustada (usadas como fallback p/ status desconhecido). */
   statusCategory?: unknown;
   maintenanceType?: unknown;

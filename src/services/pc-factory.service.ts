@@ -1,20 +1,29 @@
 import { cache } from "react";
 import { PcFactoryStatusCategory, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { PC_FACTORY_COLORS, PC_FACTORY_MANAGEMENT_GROUP_COLORS } from "@/constants/pc-factory-colors";
 import {
   PC_FACTORY_CATEGORY_COLORS,
   PC_FACTORY_CATEGORY_LABELS,
   PC_FACTORY_CATEGORY_ORDER,
-  maintenanceKind
+  PC_FACTORY_MANAGEMENT_GROUP_LABELS,
+  PC_FACTORY_MANAGEMENT_GROUP_ORDER,
+  classifyManagementGroup,
+  maintenanceKind,
+  normalizePcFactoryStatusKey,
+  resolvePcFactoryStatusColor,
+  type PcFactoryManagementGroup
 } from "@/utils/pc-factory-normalizer";
 import type {
   PcFactoryCategorySlice,
+  PcFactoryStatusSlice,
   PcFactoryDashboardSummary,
   PcFactoryDataQuality,
   PcFactoryFilterOptions,
   PcFactoryGroupRow,
   PcFactoryKpis,
   PcFactoryMaintenanceSplit,
+  PcFactoryManagementGroupRow,
   PcFactoryPageData,
   PcFactoryProductionLineRow,
   PcFactoryQueryParams,
@@ -96,19 +105,24 @@ type AnalyticsRecord = {
   groupPortal: string | null;
   sector: string | null;
   statusRaw: string | null;
+  statusKey: string | null;
+  statusColorHex: string | null;
+  statusCode: string | null;
   statusCategory: PcFactoryStatusCategory;
+  managementGroup: string | null;
   durationHours: number;
   realDurationHours: number | null;
   startDateTime: Date | null;
 };
 
 /**
- * Base de TODOS os cálculos: "Tempo Decorrido Real" quando disponível, senão
- * "Tempo Decorrido" (durationHours) como fallback. Nunca retorna NaN/negativo.
+ * Base de TODOS os cálculos: "Tempo Decorrido" (durationHours), que é a base usada
+ * pela Tabela Gerencial / Management View do PC-Factory (decisão de 2026-06-24).
+ * Antes usava "Tempo Decorrido Real"; mudou para bater com o PC-Factory.
+ * Nunca retorna NaN/negativo.
  */
 function metricHours(record: { realDurationHours: number | null; durationHours: number }): number {
-  const real = record.realDurationHours;
-  const base = real !== null && real !== undefined && Number.isFinite(real) ? real : record.durationHours;
+  const base = record.durationHours;
   return Number.isFinite(base) && base > 0 ? base : 0;
 }
 
@@ -124,7 +138,11 @@ const loadRecords = cache(async (params: PcFactoryQueryParams): Promise<Analytic
       groupPortal: true,
       sector: true,
       statusRaw: true,
+      statusKey: true,
+      statusColorHex: true,
+      statusCode: true,
       statusCategory: true,
+      managementGroup: true,
       durationHours: true,
       realDurationHours: true,
       startDateTime: true
@@ -145,6 +163,8 @@ type HoursAggregate = {
   mechanicalHours: number;
   electricalHours: number;
   automationHours: number;
+  planejadaHours: number;
+  terceirosHours: number;
   waitingHours: number;
   setupHours: number;
   lossHours: number;
@@ -155,6 +175,8 @@ type HoursAggregate = {
   mechanicalEvents: number;
   electricalEvents: number;
   automationEvents: number;
+  planejadaEvents: number;
+  terceirosEvents: number;
   waitingEvents: number;
 };
 
@@ -167,6 +189,8 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
   let mechanicalHours = 0;
   let electricalHours = 0;
   let automationHours = 0;
+  let planejadaHours = 0;
+  let terceirosHours = 0;
   let waitingHours = 0;
   let setupHours = 0;
   let paradaPerdaHours = 0;
@@ -176,6 +200,8 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
   let mechanicalEvents = 0;
   let electricalEvents = 0;
   let automationEvents = 0;
+  let planejadaEvents = 0;
+  let terceirosEvents = 0;
   let waitingEvents = 0;
 
   for (const record of records) {
@@ -205,6 +231,12 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
         } else if (kind === "AUTOMACAO") {
           automationHours += hours;
           automationEvents += 1;
+        } else if (kind === "PLANEJADA") {
+          planejadaHours += hours;
+          planejadaEvents += 1;
+        } else if (kind === "TERCEIROS") {
+          terceirosHours += hours;
+          terceirosEvents += 1;
         } else if (kind === "AGUARDANDO") {
           waitingHours += hours;
           waitingEvents += 1;
@@ -241,6 +273,8 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
     mechanicalHours: round(mechanicalHours),
     electricalHours: round(electricalHours),
     automationHours: round(automationHours),
+    planejadaHours: round(planejadaHours),
+    terceirosHours: round(terceirosHours),
     waitingHours: round(waitingHours),
     setupHours: round(setupHours),
     lossHours: round(lossHours),
@@ -251,6 +285,8 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
     mechanicalEvents,
     electricalEvents,
     automationEvents,
+    planejadaEvents,
+    terceirosEvents,
     waitingEvents
   };
 }
@@ -407,12 +443,117 @@ function categoryDistributionFromAggregate(agg: HoursAggregate): PcFactoryCatego
   }).filter((slice) => slice.totalHours > 0);
 }
 
+/* ------------------------------------------------------------------ */
+/* 2c. Distribuição de horas por STATUS REAL da planilha (com cor)     */
+/* ------------------------------------------------------------------ */
+
+export async function getPcFactoryStatusDistribution(params: PcFactoryQueryParams): Promise<PcFactoryStatusSlice[]> {
+  return statusDistributionFromRecords(await loadRecords(params));
+}
+
+/**
+ * Agrupa as horas pelo STATUS REAL da planilha (statusRaw), na base "Tempo Decorrido"
+ * (durationHours — mesma base do resto do dashboard, decisão de 24/06). A cor segue a
+ * planilha quando o registro tem `statusColorHex` (cor mais recente do status no recorte
+ * filtrado, refletindo a última importação), com fallback por `statusKey`. Ordena por
+ * horas desc. Respeita os filtros (recebe os registros já filtrados). Nunca gera NaN.
+ */
+function statusDistributionFromRecords(records: AnalyticsRecord[]): PcFactoryStatusSlice[] {
+  type Bucket = { statusRaw: string; statusKey: string; hours: number; colorHex: string | null; colorAt: number };
+  const byStatus = new Map<string, Bucket>();
+  let total = 0;
+
+  for (const record of records) {
+    const statusRaw = (record.statusRaw ?? "").trim();
+    if (!statusRaw) continue;
+    const hours = metricHours(record);
+    if (hours <= 0) continue;
+    total += hours;
+
+    const statusKey = record.statusKey || normalizePcFactoryStatusKey(statusRaw);
+    const at = record.startDateTime ? record.startDateTime.getTime() : 0;
+    const existing = byStatus.get(statusKey);
+    if (existing) {
+      existing.hours += hours;
+      // Mantém a cor do registro MAIS RECENTE que tenha cor (reflete a última importação).
+      if (record.statusColorHex && at >= existing.colorAt) {
+        existing.colorHex = record.statusColorHex;
+        existing.colorAt = at;
+      }
+    } else {
+      byStatus.set(statusKey, {
+        statusRaw,
+        statusKey,
+        hours,
+        colorHex: record.statusColorHex ?? null,
+        colorAt: record.statusColorHex ? at : -1
+      });
+    }
+  }
+
+  return Array.from(byStatus.values())
+    .map((bucket) => {
+      const { hex, source } = resolvePcFactoryStatusColor(bucket.statusKey, bucket.colorHex);
+      return {
+        statusRaw: bucket.statusRaw,
+        statusKey: bucket.statusKey,
+        hours: round(bucket.hours),
+        percent: total > 0 ? clampPercent((bucket.hours / total) * 100) ?? 0 : 0,
+        colorHex: hex,
+        colorSource: source
+      };
+    })
+    .sort((a, b) => b.hours - a.hours);
+}
+
+/* ------------------------------------------------------------------ */
+/* 2b. Tabela Gerencial (Management View — 6 grupos por código)        */
+/* ------------------------------------------------------------------ */
+
+export async function getPcFactoryManagementTable(params: PcFactoryQueryParams): Promise<PcFactoryManagementGroupRow[]> {
+  return buildManagementTable(await loadRecords(params));
+}
+
+/**
+ * Reproduz a Tabela Gerencial do PC-Factory: soma "Tempo Decorrido" por grupo gerencial
+ * (derivado do código RCODSTATUS), na ordem oficial, com % do total e acumulados.
+ * O grupo é lido do campo `managementGroup`; se ausente (registro antigo), recai em
+ * classifyManagementGroup(statusCode, statusRaw).
+ */
+function buildManagementTable(records: AnalyticsRecord[]): PcFactoryManagementGroupRow[] {
+  const byGroup = new Map<PcFactoryManagementGroup, number>();
+  let total = 0;
+  for (const record of records) {
+    const hours = metricHours(record);
+    const group = (record.managementGroup as PcFactoryManagementGroup | null) ?? classifyManagementGroup(record.statusCode, record.statusRaw);
+    byGroup.set(group, (byGroup.get(group) ?? 0) + hours);
+    total += hours;
+  }
+
+  let cumulativeHours = 0;
+  return PC_FACTORY_MANAGEMENT_GROUP_ORDER.map((group) => {
+    const totalHours = round(byGroup.get(group) ?? 0);
+    cumulativeHours = round(cumulativeHours + totalHours);
+    return {
+      group,
+      label: PC_FACTORY_MANAGEMENT_GROUP_LABELS[group],
+      color: PC_FACTORY_MANAGEMENT_GROUP_COLORS[group],
+      totalHours,
+      percent: total > 0 ? round((totalHours / total) * 100) : 0,
+      cumulativeHours,
+      cumulativePercent: total > 0 ? round((cumulativeHours / total) * 100) : 0
+    };
+  }).filter((row) => row.totalHours > 0);
+}
+
 function maintenanceSplitFromAggregate(agg: HoursAggregate): PcFactoryMaintenanceSplit[] {
   return [
-    { key: "MECANICA" as const, label: "Manutenção Mecânica", hours: agg.mechanicalHours, events: agg.mechanicalEvents, color: "#c49a45" },
-    { key: "ELETRICA" as const, label: "Manutenção Elétrica", hours: agg.electricalHours, events: agg.electricalEvents, color: "#0f4d68" },
-    { key: "AUTOMACAO" as const, label: "Manutenção Automação", hours: agg.automationHours, events: agg.automationEvents, color: "#7a4fb5" },
-    { key: "AGUARDANDO" as const, label: "Aguardando Manutenção", hours: agg.waitingHours, events: agg.waitingEvents, color: "#a6192e" }
+    { key: "MECANICA" as const, label: "Manutenção Mecânica", hours: agg.mechanicalHours, events: agg.mechanicalEvents, color: PC_FACTORY_COLORS.MANUTENCAO_MECANICA },
+    { key: "ELETRICA" as const, label: "Manutenção Elétrica", hours: agg.electricalHours, events: agg.electricalEvents, color: PC_FACTORY_COLORS.MANUTENCAO_ELETRICA },
+    { key: "AUTOMACAO" as const, label: "Manutenção Automação", hours: agg.automationHours, events: agg.automationEvents, color: PC_FACTORY_COLORS.MANUTENCAO_AUTOMACAO },
+    { key: "PLANEJADA" as const, label: "Manutenção Planejada", hours: agg.planejadaHours, events: agg.planejadaEvents, color: PC_FACTORY_COLORS.MANUTENCAO_PLANEJADA },
+    { key: "TERCEIROS" as const, label: "Manutenção de Terceiros", hours: agg.terceirosHours, events: agg.terceirosEvents, color: PC_FACTORY_COLORS.MANUTENCAO_TERCEIROS },
+    { key: "AGUARDANDO" as const, label: "Aguardando Manutenção", hours: agg.waitingHours, events: agg.waitingEvents, color: PC_FACTORY_COLORS.AGUARDANDO_MANUTENCAO }
   ].filter((item) => item.hours > 0);
 }
 
@@ -698,7 +839,11 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
         groupPortal: true,
         sector: true,
         statusRaw: true,
+        statusKey: true,
+        statusColorHex: true,
+        statusCode: true,
         statusCategory: true,
+        managementGroup: true,
         durationHours: true,
         realDurationHours: true,
         startDateTime: true
@@ -835,6 +980,8 @@ export async function getPcFactoryPageData(params: PcFactoryQueryParams = {}): P
     reference,
     kpis,
     categoryDistribution: categoryDistributionFromAggregate(agg),
+    statusDistribution: statusDistributionFromRecords(records),
+    managementTable: buildManagementTable(records),
     maintenanceSplit: maintenanceSplitFromAggregate(agg),
     criticalResources,
     topMechanical,
@@ -944,6 +1091,8 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
       topMaintenanceResource: null
     },
     categoryDistribution: [],
+    statusDistribution: [],
+    managementTable: [],
     maintenanceSplit: [],
     criticalResources: [],
     topMechanical: [],

@@ -2,20 +2,26 @@
  * Funções puras de classificação do "Nome Status Recurso" do PC-Factory.
  * Sem dependência de Prisma ou React — testáveis isoladamente.
  *
- * REGRA DE NEGÓCIO CENTRAL (manutenção): entram como manutenção SOMENTE os quatro
- * status exatos abaixo. A comparação é por valor EXATO normalizado — NUNCA por
- * `contains("Manutenção")` — para que "Manutenção de Terceiros" NÃO seja
- * contabilizado como manutenção:
- *   - Manutenção Mecânica   → tipo MECANICA
- *   - Manutenção Elétrica   → tipo ELETRICA
- *   - Manutenção Automação  → tipo AUTOMACAO
- *   - Aguardando Manutenção → tipo AGUARDANDO
+ * REGRA DE NEGÓCIO CENTRAL (manutenção) — ALINHADA À MANAGEMENT VIEW DO PC-FACTORY
+ * (decisão do gestor em 2026-06-24): entram como manutenção os SEIS status do grupo
+ * "Manutenção" do PC-Factory (códigos RCODSTATUS 02xx). A comparação continua por
+ * valor EXATO normalizado — NUNCA por `contains("Manutenção")`:
+ *   - Manutenção Mecânica    → tipo MECANICA   (0201)
+ *   - Manutenção Elétrica    → tipo ELETRICA   (0202)
+ *   - Manutenção Automação   → tipo AUTOMACAO  (0206)
+ *   - Manutenção Planejada   → tipo PLANEJADA  (0207)
+ *   - Manutenção de Terceiros→ tipo TERCEIROS  (0208)
+ *   - Aguardando Manutenção  → tipo AGUARDANDO (0200)
+ *
+ * HISTÓRICO: até 2026-06-24 a regra contava SOMENTE 4 status (excluía Terceiros e
+ * Planejada). Mudou para bater com a Tabela Gerencial do PC-Factory, que agrupa por
+ * código RCODSTATUS. Ver classifyManagementGroup() e [[ref-pcfactory-grupos-gerenciais]].
  *
  * Casos especiais (não-manutenção):
- *   - "Falta de Utilidades" → PARADA_PERDA (paralisa a máquina, reduz disponibilidade,
- *     mas NÃO é evento de manutenção/KPI).
+ *   - "Falta de Utilidades" → grupo Materiais no PC-Factory (ver GROUP_BY_CODE).
  */
 import { PcFactoryStatusCategory } from "@prisma/client";
+import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 
 /* ------------------------------------------------------------------ */
 /* Normalização de texto para comparação                              */
@@ -53,15 +59,21 @@ const KEY = {
   REFEICAO: "refeicao",
   AGUARDANDO_LANCAMENTO: "aguardando lancamento",
   MANUTENCAO_AUTOMACAO: "manutencao automacao",
+  MANUTENCAO_PLANEJADA: "manutencao planejada",
   MANUTENCAO_TERCEIROS: "manutencao de terceiros",
   FALTA_DE_UTILIDADES: "falta de utilidades"
 } as const;
 
-/** Os quatro (e apenas quatro) status que contam como manutenção. */
+/**
+ * Os SEIS status que contam como manutenção (grupo "Manutenção" do PC-Factory, 02xx).
+ * Alinhado à Management View em 2026-06-24 (antes eram só 4 — sem Terceiros/Planejada).
+ */
 const MAINTENANCE_KEYS = new Set<string>([
   KEY.MANUTENCAO_MECANICA,
   KEY.MANUTENCAO_ELETRICA,
   KEY.MANUTENCAO_AUTOMACAO,
+  KEY.MANUTENCAO_PLANEJADA,
+  KEY.MANUTENCAO_TERCEIROS,
   KEY.AGUARDANDO_MANUTENCAO
 ]);
 
@@ -92,15 +104,16 @@ const CATEGORY_BY_KEY: Record<string, PcFactoryStatusCategory> = {
   [KEY.REFEICAO]: PcFactoryStatusCategory.OPERACIONAL,
   [KEY.AGUARDANDO_LANCAMENTO]: PcFactoryStatusCategory.OUTROS,
   [KEY.MANUTENCAO_AUTOMACAO]: PcFactoryStatusCategory.MANUTENCAO,
-  [KEY.FALTA_DE_UTILIDADES]: PcFactoryStatusCategory.PARADA_PERDA,
-  [KEY.MANUTENCAO_TERCEIROS]: PcFactoryStatusCategory.OUTROS
+  [KEY.MANUTENCAO_PLANEJADA]: PcFactoryStatusCategory.MANUTENCAO,
+  [KEY.MANUTENCAO_TERCEIROS]: PcFactoryStatusCategory.MANUTENCAO,
+  [KEY.FALTA_DE_UTILIDADES]: PcFactoryStatusCategory.PARADA_PERDA
 };
 
 /**
  * Classifica o "Nome Status Recurso" em categoria gerencial.
- * Status desconhecido → OUTROS. "Manutenção Automação" entra em MANUTENCAO;
- * "Falta de Utilidades" entra em PARADA_PERDA; "Manutenção de Terceiros"
- * permanece em OUTROS (não conta como manutenção).
+ * Status desconhecido → OUTROS. Todos os status de manutenção (02xx: Mecânica,
+ * Elétrica, Automação, Planejada, Terceiros, Aguardando) entram em MANUTENCAO;
+ * "Falta de Utilidades" entra em PARADA_PERDA.
  */
 export function classifyPcFactoryStatus(statusRaw: unknown): PcFactoryStatusCategory {
   const key = normalizePcFactoryStatusName(statusRaw);
@@ -167,13 +180,15 @@ export function isDowntimeForAvailability(statusRaw: unknown): boolean {
 }
 
 /** Sub-tipo de manutenção do registro, ou null se não for manutenção. */
-export type MaintenanceKind = "MECANICA" | "ELETRICA" | "AUTOMACAO" | "AGUARDANDO";
+export type MaintenanceKind = "MECANICA" | "ELETRICA" | "AUTOMACAO" | "PLANEJADA" | "TERCEIROS" | "AGUARDANDO";
 
 export function maintenanceKind(statusRaw: unknown): MaintenanceKind | null {
   const key = normalizePcFactoryStatusName(statusRaw);
   if (key === KEY.MANUTENCAO_MECANICA) return "MECANICA";
   if (key === KEY.MANUTENCAO_ELETRICA) return "ELETRICA";
   if (key === KEY.MANUTENCAO_AUTOMACAO) return "AUTOMACAO";
+  if (key === KEY.MANUTENCAO_PLANEJADA) return "PLANEJADA";
+  if (key === KEY.MANUTENCAO_TERCEIROS) return "TERCEIROS";
   if (key === KEY.AGUARDANDO_MANUTENCAO) return "AGUARDANDO";
   return null;
 }
@@ -183,8 +198,135 @@ export const PC_FACTORY_MAINTENANCE_TYPE_LABELS: Record<MaintenanceKind, string>
   MECANICA: "Manutenção Mecânica",
   ELETRICA: "Manutenção Elétrica",
   AUTOMACAO: "Manutenção Automação",
+  PLANEJADA: "Manutenção Planejada",
+  TERCEIROS: "Manutenção de Terceiros",
   AGUARDANDO: "Aguardando Manutenção"
 };
+
+/* ------------------------------------------------------------------ */
+/* Grupo gerencial do PC-Factory (Tabela Gerencial / Management View) */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Os 6 grupos da "Tabela Gerencial" do PC-Factory. A classificação oficial é por
+ * CÓDIGO do status ("G0015.RCODSTATUS"), não pelo nome. Mapa confirmado pelo gestor
+ * em 2026-06-24 (ver [[ref-pcfactory-grupos-gerenciais]]). NÃO é deriváveis do nome:
+ * ex. "Aguardando Manutenção" (0200) é Manutenção, mas "Falta de Utilidades" (00070)
+ * é Materiais e "Quebra de Ferramenta" (07020) é Operacional.
+ */
+export type PcFactoryManagementGroup =
+  | "PADRAO_SISTEMA"
+  | "SETUP"
+  | "MANUTENCAO"
+  | "OPERACIONAL"
+  | "MATERIAIS"
+  | "EXTERNO";
+
+/** código RCODSTATUS (como vem na planilha) → grupo gerencial. */
+const MANAGEMENT_GROUP_BY_CODE: Record<string, PcFactoryManagementGroup> = {
+  // Padrão do Sistema (00xx)
+  "0001": "PADRAO_SISTEMA", // Produção
+  "0002": "PADRAO_SISTEMA", // Parada não Identificada
+  "0004": "PADRAO_SISTEMA", // Fora de Turno
+  "0008": "PADRAO_SISTEMA", // Aguardando lançamento
+  "0009": "PADRAO_SISTEMA", // Recurso Não Programado
+  // Manutenção (02xx)
+  "0200": "MANUTENCAO", // Aguardando Manutenção
+  "0201": "MANUTENCAO", // Mecânica
+  "0202": "MANUTENCAO", // Elétrica
+  "0206": "MANUTENCAO", // Automação
+  "0207": "MANUTENCAO", // Planejada
+  "0208": "MANUTENCAO", // de Terceiros
+  // Operacional (03xx, 05xx + exceções confirmadas)
+  "0301": "OPERACIONAL", // Acidente
+  "0302": "OPERACIONAL", // Aguardando Carro Transportador
+  "0303": "OPERACIONAL", // Ausência de Operador
+  "0312": "OPERACIONAL", // Limpeza de Setor de Trabalho
+  "0314": "OPERACIONAL", // Falta de Espaço para Movimentação
+  "0319": "OPERACIONAL", // Quebra de Chapa
+  "0320": "OPERACIONAL", // Refeição
+  "0321": "OPERACIONAL", // Start Check List de Máquina
+  "0323": "OPERACIONAL", // Inspeção de Qualidade
+  "0326": "OPERACIONAL", // Resina Mole
+  "0329": "OPERACIONAL", // Deslocamento de Operador
+  "0502": "OPERACIONAL", // Reunião ou treinamento
+  "0503": "OPERACIONAL", // Confraternizações
+  "0612": "OPERACIONAL", // Revezamento (confirmado)
+  "07020": "OPERACIONAL", // Quebra de Ferramenta (confirmado)
+  // Materiais (04xx + Falta de Utilidades, confirmado)
+  "0401": "MATERIAIS", // Falta de Material
+  "0403": "MATERIAIS", // Falta de Carrinho p/ cargas
+  "00070": "MATERIAIS", // Falta de Utilidades (confirmado)
+  // Setup (06xxx + Medição de Abrasivos, confirmado)
+  "06100": "SETUP", // Setup - PZs
+  "06110": "SETUP", // Setup - Resina
+  "06120": "SETUP", // Setup - Serrad
+  "06130": "SETUP", // Setup - Tratam
+  "06140": "SETUP", // Setup - Bifios
+  "06150": "SETUP", // Setup - Envelop
+  "0603": "SETUP" // Medição de Abrasivos (confirmado)
+};
+
+/** Fallback por NOME normalizado, para registros sem código (ex.: aba ajustada). */
+const MANAGEMENT_GROUP_BY_NAME: Record<string, PcFactoryManagementGroup> = {
+  [KEY.PRODUCAO]: "PADRAO_SISTEMA",
+  [KEY.PARADA_NAO_IDENTIFICADA]: "PADRAO_SISTEMA",
+  [KEY.FORA_DE_TURNO]: "PADRAO_SISTEMA",
+  [KEY.AGUARDANDO_LANCAMENTO]: "PADRAO_SISTEMA",
+  [KEY.RECURSO_NAO_PROGRAMADO]: "PADRAO_SISTEMA",
+  [KEY.AGUARDANDO_MANUTENCAO]: "MANUTENCAO",
+  [KEY.MANUTENCAO_MECANICA]: "MANUTENCAO",
+  [KEY.MANUTENCAO_ELETRICA]: "MANUTENCAO",
+  [KEY.MANUTENCAO_AUTOMACAO]: "MANUTENCAO",
+  [KEY.MANUTENCAO_PLANEJADA]: "MANUTENCAO",
+  [KEY.MANUTENCAO_TERCEIROS]: "MANUTENCAO",
+  [KEY.SETUP]: "SETUP",
+  [KEY.REFEICAO]: "OPERACIONAL",
+  [KEY.FALTA_DE_MATERIAL]: "MATERIAIS",
+  [KEY.FALTA_DE_UTILIDADES]: "MATERIAIS"
+};
+
+/**
+ * Classifica o registro em um dos 6 grupos da Tabela Gerencial. Usa o CÓDIGO como
+ * fonte primária; se desconhecido, tenta heurística por prefixo do código; por fim,
+ * cai no nome do status. Default seguro: OPERACIONAL.
+ */
+export function classifyManagementGroup(statusCode: unknown, statusRaw?: unknown): PcFactoryManagementGroup {
+  const code = String(statusCode ?? "").trim();
+  if (code && MANAGEMENT_GROUP_BY_CODE[code]) return MANAGEMENT_GROUP_BY_CODE[code];
+
+  // Heurística por prefixo, para códigos novos ainda não mapeados.
+  if (code) {
+    if (code.startsWith("061")) return "SETUP";
+    if (code.startsWith("02")) return "MANUTENCAO";
+    if (code.startsWith("04")) return "MATERIAIS";
+    if (code.startsWith("03") || code.startsWith("05") || code.startsWith("07")) return "OPERACIONAL";
+    if (code.startsWith("00")) return "PADRAO_SISTEMA";
+  }
+
+  const byName = MANAGEMENT_GROUP_BY_NAME[normalizePcFactoryStatusName(statusRaw)];
+  return byName ?? "OPERACIONAL";
+}
+
+/** Rótulos dos grupos gerenciais (idênticos à tela do PC-Factory). */
+export const PC_FACTORY_MANAGEMENT_GROUP_LABELS: Record<PcFactoryManagementGroup, string> = {
+  PADRAO_SISTEMA: "Padrão do Sistema",
+  SETUP: "Setup",
+  MANUTENCAO: "Manutenção",
+  OPERACIONAL: "Operacional",
+  MATERIAIS: "Materiais",
+  EXTERNO: "Externo"
+};
+
+/** Ordem de exibição (maior para menor, como na Tabela Gerencial). */
+export const PC_FACTORY_MANAGEMENT_GROUP_ORDER: PcFactoryManagementGroup[] = [
+  "PADRAO_SISTEMA",
+  "SETUP",
+  "MANUTENCAO",
+  "OPERACIONAL",
+  "MATERIAIS",
+  "EXTERNO"
+];
 
 /* ------------------------------------------------------------------ */
 /* Rótulos e cores das categorias (UI premium)                        */
@@ -201,13 +343,13 @@ export const PC_FACTORY_CATEGORY_LABELS: Record<PcFactoryStatusCategory, string>
 };
 
 export const PC_FACTORY_CATEGORY_COLORS: Record<PcFactoryStatusCategory, string> = {
-  MANUTENCAO: "#c49a45",
-  PRODUCAO: "#3f8f6b",
-  SETUP: "#0f4d68",
-  PARADA_PERDA: "#a6192e",
-  OPERACIONAL: "#6b7280",
-  EXCLUIR_TEMPO_PLANEJADO: "#4b5563",
-  OUTROS: "#9ca3af"
+  MANUTENCAO: PC_FACTORY_COLORS.MANUTENCAO,
+  PRODUCAO: PC_FACTORY_COLORS.PRODUCAO,
+  SETUP: PC_FACTORY_COLORS.SETUP,
+  PARADA_PERDA: PC_FACTORY_COLORS.PARADA_PERDA,
+  OPERACIONAL: PC_FACTORY_COLORS.OPERACIONAL,
+  EXCLUIR_TEMPO_PLANEJADO: PC_FACTORY_COLORS.FORA_PLANEJADO,
+  OUTROS: PC_FACTORY_COLORS.OUTROS
 };
 
 export const PC_FACTORY_CATEGORY_ORDER: PcFactoryStatusCategory[] = [
@@ -219,6 +361,113 @@ export const PC_FACTORY_CATEGORY_ORDER: PcFactoryStatusCategory[] = [
   PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO,
   PcFactoryStatusCategory.OUTROS
 ];
+
+/* ------------------------------------------------------------------ */
+/* Chave canônica do status real + cor por status (data-driven)        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * CHAVE canônica do status REAL da planilha (statusKey), estável p/ agrupar e colorir:
+ * remove acentos, CAIXA ALTA, colapsa espaços e troca qualquer caractere não alfanumérico
+ * por "_". NÃO altera o nome original (statusRaw é preservado na íntegra).
+ * Ex.: "Produção" → "PRODUCAO"; "Manutenção Mecânica" → "MANUTENCAO_MECANICA";
+ *      "Setup - Serrad" → "SETUP_SERRAD"; "Recurso Não Programado" → "RECURSO_NAO_PROGRAMADO".
+ */
+export function normalizePcFactoryStatusKey(status: unknown): string {
+  return String(status ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .trim()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/**
+ * Converte uma cor vinda do Excel para "#RRGGBB", ou null se não der.
+ * Aceita: ARGB ("FFFF0000"), RGB ("FF0000"), hex com "#" ("#7030A0"), atalho de 3
+ * dígitos ("abc") e objetos do exceljs ({ argb }/{ rgb }). Theme/indexed não resolvem
+ * aqui (dependeriam da paleta do tema) → null, caindo no fallback. Nunca lança.
+ */
+export function normalizeExcelColorToHex(color: unknown): string | null {
+  if (color === null || color === undefined) return null;
+  let raw: string | null = null;
+  if (typeof color === "string") {
+    raw = color;
+  } else if (typeof color === "object") {
+    const c = color as { argb?: unknown; rgb?: unknown; hex?: unknown };
+    raw =
+      (typeof c.argb === "string" && c.argb) ||
+      (typeof c.rgb === "string" && c.rgb) ||
+      (typeof c.hex === "string" && c.hex) ||
+      null;
+  }
+  if (!raw) return null;
+
+  let hex = raw.trim().replace(/^#/, "").toUpperCase();
+  if (!/^[0-9A-F]+$/.test(hex)) return null;
+  if (hex.length === 8) {
+    // ARGB → se totalmente transparente, trata como "sem cor"; senão descarta o alpha.
+    if (hex.slice(0, 2) === "00") return null;
+    hex = hex.slice(2);
+  }
+  if (hex.length === 3) {
+    hex = hex
+      .split("")
+      .map((ch) => ch + ch)
+      .join("");
+  }
+  if (hex.length !== 6) return null;
+  return `#${hex}`;
+}
+
+/**
+ * Fallback de cor por statusKey — usado SOMENTE quando a planilha não trouxe cor
+ * (nem coluna de cor, nem preenchimento de célula) e o banco não tem cor salva.
+ * Não é a fonte primária: a prioridade é planilha/banco → fallback → cinza neutro.
+ */
+export const PC_FACTORY_STATUS_COLOR_FALLBACK: Record<string, string> = {
+  PRODUCAO: "#39FF14",
+  FORA_DE_TURNO: "#7F1D1D",
+  RECURSO_NAO_PROGRAMADO: "#303300",
+  MANUTENCAO_MECANICA: "#FF1F1A",
+  MANUTENCAO_ELETRICA: "#7030A0",
+  MANUTENCAO_AUTOMACAO: "#7B2CBF",
+  AGUARDANDO_MANUTENCAO: "#FFFF00",
+  AGUARDANDO_LANCAMENTO: "#FF6A1A",
+  FALTA_DE_UTILIDADES: "#F39A6B",
+  SETUP: "#2F73BD",
+  REFEICAO: "#F4D2B2",
+  FALTA_DE_MATERIAL: "#FFC928",
+  PARADA_NAO_IDENTIFICADA: "#FF6A1A",
+  OUTROS: "#9CA3AF"
+};
+
+const NEUTRAL_STATUS_COLOR = "#9CA3AF";
+
+export type PcFactoryStatusColorSource = "planilha" | "fallback" | "neutro";
+
+/**
+ * Resolve a cor final de um status para o gráfico, com a prioridade do projeto:
+ * 1) cor lida da planilha e salva no banco (statusColorHex); 2) fallback por statusKey
+ * (com match por prefixo, ex. SETUP_SERRAD → SETUP); 3) cinza neutro. Nunca lança.
+ */
+export function resolvePcFactoryStatusColor(
+  statusKey: string,
+  storedHex?: string | null
+): { hex: string; source: PcFactoryStatusColorSource } {
+  const stored = normalizeExcelColorToHex(storedHex);
+  if (stored) return { hex: stored, source: "planilha" };
+
+  if (PC_FACTORY_STATUS_COLOR_FALLBACK[statusKey]) {
+    return { hex: PC_FACTORY_STATUS_COLOR_FALLBACK[statusKey], source: "fallback" };
+  }
+  const prefix = statusKey.split("_")[0];
+  if (prefix && PC_FACTORY_STATUS_COLOR_FALLBACK[prefix]) {
+    return { hex: PC_FACTORY_STATUS_COLOR_FALLBACK[prefix], source: "fallback" };
+  }
+  return { hex: NEUTRAL_STATUS_COLOR, source: "neutro" };
+}
 
 /* ------------------------------------------------------------------ */
 /* Datas e duração (inalterado — conversões da planilha)              */

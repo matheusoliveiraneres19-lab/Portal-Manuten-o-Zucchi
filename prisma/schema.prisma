@@ -726,13 +726,25 @@ model PcFactoryRecord {
   /// Grupo gerencial do portal (ex.: "Indústria Granito", "Indústria Mármore").
   groupPortal        String?
   sector             String?
+  /// Código do status no PC-Factory ("G0015.RCODSTATUS"). Fonte do grupo gerencial.
+  statusCode         String?
   /// Valor exato de "Nome Status Recurso" vindo da planilha (auditoria, nunca substituído).
   statusRaw          String?
+  /// Chave canônica do status real (UPPER_SNAKE), p/ agrupar e colorir o gráfico de
+  /// distribuição por status. Derivada de statusRaw (ver normalizePcFactoryStatusKey).
+  statusKey          String?
+  /// Cor do status LIDA DA PLANILHA na importação (#RRGGBB): coluna de cor explícita ou
+  /// preenchimento da célula. Nulo quando a planilha não trouxe cor (aí usa-se fallback).
+  statusColorHex     String?
   /// Detalhamento do status (campo livre da planilha).
   statusDetails      String?
   /// Classificação gerencial derivada de statusRaw por match exato.
   statusCategory     PcFactoryStatusCategory @default(OUTROS)
-  /// Tipo de manutenção derivado (MECANICA | ELETRICA | AUTOMACAO | AGUARDANDO), ou null.
+  /// Grupo da Tabela Gerencial do PC-Factory (PADRAO_SISTEMA | SETUP | MANUTENCAO |
+  /// OPERACIONAL | MATERIAIS | EXTERNO), derivado de statusCode. String para evitar
+  /// CREATE TYPE na migration Supabase. Ver classifyManagementGroup().
+  managementGroup    String?
+  /// Tipo de manutenção derivado (MECANICA | ELETRICA | AUTOMACAO | PLANEJADA | TERCEIROS | AGUARDANDO), ou null.
   maintenanceType    String?
   /// Entra no KPI de manutenção (os 4 status de manutenção). Derivado de statusRaw.
   isMaintenanceKpi   Boolean                 @default(false)
@@ -779,6 +791,7 @@ model PcFactoryRecord {
   @@index([groupPortal])
   @@index([sector])
   @@index([statusCategory])
+  @@index([statusKey])
   @@index([maintenanceType])
   @@index([startDateTime])
   @@index([endDateTime])

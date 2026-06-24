@@ -1,9 +1,11 @@
 import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { ImportStatus, ImportType, PcFactorySource, PcFactoryStatusCategory, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { converterNumeroBrasileiro, limparTexto, normalizarNomeColuna } from "@/utils/importacao";
 import {
   buildPcFactoryTechnicalKey,
+  classifyManagementGroup,
   classifyPcFactoryStatus,
   combineDateAndTime,
   computeDurationMinutes,
@@ -15,13 +17,19 @@ import {
   isMechanicalMaintenance,
   isWaitingMaintenance,
   maintenanceKind,
+  normalizeExcelColorToHex,
+  normalizePcFactoryStatusKey,
   normalizeProductionLine,
   normalizeResourceName,
   parseAgGridElapsedToMinutes,
   parseDurationToMinutes,
-  parsePcFactoryDate
+  parsePcFactoryDate,
+  resolvePcFactoryStatusColor
 } from "@/utils/pc-factory-normalizer";
-import type { PcFactoryExcelRow, PcFactoryImportError, PcFactoryImportResult } from "@/types/pc-factory";
+import type { PcFactoryExcelRow, PcFactoryImportError, PcFactoryImportResult, PcFactoryStatusColorInfo } from "@/types/pc-factory";
+
+/** Cor de um status lida da planilha (coluna explícita ou preenchimento de célula). */
+type SheetStatusColor = { hex: string; source: "excel-column" | "excel-cell-fill" };
 
 /**
  * Abas preferidas, em ordem. A aba ajustada `Import_PC_FACTORY` é a fonte
@@ -50,6 +58,16 @@ const COLUMN_MAP: Record<string, keyof PcFactoryExcelRow> = {
   cod_recurso: "resourceCode",
   codigo: "resourceCode",
   resourcecode: "resourceCode",
+  // Código do status (G0015.RCODSTATUS) — fonte do grupo gerencial da Tabela Gerencial
+  g0015_rcodstatus: "statusCode",
+  g0015rcodstatus: "statusCode",
+  rcodstatus: "statusCode",
+  cod_status_recurso: "statusCode",
+  cod_status_de_recurso: "statusCode",
+  cod_status: "statusCode",
+  codigo_status_recurso: "statusCode",
+  codigo_status: "statusCode",
+  statuscode: "statusCode",
   // Status (Nome Status Recurso)
   nome_status_recurso: "status",
   nome_do_status_recurso: "status",
@@ -63,6 +81,14 @@ const COLUMN_MAP: Record<string, keyof PcFactoryExcelRow> = {
   detalhes_status_recurso: "statusDetails", // ag-grid: "Detalhes Status Recurso"
   detalhes_do_status_recurso: "statusDetails",
   statusdetails: "statusDetails",
+  // Cor explícita do status (se a planilha trouxer uma coluna de cor)
+  cor: "statusColor",
+  color: "statusColor",
+  cor_status: "statusColor",
+  cor_do_status: "statusColor",
+  status_color: "statusColor",
+  statuscolor: "statusColor",
+  statuscolorhex: "statusColor",
   // Linha / grupo / setor / turno
   linha: "productionLine",
   linha_de_producao: "productionLine",
@@ -228,11 +254,81 @@ function mapRow(row: Record<string, unknown>): PcFactoryExcelRow {
   return mapped;
 }
 
+/** Resolve o nº da coluna de um cabeçalho do PC-Factory usando o COLUMN_MAP flexível. */
+function headerTarget(value: unknown): keyof PcFactoryExcelRow | undefined {
+  const normalized = normalizarNomeColuna(String(value ?? ""));
+  return COLUMN_MAP[normalized] ?? COLUMN_MAP[normalized.replace(/_/g, "")];
+}
+
+/**
+ * Lê as cores por status REAL direto do arquivo Excel com `exceljs` (o `xlsx` community
+ * não expõe estilos/preenchimento). Para cada statusKey tenta, em ordem:
+ *   1) coluna explícita de cor (Cor/Color/Status Color…);
+ *   2) preenchimento (fill) da célula "Nome Status Recurso".
+ * Best-effort: qualquer falha (planilha sem estilos, formato inesperado) devolve mapa
+ * vazio e a importação segue com o fallback de cores. NUNCA lança.
+ */
+async function extractStatusColorsFromExcel(
+  source: string | Buffer | ArrayBuffer,
+  sheetUsed: string | null
+): Promise<Map<string, SheetStatusColor>> {
+  const colors = new Map<string, SheetStatusColor>();
+  try {
+    const workbook = new ExcelJS.Workbook();
+    if (typeof source === "string") {
+      await workbook.xlsx.readFile(source);
+    } else {
+      const buffer = Buffer.isBuffer(source) ? source : Buffer.from(source as ArrayBuffer);
+      await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    }
+
+    const worksheet =
+      (sheetUsed
+        ? workbook.worksheets.find((ws) => ws.name.trim().toLowerCase() === sheetUsed.trim().toLowerCase())
+        : undefined) ?? workbook.worksheets[0];
+    if (!worksheet) return colors;
+
+    // Mapeia os cabeçalhos (linha 1) → coluna de status e (opcional) coluna de cor.
+    let statusCol = 0;
+    let colorCol = 0;
+    worksheet.getRow(1).eachCell((cell, colNumber) => {
+      const target = headerTarget(cell.value);
+      if (target === "status" && !statusCol) statusCol = colNumber;
+      if (target === "statusColor" && !colorCol) colorCol = colNumber;
+    });
+    if (!statusCol) return colors;
+
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      const statusRaw = String(row.getCell(statusCol).value ?? "").trim();
+      if (!statusRaw) return;
+      const statusKey = normalizePcFactoryStatusKey(statusRaw);
+      if (!statusKey || colors.has(statusKey)) return; // 1ª cor encontrada por status vence
+
+      if (colorCol) {
+        const fromColumn = normalizeExcelColorToHex(row.getCell(colorCol).value);
+        if (fromColumn) {
+          colors.set(statusKey, { hex: fromColumn, source: "excel-column" });
+          return;
+        }
+      }
+      const fill = row.getCell(statusCol).fill;
+      const fgColor = fill && fill.type === "pattern" ? fill.fgColor : undefined;
+      const fromFill = normalizeExcelColorToHex(fgColor);
+      if (fromFill) colors.set(statusKey, { hex: fromFill, source: "excel-cell-fill" });
+    });
+  } catch {
+    /* planilha sem estilos / formato inesperado → fallback de cores */
+  }
+  return colors;
+}
+
 /** Importa os registros a partir de linhas já lidas/mapeadas (com upsert e auditoria). */
 export async function importPcFactoryRecords(
   rows: PcFactoryExcelRow[],
   options: ImportOptions = {},
-  sheetUsed: string | null = null
+  sheetUsed: string | null = null,
+  statusColorMap: Map<string, SheetStatusColor> = new Map()
 ): Promise<PcFactoryImportResult> {
   const result: PcFactoryImportResult = {
     totalRows: rows.length,
@@ -261,6 +357,10 @@ export async function importPcFactoryRecords(
     resourcesDetected: 0,
     groupsDetected: [],
     statusDetected: [],
+    statusColorsTotal: 0,
+    statusColorsFromSheet: 0,
+    statusColorsFallback: 0,
+    statusColors: [],
     errors: []
   };
 
@@ -269,6 +369,8 @@ export async function importPcFactoryRecords(
   const resources = new Set<string>();
   const groups = new Set<string>();
   const statuses = new Set<string>();
+  // Acumula uma entrada por status real (statusKey) para o resumo de cores da importação.
+  const statusColorAudit = new Map<string, PcFactoryStatusColorInfo>();
   let minDate: Date | null = null;
   let maxDate: Date | null = null;
 
@@ -309,15 +411,38 @@ export async function importPcFactoryRecords(
       }
       seenKeys.add(parsed.technicalKey);
 
+      // Cor do status: 1) coluna explícita na linha; 2) preenchimento de célula (mapa do exceljs).
+      // Só persiste cor REALMENTE vinda da planilha (statusColorHex); o fallback é aplicado na UI.
+      const sheetColor: SheetStatusColor | undefined = parsed.statusColorFromColumn
+        ? { hex: parsed.statusColorFromColumn, source: "excel-column" }
+        : parsed.statusKey
+          ? statusColorMap.get(parsed.statusKey)
+          : undefined;
+      const statusColorHex = sheetColor?.hex ?? null;
+
+      if (parsed.statusKey && !statusColorAudit.has(parsed.statusKey)) {
+        const fallback = resolvePcFactoryStatusColor(parsed.statusKey, null); // só fallback/neutro
+        statusColorAudit.set(parsed.statusKey, {
+          statusRaw: parsed.statusRaw ?? parsed.statusKey,
+          statusKey: parsed.statusKey,
+          colorHex: sheetColor ? sheetColor.hex : fallback.hex,
+          source: sheetColor ? sheetColor.source : fallback.source === "fallback" ? "fallback" : "neutro"
+        });
+      }
+
       toPersist.push({
         resourceCode: parsed.resourceCode,
         resourceName: parsed.resourceName,
         productionLine: parsed.productionLine,
         groupPortal: parsed.groupPortal,
         sector: parsed.sector,
+        statusCode: parsed.statusCode,
         statusRaw: parsed.statusRaw,
+        statusKey: parsed.statusKey,
+        statusColorHex,
         statusDetails: parsed.statusDetails,
         statusCategory: parsed.statusCategory,
+        managementGroup: parsed.managementGroup,
         maintenanceType: parsed.maintenanceType,
         isMaintenanceKpi: parsed.isMaintenanceKpi,
         excludePlannedTime: parsed.excludePlannedTime,
@@ -356,6 +481,15 @@ export async function importPcFactoryRecords(
   result.resourcesDetected = resources.size;
   result.groupsDetected = Array.from(groups).sort();
   result.statusDetected = Array.from(statuses).sort();
+  const statusColors = Array.from(statusColorAudit.values()).sort((a, b) =>
+    a.statusRaw.localeCompare(b.statusRaw, "pt-BR")
+  );
+  result.statusColors = statusColors;
+  result.statusColorsTotal = statusColors.length;
+  result.statusColorsFromSheet = statusColors.filter(
+    (c) => c.source === "excel-column" || c.source === "excel-cell-fill"
+  ).length;
+  result.statusColorsFallback = statusColors.filter((c) => c.source === "fallback" || c.source === "neutro").length;
   result.periodDetected = {
     start: minDate ? minDate.toISOString() : null,
     end: maxDate ? maxDate.toISOString() : null
@@ -424,7 +558,9 @@ export async function importPcFactoryFromExcel(
   options: ImportOptions = {}
 ): Promise<PcFactoryImportResult> {
   const { rows, sheetUsed } = readPcFactorySheet(source, options.sheetName);
-  return importPcFactoryRecords(rows, options, sheetUsed);
+  // Lê as cores por status direto do arquivo (exceljs) — best-effort, não bloqueia o import.
+  const statusColorMap = await extractStatusColorsFromExcel(source, sheetUsed);
+  return importPcFactoryRecords(rows, options, sheetUsed, statusColorMap);
 }
 
 type ParsedRow = {
@@ -433,9 +569,14 @@ type ParsedRow = {
   productionLine: string | null;
   groupPortal: string | null;
   sector: string | null;
+  statusCode: string | null;
   statusRaw: string | null;
+  statusKey: string | null;
+  /** Cor lida de uma coluna explícita de cor na própria linha (#RRGGBB), se houver. */
+  statusColorFromColumn: string | null;
   statusDetails: string | null;
   statusCategory: PcFactoryStatusCategory;
+  managementGroup: string;
   maintenanceType: string | null;
   isMaintenanceKpi: boolean;
   excludePlannedTime: boolean;
@@ -504,6 +645,10 @@ function parseRow(row: PcFactoryExcelRow, line: number): ParseOutcome {
   const downtimeForAvailability =
     isDowntimeForAvailability(statusRaw) || (isUnknown && normalizeBool(row.isDowntimeForAvailability) === true);
 
+  const statusCode = optionalText(row.statusCode);
+  // Grupo da Tabela Gerencial — derivado do CÓDIGO (fonte oficial), com fallback no nome.
+  const managementGroup = classifyManagementGroup(statusCode, statusRaw);
+
   const resourceCode = optionalText(row.resourceCode);
   const orderNumber = optionalText(row.orderNumber);
   const operationCode = optionalText(row.operationCode);
@@ -516,9 +661,13 @@ function parseRow(row: PcFactoryExcelRow, line: number): ParseOutcome {
       productionLine: normalizeProductionLine(row.productionLine),
       groupPortal: optionalText(row.groupPortal),
       sector: optionalText(row.sector),
+      statusCode,
       statusRaw,
+      statusKey: statusRaw ? normalizePcFactoryStatusKey(statusRaw) : null,
+      statusColorFromColumn: normalizeExcelColorToHex(row.statusColor),
       statusDetails: optionalText(row.statusDetails),
       statusCategory,
+      managementGroup,
       maintenanceType: kind,
       isMaintenanceKpi,
       excludePlannedTime,
