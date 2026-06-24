@@ -11,7 +11,6 @@ import { PcFactoryFilters } from "@/components/pc-factory/PcFactoryFilters";
 import { PcFactoryEmptyState } from "@/components/pc-factory/PcFactoryEmptyState";
 import { PcFactoryRecordsTable } from "@/components/pc-factory/PcFactoryRecordsTable";
 import { PcFactoryReliabilityTable } from "@/components/pc-factory/PcFactoryReliabilityTable";
-import { PcFactoryManagementTable } from "@/components/pc-factory/PcFactoryManagementTable";
 import { PcFactoryDetailsDrawer } from "@/components/pc-factory/PcFactoryDetailsDrawer";
 import { PcFactoryImportModal } from "@/components/pc-factory/PcFactoryImportModal";
 import { PcFactoryQualityPanel } from "@/components/pc-factory/PcFactoryQualityPanel";
@@ -20,10 +19,10 @@ import { PC_FACTORY_CATEGORY_LABELS } from "@/utils/pc-factory-normalizer";
 import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryPageData, PcFactoryResourceDetails, PcFactoryStatusCategory } from "@/types/pc-factory";
 
-const PcFactoryManagementChart = dynamic(
-  () => import("@/components/pc-factory/PcFactoryManagementChart").then((m) => m.PcFactoryManagementChart),
-  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-5" /> }
-);
+const PcFactoryStatusChart = dynamic(() => import("@/components/pc-factory/PcFactoryStatusChart").then((m) => m.PcFactoryStatusChart), {
+  ssr: false,
+  loading: () => <ChartSkeleton className="xl:col-span-5" />
+});
 const PcFactoryMaintenanceSplitChart = dynamic(
   () => import("@/components/pc-factory/PcFactoryMaintenanceSplitChart").then((m) => m.PcFactoryMaintenanceSplitChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-7" /> }
@@ -240,9 +239,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
           </p>
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-            <PcFactoryManagementTable className="xl:col-span-12" rows={data.managementTable} />
-
-            <PcFactoryManagementChart className="xl:col-span-5" rows={data.managementTable} />
+            <PcFactoryStatusChart className="xl:col-span-5" slices={data.categoryDistribution} />
             <PcFactoryMaintenanceSplitChart className="xl:col-span-7" split={data.maintenanceSplit} />
 
             <PcFactoryReliabilityTable className="xl:col-span-6" rows={data.criticalResources} onSelect={openDetails} />
