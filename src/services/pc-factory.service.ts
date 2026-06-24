@@ -116,10 +116,13 @@ type AnalyticsRecord = {
 };
 
 /**
- * Base de TODOS os cálculos: "Tempo Decorrido" (durationHours), que é a base usada
- * pela Tabela Gerencial / Management View do PC-Factory (decisão de 2026-06-24).
- * Antes usava "Tempo Decorrido Real"; mudou para bater com o PC-Factory.
- * Nunca retorna NaN/negativo.
+ * Base oficial dos indicadores PC-Factory: usamos durationHours (Tempo Decorrido) para
+ * manter consistência com a Tabela Gerencial / Management View do PC-Factory (decisão de
+ * 2026-06-24). A Management View consolida por "Tempo Decorrido" por status, não pelo Real.
+ *
+ * realDurationHours ("Tempo Decorrido Real[hr]") é armazenado apenas para auditoria/
+ * comparação futura e NÃO deve substituir durationHours nos KPIs principais — por isso
+ * NÃO há fallback `realDurationHours ?? durationHours` aqui. Nunca retorna NaN/negativo.
  */
 function metricHours(record: { realDurationHours: number | null; durationHours: number }): number {
   const base = record.durationHours;
@@ -205,7 +208,7 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
   let waitingEvents = 0;
 
   for (const record of records) {
-    const hours = metricHours(record); // Tempo Decorrido Real (fallback: Tempo Decorrido)
+    const hours = metricHours(record); // Tempo Decorrido (durationHours) — base oficial da Management View
     const cat = record.statusCategory;
     totalHours += hours;
     byCategory.set(cat, (byCategory.get(cat) ?? 0) + hours);
