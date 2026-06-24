@@ -354,6 +354,8 @@ function buildResourceRanking(records: AnalyticsRecord[]): PcFactoryResourceRow[
       mechanicalHours: agg.mechanicalHours,
       electricalHours: agg.electricalHours,
       automationHours: agg.automationHours,
+      planejadaHours: agg.planejadaHours,
+      terceirosHours: agg.terceirosHours,
       waitingHours: agg.waitingHours,
       lossHours: agg.lossHours,
       stoppedHours: agg.stoppedHours,

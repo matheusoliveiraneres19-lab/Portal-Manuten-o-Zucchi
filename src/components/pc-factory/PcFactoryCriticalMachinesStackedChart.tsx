@@ -16,16 +16,27 @@ type StackedRow = {
   name: string;
   mechanicalHours: number;
   electricalHours: number;
+  automationHours: number;
+  planejadaHours: number;
+  terceirosHours: number;
   waitingHours: number;
   total: number;
   mechanicalPct: number;
   electricalPct: number;
+  automationPct: number;
+  planejadaPct: number;
+  terceirosPct: number;
   waitingPct: number;
 };
 
+// Os SEIS tipos de manutenção do grupo "Manutenção" do PC-Factory (Management View).
+// O total da barra soma os 6 → bate com a manutenção por máquina da Tabela Gerencial.
 const SEGMENTS = [
   { key: "mechanicalHours", pctKey: "mechanicalPct", label: "Mecânica", color: PC_FACTORY_COLORS.MANUTENCAO_MECANICA, dark: false },
   { key: "electricalHours", pctKey: "electricalPct", label: "Elétrica", color: PC_FACTORY_COLORS.MANUTENCAO_ELETRICA, dark: false },
+  { key: "automationHours", pctKey: "automationPct", label: "Automação", color: PC_FACTORY_COLORS.MANUTENCAO_AUTOMACAO, dark: true },
+  { key: "planejadaHours", pctKey: "planejadaPct", label: "Planejada", color: PC_FACTORY_COLORS.MANUTENCAO_PLANEJADA, dark: false },
+  { key: "terceirosHours", pctKey: "terceirosPct", label: "Terceiros", color: PC_FACTORY_COLORS.MANUTENCAO_TERCEIROS, dark: false },
   { key: "waitingHours", pctKey: "waitingPct", label: "Aguardando Manutenção", color: PC_FACTORY_COLORS.AGUARDANDO_MANUTENCAO, dark: true }
 ] as const;
 
@@ -46,17 +57,26 @@ export function PcFactoryCriticalMachinesStackedChart({ rows, className = "", on
     .map((row) => {
       const mechanicalHours = round(Math.max(0, row.mechanicalHours ?? 0));
       const electricalHours = round(Math.max(0, row.electricalHours ?? 0));
+      const automationHours = round(Math.max(0, row.automationHours ?? 0));
+      const planejadaHours = round(Math.max(0, row.planejadaHours ?? 0));
+      const terceirosHours = round(Math.max(0, row.terceirosHours ?? 0));
       const waitingHours = round(Math.max(0, row.waitingHours ?? 0));
-      const total = round(mechanicalHours + electricalHours + waitingHours);
+      const total = round(mechanicalHours + electricalHours + automationHours + planejadaHours + terceirosHours + waitingHours);
       const pct = (value: number) => (total > 0 ? (value / total) * 100 : 0);
       return {
         name: row.resourceName,
         mechanicalHours,
         electricalHours,
+        automationHours,
+        planejadaHours,
+        terceirosHours,
         waitingHours,
         total,
         mechanicalPct: pct(mechanicalHours),
         electricalPct: pct(electricalHours),
+        automationPct: pct(automationHours),
+        planejadaPct: pct(planejadaHours),
+        terceirosPct: pct(terceirosHours),
         waitingPct: pct(waitingHours)
       };
     })
@@ -70,7 +90,7 @@ export function PcFactoryCriticalMachinesStackedChart({ rows, className = "", on
     <article className={`panel rounded-lg p-4 ${className}`}>
       <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Ranking de máquinas críticas</h3>
       <p className="mb-3 text-[11px] text-zinc-500">
-        Top 10 por horas de manutenção, com percentual por Mecânica, Elétrica e Aguardando Manutenção.
+        Top 10 por horas de manutenção (grupo Manutenção do PC-Factory): Mecânica, Elétrica, Automação, Planejada, Terceiros e Aguardando.
       </p>
 
       {data.length === 0 ? (

@@ -143,6 +143,8 @@ export type PcFactoryResourceRow = {
   mechanicalHours: number;
   electricalHours: number;
   automationHours: number;
+  planejadaHours: number;
+  terceirosHours: number;
   waitingHours: number;
   lossHours: number;
   stoppedHours: number;
