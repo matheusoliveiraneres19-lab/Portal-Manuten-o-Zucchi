@@ -22,9 +22,12 @@ export async function POST(request: NextRequest) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
+    // Importação pelo portal SUBSTITUI toda a base (apaga e recarrega) — evita misturar
+    // planilhas/lotes diferentes e o double-counting. Só apaga se houver linhas válidas.
     const result = await importPcFactoryFromExcel(buffer, {
       fileName: file.name,
-      importedBy: "portal-web"
+      importedBy: "portal-web",
+      replaceAll: true
     });
 
     return NextResponse.json(result);

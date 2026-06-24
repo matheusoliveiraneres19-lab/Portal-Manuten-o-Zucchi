@@ -38,8 +38,13 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
       const response = await fetch("/api/pc-factory/import", { method: "POST", body: formData });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error ?? "request failed");
-      setResult(data as PcFactoryImportResult);
-      toast.success(`Importação concluída: ${data.createdRows} criados, ${data.updatedRows} atualizados`);
+      const payload = data as PcFactoryImportResult;
+      setResult(payload);
+      toast.success(
+        payload.replacedRows > 0
+          ? `Base substituída: ${payload.importedRows} registros importados (${payload.replacedRows} anteriores apagados)`
+          : `Importação concluída: ${payload.importedRows} registros importados`
+      );
       onImported();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao importar a planilha.");
@@ -66,13 +71,18 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
         <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
       </label>
 
+      <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] leading-snug text-amber-200/90">
+        <strong className="font-semibold">Atenção:</strong> a importação <strong>substitui toda a base</strong> do PC-Factory — os
+        dados atuais são apagados e trocados pela planilha enviada. (Se o arquivo não tiver linhas válidas, nada é apagado.)
+      </div>
+
       {result ? (
         <div className="mt-4 space-y-3">
           <dl className="grid grid-cols-2 gap-2 rounded-lg border border-gold/15 bg-black/25 p-3 text-xs">
             <Summary label="Total de linhas" value={result.totalRows} />
             <Summary label="Importadas" value={result.importedRows} tone="gold" />
+            <Summary label="Substituídos (apagados)" value={result.replacedRows} tone={result.replacedRows > 0 ? "danger" : "default"} />
             <Summary label="Criadas" value={result.createdRows} />
-            <Summary label="Atualizadas" value={result.updatedRows} />
             <Summary label="Ignoradas" value={result.ignoredRows} tone={result.ignoredRows > 0 ? "danger" : "default"} />
             <Summary label="Com erro" value={result.errorRows} tone={result.errorRows > 0 ? "danger" : "default"} />
           </dl>

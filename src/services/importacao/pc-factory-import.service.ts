@@ -202,6 +202,12 @@ type ImportOptions = {
   importedBy?: string;
   importBatch?: string;
   sheetName?: string;
+  /**
+   * Quando true, SUBSTITUI toda a base de PcFactoryRecord: apaga todos os registros
+   * antes de gravar os novos. Trava de segurança: só apaga se a planilha produzir
+   * pelo menos uma linha válida (um arquivo inválido não zera a base existente).
+   */
+  replaceAll?: boolean;
 };
 
 type ReadResult = { rows: PcFactoryExcelRow[]; sheetUsed: string | null };
@@ -341,6 +347,7 @@ export async function importPcFactoryRecords(
     importedRows: 0,
     createdRows: 0,
     updatedRows: 0,
+    replacedRows: 0,
     ignoredRows: 0,
     ignoredReasons: { noResource: 0, noStatus: 0, noDuration: 0, emptyRow: 0, duplicate: 0, other: 0 },
     errorRows: 0,
@@ -479,6 +486,13 @@ export async function importPcFactoryRecords(
       result.errorRows += 1;
       result.errors.push(toImportError(error, line));
     }
+  }
+
+  // Substituição total (opcional): apaga TODA a base antes de gravar — mas só quando há
+  // linhas válidas, para um arquivo inválido nunca zerar os dados existentes.
+  if (options.replaceAll && toPersist.length > 0) {
+    const removed = await prisma.pcFactoryRecord.deleteMany({});
+    result.replacedRows = removed.count;
   }
 
   // Gravação em massa (substitui o antigo N+1: 2 round-trips por linha contra o banco remoto).

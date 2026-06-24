@@ -371,6 +371,8 @@ export type PcFactoryImportResult = {
   importedRows: number;
   createdRows: number;
   updatedRows: number;
+  /** Registros apagados quando a importação foi em modo "substituir tudo" (replaceAll). */
+  replacedRows: number;
   ignoredRows: number;
   ignoredReasons: PcFactoryIgnoredReasons;
   errorRows: number;
