@@ -16,6 +16,8 @@ export const PC_FACTORY_COLORS = {
   MANUTENCAO_MECANICA: "#DC2626", // vermelho
   MANUTENCAO_ELETRICA: "#7C3AED", // roxo
   MANUTENCAO_AUTOMACAO: "#A78BFA", // roxo claro
+  MANUTENCAO_PLANEJADA: "#0EA5E9", // azul (manutenção planejada)
+  MANUTENCAO_TERCEIROS: "#DB2777", // rosa (manutenção de terceiros)
   AGUARDANDO_MANUTENCAO: "#F59E0B", // amarelo
   FORA_PLANEJADO: "#7F1D1D", // vinho
   OPERACIONAL: "#2563EB", // azul
@@ -25,6 +27,19 @@ export const PC_FACTORY_COLORS = {
 } as const;
 
 export type PcFactoryColorKey = keyof typeof PC_FACTORY_COLORS;
+
+/**
+ * Cores dos 6 grupos da Tabela Gerencial (Management View do PC-Factory), espelhando
+ * as cores daquela tela. Chaveado pelo grupo gerencial (ver classifyManagementGroup).
+ */
+export const PC_FACTORY_MANAGEMENT_GROUP_COLORS = {
+  PADRAO_SISTEMA: "#DC2626", // vermelho (Padrão do Sistema)
+  SETUP: "#EAB308", // amarelo (Setup)
+  MANUTENCAO: "#6B7280", // cinza (Manutenção)
+  OPERACIONAL: "#93C5FD", // azul claro (Operacional)
+  MATERIAIS: "#F59E0B", // laranja (Materiais)
+  EXTERNO: "#FACC15" // amarelo-ouro (Externo)
+} as const;
 
 /**
  * Normaliza um texto de status/classificação para comparação:

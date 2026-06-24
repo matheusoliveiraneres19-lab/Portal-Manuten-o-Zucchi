@@ -1,6 +1,22 @@
 import type { PcFactoryStatusCategory } from "@prisma/client";
+import type { PcFactoryManagementGroup } from "@/utils/pc-factory-normalizer";
 
 export type { PcFactoryStatusCategory };
+export type { PcFactoryManagementGroup };
+
+/**
+ * Linha da Tabela Gerencial (Management View do PC-Factory): um dos 6 grupos, com horas
+ * de "Tempo Decorrido", % do total, e % / horas acumuladas (como na tela do PC-Factory).
+ */
+export type PcFactoryManagementGroupRow = {
+  group: PcFactoryManagementGroup;
+  label: string;
+  color: string;
+  totalHours: number;
+  percent: number;
+  cumulativeHours: number;
+  cumulativePercent: number;
+};
 
 /* ------------------------------------------------------------------ */
 /* Parâmetros de consulta/análise                                     */
@@ -95,7 +111,7 @@ export type PcFactoryCategorySlice = {
 };
 
 export type PcFactoryMaintenanceSplit = {
-  key: "MECANICA" | "ELETRICA" | "AUTOMACAO" | "AGUARDANDO";
+  key: "MECANICA" | "ELETRICA" | "AUTOMACAO" | "PLANEJADA" | "TERCEIROS" | "AGUARDANDO";
   label: string;
   hours: number;
   events: number;
@@ -262,6 +278,8 @@ export type PcFactoryPageData = {
   reference: PcFactoryReferencePeriod;
   kpis: PcFactoryKpis;
   categoryDistribution: PcFactoryCategorySlice[];
+  /** Tabela Gerencial — 6 grupos do PC-Factory por "Tempo Decorrido" (base oficial). */
+  managementTable: PcFactoryManagementGroupRow[];
   maintenanceSplit: PcFactoryMaintenanceSplit[];
   criticalResources: PcFactoryResourceRow[];
   topMechanical: PcFactoryResourceRow[];
@@ -366,6 +384,7 @@ export type PcFactoryExcelRow = {
   productionLine?: unknown;
   groupPortal?: unknown;
   sector?: unknown;
+  statusCode?: unknown;
   status?: unknown;
   statusDetails?: unknown;
   /** Colunas pré-calculadas da aba ajustada (usadas como fallback p/ status desconhecido). */

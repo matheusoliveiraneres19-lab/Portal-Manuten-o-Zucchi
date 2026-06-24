@@ -11,6 +11,7 @@ import { PcFactoryFilters } from "@/components/pc-factory/PcFactoryFilters";
 import { PcFactoryEmptyState } from "@/components/pc-factory/PcFactoryEmptyState";
 import { PcFactoryRecordsTable } from "@/components/pc-factory/PcFactoryRecordsTable";
 import { PcFactoryReliabilityTable } from "@/components/pc-factory/PcFactoryReliabilityTable";
+import { PcFactoryManagementTable } from "@/components/pc-factory/PcFactoryManagementTable";
 import { PcFactoryDetailsDrawer } from "@/components/pc-factory/PcFactoryDetailsDrawer";
 import { PcFactoryImportModal } from "@/components/pc-factory/PcFactoryImportModal";
 import { PcFactoryQualityPanel } from "@/components/pc-factory/PcFactoryQualityPanel";
@@ -19,10 +20,10 @@ import { PC_FACTORY_CATEGORY_LABELS } from "@/utils/pc-factory-normalizer";
 import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryPageData, PcFactoryResourceDetails, PcFactoryStatusCategory } from "@/types/pc-factory";
 
-const PcFactoryStatusChart = dynamic(() => import("@/components/pc-factory/PcFactoryStatusChart").then((m) => m.PcFactoryStatusChart), {
-  ssr: false,
-  loading: () => <ChartSkeleton className="xl:col-span-5" />
-});
+const PcFactoryManagementChart = dynamic(
+  () => import("@/components/pc-factory/PcFactoryManagementChart").then((m) => m.PcFactoryManagementChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-5" /> }
+);
 const PcFactoryMaintenanceSplitChart = dynamic(
   () => import("@/components/pc-factory/PcFactoryMaintenanceSplitChart").then((m) => m.PcFactoryMaintenanceSplitChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-7" /> }
@@ -180,7 +181,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-400">
             <span className="flex items-center gap-1.5">
               <Info className="h-3.5 w-3.5 text-gold" />
-              Manutenção = Mecânica + Elétrica + Aguardando Manutenção. Fora de Turno e Recurso Não Programado saem do tempo planejado.
+              Manutenção = grupo “Manutenção” do PC-Factory (Mecânica, Elétrica, Automação, Planejada, Terceiros e Aguardando). Base: Tempo Decorrido.
             </span>
             <span className="flex items-center gap-1.5">
               <Activity className="h-3.5 w-3.5 text-gold" />
@@ -239,7 +240,9 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
           </p>
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-            <PcFactoryStatusChart className="xl:col-span-5" slices={data.categoryDistribution} />
+            <PcFactoryManagementTable className="xl:col-span-12" rows={data.managementTable} />
+
+            <PcFactoryManagementChart className="xl:col-span-5" rows={data.managementTable} />
             <PcFactoryMaintenanceSplitChart className="xl:col-span-7" split={data.maintenanceSplit} />
 
             <PcFactoryReliabilityTable className="xl:col-span-6" rows={data.criticalResources} onSelect={openDetails} />
