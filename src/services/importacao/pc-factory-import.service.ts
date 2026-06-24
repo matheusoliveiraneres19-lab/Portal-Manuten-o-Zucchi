@@ -68,11 +68,13 @@ const COLUMN_MAP: Record<string, keyof PcFactoryExcelRow> = {
   codigo_status_recurso: "statusCode",
   codigo_status: "statusCode",
   statuscode: "statusCode",
-  // Status (Nome Status Recurso)
+  // Status (Nome Status Recurso / Nome Status de Recurso — variação do export G0009)
   nome_status_recurso: "status",
   nome_do_status_recurso: "status",
+  nome_status_de_recurso: "status",
   status_recurso: "status",
   status_do_recurso: "status",
+  status_de_recurso: "status",
   status: "status",
   situacao: "status",
   estado: "status",
@@ -211,10 +213,14 @@ export function readPcFactoryRows(source: string | Buffer | ArrayBuffer, sheetNa
 
 /** Lê a planilha resolvendo a aba preferida e devolve as linhas e o nome da aba usada. */
 export function readPcFactorySheet(source: string | Buffer | ArrayBuffer, sheetName?: string): ReadResult {
+  // cellDates:false de propósito: algumas planilhas (ex.: export G0009) formatam colunas
+  // de DURAÇÃO como tempo, e com cellDates:true o xlsx as devolve como Date deslocada por
+  // fuso — quebrando o parse de duração. Lendo como número, a duração vem limpa e as
+  // colunas de data viram serial Excel, convertidas em UTC por converterDataExcel/parsePcFactoryDate.
   const workbook =
     typeof source === "string"
-      ? XLSX.readFile(source, { cellDates: true })
-      : XLSX.read(source, { type: "buffer", cellDates: true });
+      ? XLSX.readFile(source, { cellDates: false })
+      : XLSX.read(source, { type: "buffer", cellDates: false });
 
   const resolvedName = resolveSheetName(workbook.SheetNames, sheetName);
   const worksheet = resolvedName ? workbook.Sheets[resolvedName] : undefined;
