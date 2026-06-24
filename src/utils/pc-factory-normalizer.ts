@@ -363,6 +363,113 @@ export const PC_FACTORY_CATEGORY_ORDER: PcFactoryStatusCategory[] = [
 ];
 
 /* ------------------------------------------------------------------ */
+/* Chave canônica do status real + cor por status (data-driven)        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * CHAVE canônica do status REAL da planilha (statusKey), estável p/ agrupar e colorir:
+ * remove acentos, CAIXA ALTA, colapsa espaços e troca qualquer caractere não alfanumérico
+ * por "_". NÃO altera o nome original (statusRaw é preservado na íntegra).
+ * Ex.: "Produção" → "PRODUCAO"; "Manutenção Mecânica" → "MANUTENCAO_MECANICA";
+ *      "Setup - Serrad" → "SETUP_SERRAD"; "Recurso Não Programado" → "RECURSO_NAO_PROGRAMADO".
+ */
+export function normalizePcFactoryStatusKey(status: unknown): string {
+  return String(status ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .trim()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/**
+ * Converte uma cor vinda do Excel para "#RRGGBB", ou null se não der.
+ * Aceita: ARGB ("FFFF0000"), RGB ("FF0000"), hex com "#" ("#7030A0"), atalho de 3
+ * dígitos ("abc") e objetos do exceljs ({ argb }/{ rgb }). Theme/indexed não resolvem
+ * aqui (dependeriam da paleta do tema) → null, caindo no fallback. Nunca lança.
+ */
+export function normalizeExcelColorToHex(color: unknown): string | null {
+  if (color === null || color === undefined) return null;
+  let raw: string | null = null;
+  if (typeof color === "string") {
+    raw = color;
+  } else if (typeof color === "object") {
+    const c = color as { argb?: unknown; rgb?: unknown; hex?: unknown };
+    raw =
+      (typeof c.argb === "string" && c.argb) ||
+      (typeof c.rgb === "string" && c.rgb) ||
+      (typeof c.hex === "string" && c.hex) ||
+      null;
+  }
+  if (!raw) return null;
+
+  let hex = raw.trim().replace(/^#/, "").toUpperCase();
+  if (!/^[0-9A-F]+$/.test(hex)) return null;
+  if (hex.length === 8) {
+    // ARGB → se totalmente transparente, trata como "sem cor"; senão descarta o alpha.
+    if (hex.slice(0, 2) === "00") return null;
+    hex = hex.slice(2);
+  }
+  if (hex.length === 3) {
+    hex = hex
+      .split("")
+      .map((ch) => ch + ch)
+      .join("");
+  }
+  if (hex.length !== 6) return null;
+  return `#${hex}`;
+}
+
+/**
+ * Fallback de cor por statusKey — usado SOMENTE quando a planilha não trouxe cor
+ * (nem coluna de cor, nem preenchimento de célula) e o banco não tem cor salva.
+ * Não é a fonte primária: a prioridade é planilha/banco → fallback → cinza neutro.
+ */
+export const PC_FACTORY_STATUS_COLOR_FALLBACK: Record<string, string> = {
+  PRODUCAO: "#39FF14",
+  FORA_DE_TURNO: "#7F1D1D",
+  RECURSO_NAO_PROGRAMADO: "#303300",
+  MANUTENCAO_MECANICA: "#FF1F1A",
+  MANUTENCAO_ELETRICA: "#7030A0",
+  MANUTENCAO_AUTOMACAO: "#7B2CBF",
+  AGUARDANDO_MANUTENCAO: "#FFFF00",
+  AGUARDANDO_LANCAMENTO: "#FF6A1A",
+  FALTA_DE_UTILIDADES: "#F39A6B",
+  SETUP: "#2F73BD",
+  REFEICAO: "#F4D2B2",
+  FALTA_DE_MATERIAL: "#FFC928",
+  PARADA_NAO_IDENTIFICADA: "#FF6A1A",
+  OUTROS: "#9CA3AF"
+};
+
+const NEUTRAL_STATUS_COLOR = "#9CA3AF";
+
+export type PcFactoryStatusColorSource = "planilha" | "fallback" | "neutro";
+
+/**
+ * Resolve a cor final de um status para o gráfico, com a prioridade do projeto:
+ * 1) cor lida da planilha e salva no banco (statusColorHex); 2) fallback por statusKey
+ * (com match por prefixo, ex. SETUP_SERRAD → SETUP); 3) cinza neutro. Nunca lança.
+ */
+export function resolvePcFactoryStatusColor(
+  statusKey: string,
+  storedHex?: string | null
+): { hex: string; source: PcFactoryStatusColorSource } {
+  const stored = normalizeExcelColorToHex(storedHex);
+  if (stored) return { hex: stored, source: "planilha" };
+
+  if (PC_FACTORY_STATUS_COLOR_FALLBACK[statusKey]) {
+    return { hex: PC_FACTORY_STATUS_COLOR_FALLBACK[statusKey], source: "fallback" };
+  }
+  const prefix = statusKey.split("_")[0];
+  if (prefix && PC_FACTORY_STATUS_COLOR_FALLBACK[prefix]) {
+    return { hex: PC_FACTORY_STATUS_COLOR_FALLBACK[prefix], source: "fallback" };
+  }
+  return { hex: NEUTRAL_STATUS_COLOR, source: "neutro" };
+}
+
+/* ------------------------------------------------------------------ */
 /* Datas e duração (inalterado — conversões da planilha)              */
 /* ------------------------------------------------------------------ */
 

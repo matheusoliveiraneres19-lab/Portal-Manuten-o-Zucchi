@@ -239,7 +239,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
           </p>
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-            <PcFactoryStatusChart className="xl:col-span-5" slices={data.categoryDistribution} />
+            <PcFactoryStatusChart className="xl:col-span-5" slices={data.statusDistribution} />
             <PcFactoryMaintenanceSplitChart className="xl:col-span-7" split={data.maintenanceSplit} />
 
             <PcFactoryReliabilityTable className="xl:col-span-6" rows={data.criticalResources} onSelect={openDetails} />

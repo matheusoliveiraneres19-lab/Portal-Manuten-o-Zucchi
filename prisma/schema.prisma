@@ -730,6 +730,12 @@ model PcFactoryRecord {
   statusCode         String?
   /// Valor exato de "Nome Status Recurso" vindo da planilha (auditoria, nunca substituído).
   statusRaw          String?
+  /// Chave canônica do status real (UPPER_SNAKE), p/ agrupar e colorir o gráfico de
+  /// distribuição por status. Derivada de statusRaw (ver normalizePcFactoryStatusKey).
+  statusKey          String?
+  /// Cor do status LIDA DA PLANILHA na importação (#RRGGBB): coluna de cor explícita ou
+  /// preenchimento da célula. Nulo quando a planilha não trouxe cor (aí usa-se fallback).
+  statusColorHex     String?
   /// Detalhamento do status (campo livre da planilha).
   statusDetails      String?
   /// Classificação gerencial derivada de statusRaw por match exato.
@@ -785,6 +791,7 @@ model PcFactoryRecord {
   @@index([groupPortal])
   @@index([sector])
   @@index([statusCategory])
+  @@index([statusKey])
   @@index([maintenanceType])
   @@index([startDateTime])
   @@index([endDateTime])

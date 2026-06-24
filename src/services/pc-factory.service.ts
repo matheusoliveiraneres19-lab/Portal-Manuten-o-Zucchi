@@ -10,10 +10,13 @@ import {
   PC_FACTORY_MANAGEMENT_GROUP_ORDER,
   classifyManagementGroup,
   maintenanceKind,
+  normalizePcFactoryStatusKey,
+  resolvePcFactoryStatusColor,
   type PcFactoryManagementGroup
 } from "@/utils/pc-factory-normalizer";
 import type {
   PcFactoryCategorySlice,
+  PcFactoryStatusSlice,
   PcFactoryDashboardSummary,
   PcFactoryDataQuality,
   PcFactoryFilterOptions,
@@ -102,6 +105,8 @@ type AnalyticsRecord = {
   groupPortal: string | null;
   sector: string | null;
   statusRaw: string | null;
+  statusKey: string | null;
+  statusColorHex: string | null;
   statusCode: string | null;
   statusCategory: PcFactoryStatusCategory;
   managementGroup: string | null;
@@ -133,6 +138,8 @@ const loadRecords = cache(async (params: PcFactoryQueryParams): Promise<Analytic
       groupPortal: true,
       sector: true,
       statusRaw: true,
+      statusKey: true,
+      statusColorHex: true,
       statusCode: true,
       statusCategory: true,
       managementGroup: true,
@@ -434,6 +441,69 @@ function categoryDistributionFromAggregate(agg: HoursAggregate): PcFactoryCatego
       percent: agg.totalHours > 0 ? clampPercent((totalHours / agg.totalHours) * 100) ?? 0 : 0
     };
   }).filter((slice) => slice.totalHours > 0);
+}
+
+/* ------------------------------------------------------------------ */
+/* 2c. Distribuição de horas por STATUS REAL da planilha (com cor)     */
+/* ------------------------------------------------------------------ */
+
+export async function getPcFactoryStatusDistribution(params: PcFactoryQueryParams): Promise<PcFactoryStatusSlice[]> {
+  return statusDistributionFromRecords(await loadRecords(params));
+}
+
+/**
+ * Agrupa as horas pelo STATUS REAL da planilha (statusRaw), na base "Tempo Decorrido"
+ * (durationHours — mesma base do resto do dashboard, decisão de 24/06). A cor segue a
+ * planilha quando o registro tem `statusColorHex` (cor mais recente do status no recorte
+ * filtrado, refletindo a última importação), com fallback por `statusKey`. Ordena por
+ * horas desc. Respeita os filtros (recebe os registros já filtrados). Nunca gera NaN.
+ */
+function statusDistributionFromRecords(records: AnalyticsRecord[]): PcFactoryStatusSlice[] {
+  type Bucket = { statusRaw: string; statusKey: string; hours: number; colorHex: string | null; colorAt: number };
+  const byStatus = new Map<string, Bucket>();
+  let total = 0;
+
+  for (const record of records) {
+    const statusRaw = (record.statusRaw ?? "").trim();
+    if (!statusRaw) continue;
+    const hours = metricHours(record);
+    if (hours <= 0) continue;
+    total += hours;
+
+    const statusKey = record.statusKey || normalizePcFactoryStatusKey(statusRaw);
+    const at = record.startDateTime ? record.startDateTime.getTime() : 0;
+    const existing = byStatus.get(statusKey);
+    if (existing) {
+      existing.hours += hours;
+      // Mantém a cor do registro MAIS RECENTE que tenha cor (reflete a última importação).
+      if (record.statusColorHex && at >= existing.colorAt) {
+        existing.colorHex = record.statusColorHex;
+        existing.colorAt = at;
+      }
+    } else {
+      byStatus.set(statusKey, {
+        statusRaw,
+        statusKey,
+        hours,
+        colorHex: record.statusColorHex ?? null,
+        colorAt: record.statusColorHex ? at : -1
+      });
+    }
+  }
+
+  return Array.from(byStatus.values())
+    .map((bucket) => {
+      const { hex, source } = resolvePcFactoryStatusColor(bucket.statusKey, bucket.colorHex);
+      return {
+        statusRaw: bucket.statusRaw,
+        statusKey: bucket.statusKey,
+        hours: round(bucket.hours),
+        percent: total > 0 ? clampPercent((bucket.hours / total) * 100) ?? 0 : 0,
+        colorHex: hex,
+        colorSource: source
+      };
+    })
+    .sort((a, b) => b.hours - a.hours);
 }
 
 /* ------------------------------------------------------------------ */
@@ -769,6 +839,8 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
         groupPortal: true,
         sector: true,
         statusRaw: true,
+        statusKey: true,
+        statusColorHex: true,
         statusCode: true,
         statusCategory: true,
         managementGroup: true,
@@ -908,6 +980,7 @@ export async function getPcFactoryPageData(params: PcFactoryQueryParams = {}): P
     reference,
     kpis,
     categoryDistribution: categoryDistributionFromAggregate(agg),
+    statusDistribution: statusDistributionFromRecords(records),
     managementTable: buildManagementTable(records),
     maintenanceSplit: maintenanceSplitFromAggregate(agg),
     criticalResources,
@@ -1018,6 +1091,7 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
       topMaintenanceResource: null
     },
     categoryDistribution: [],
+    statusDistribution: [],
     managementTable: [],
     maintenanceSplit: [],
     criticalResources: [],
