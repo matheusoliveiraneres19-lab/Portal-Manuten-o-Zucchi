@@ -146,11 +146,11 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm">
-      <div className="my-8 w-full max-w-2xl rounded-lg border border-gold/30 bg-[#0a0b0b] shadow-premium">
-        <div className="flex items-center justify-between border-b border-gold/20 px-5 py-4">
-          <h2 className="font-serif text-xl text-white">{isEditing ? "Editar procedimento" : "Novo procedimento"}</h2>
-          <button type="button" onClick={onClose} aria-label="Fechar" className="text-zinc-400 transition hover:text-white">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-sm">
+      <div className="my-8 w-full max-w-2xl rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#15130E] to-[#0E0D0A] shadow-[0_24px_60px_rgba(0,0,0,0.5)]">
+        <div className="flex items-center justify-between border-b border-[#C6A24A]/25 px-5 py-4">
+          <h2 className="font-serif text-xl font-semibold text-[#F8F3E7]">{isEditing ? "Editar procedimento" : "Novo procedimento"}</h2>
+          <button type="button" onClick={onClose} aria-label="Fechar" className="text-[#B8AD9A] transition hover:text-white">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -221,21 +221,21 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
           </Field>
 
           <div className="flex flex-wrap gap-5">
-            <label className="flex items-center gap-2 text-sm text-zinc-200">
-              <input type="checkbox" checked={form.isFeatured} onChange={(e) => update("isFeatured", e.target.checked)} className="h-4 w-4 accent-[#c49a45]" />
+            <label className="flex items-center gap-2 text-sm text-[#D7CDBA]">
+              <input type="checkbox" checked={form.isFeatured} onChange={(e) => update("isFeatured", e.target.checked)} className="h-4 w-4 accent-[#D6AA3A]" />
               Marcar como “Mais acessado / Destaque”
             </label>
-            <label className="flex items-center gap-2 text-sm text-zinc-200">
-              <input type="checkbox" checked={form.isOnboarding} onChange={(e) => update("isOnboarding", e.target.checked)} className="h-4 w-4 accent-[#c49a45]" />
+            <label className="flex items-center gap-2 text-sm text-[#D7CDBA]">
+              <input type="checkbox" checked={form.isOnboarding} onChange={(e) => update("isOnboarding", e.target.checked)} className="h-4 w-4 accent-[#D6AA3A]" />
               Marcar como “Funcionário Novo”
             </label>
           </div>
 
-          <div className="flex justify-end gap-2 border-t border-gold/20 pt-4">
-            <button type="button" onClick={onClose} className="h-10 rounded-lg border border-gold/20 px-4 text-sm font-semibold text-zinc-300 transition hover:border-gold/40 hover:text-white">
+          <div className="flex justify-end gap-2 border-t border-[#C6A24A]/25 pt-4">
+            <button type="button" onClick={onClose} className="h-10 rounded-lg border border-[#C6A24A]/30 px-4 text-sm font-semibold text-[#D7CDBA] transition hover:border-[#D6AA3A]/55 hover:text-white">
               Cancelar
             </button>
-            <button type="submit" disabled={saving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-4 text-sm font-bold text-gold transition hover:bg-gold/25 disabled:opacity-60">
+            <button type="submit" disabled={saving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#D6AA3A]/60 bg-[#D6AA3A]/15 px-4 text-sm font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25 disabled:opacity-60">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {isEditing ? "Salvar alterações" : "Criar procedimento"}
             </button>
@@ -247,14 +247,14 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
 }
 
 const inputClass =
-  "h-10 w-full rounded-lg border border-gold/25 bg-black/50 px-3 text-sm text-champagne outline-none transition placeholder:text-zinc-500 focus:border-gold/60 focus:ring-2 focus:ring-gold/30";
+  "h-10 w-full rounded-lg border border-[#C6A24A]/30 bg-[#11100C] px-3 text-sm text-[#F8F3E7] outline-none transition placeholder:text-[#8F846F] focus:border-[#D6AA3A] focus:ring-2 focus:ring-[#D6AA3A]/20";
 const textareaClass =
-  "w-full rounded-lg border border-gold/25 bg-black/50 px-3 py-2 text-sm leading-relaxed text-champagne outline-none transition placeholder:text-zinc-500 focus:border-gold/60 focus:ring-2 focus:ring-gold/30";
+  "w-full rounded-lg border border-[#C6A24A]/30 bg-[#11100C] px-3 py-2 text-sm leading-relaxed text-[#F8F3E7] outline-none transition placeholder:text-[#8F846F] focus:border-[#D6AA3A] focus:ring-2 focus:ring-[#D6AA3A]/20";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-gold/80">{label}</span>
+      <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-[#D6AA3A]">{label}</span>
       {children}
     </label>
   );

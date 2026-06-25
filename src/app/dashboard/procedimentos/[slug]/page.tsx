@@ -35,27 +35,27 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
   const Icon = categoryIcon(detail.categoryName);
 
   return (
-    <article className="mx-auto max-w-4xl space-y-5 text-champagne">
+    <article className="mx-auto max-w-4xl space-y-5 text-[#F8F3E7]">
       <ProcedureDetailActions detail={detail} canManage={canManage} isFavorite={detail.isFavorite} readConfirmedAt={detail.readConfirmedAt} />
 
       {/* Cabeçalho */}
-      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-7">
-        <div className="login-marble-bg absolute inset-0 opacity-80" />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.8),rgba(0,0,0,0.5))]" />
+      <header className="relative overflow-hidden rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#11100C] via-[#0B0A08] to-[#050504] p-5 shadow-[0_18px_45px_rgba(0,0,0,0.4)] sm:p-7">
+        <div className="login-marble-bg absolute inset-0 opacity-10" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(214,170,58,0.12),transparent_22rem)]" />
         <div className="relative z-10">
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-gold/35 bg-gold/10 px-2.5 py-0.5 text-[11px] font-semibold text-champagne">
-              <Icon className="h-3.5 w-3.5 text-gold" /> {detail.categoryName}
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 px-2.5 py-0.5 text-[11px] font-semibold text-[#F6D98B]">
+              <Icon className="h-3.5 w-3.5 text-[#D6AA3A]" /> {detail.categoryName}
             </span>
             <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${levelStyle(detail.level)}`}>{detail.level}</span>
             {detail.status !== "Publicado" ? (
-              <span className="rounded-full border border-zinc-500/40 bg-zinc-500/15 px-2 py-0.5 text-[11px] font-semibold text-zinc-300">{detail.status}</span>
+              <span className="rounded-full border border-[#B8AD9A]/40 bg-[#B8AD9A]/15 px-2 py-0.5 text-[11px] font-semibold text-[#D7CDBA]">{detail.status}</span>
             ) : null}
           </div>
           <h1 className="font-serif text-2xl leading-tight text-white sm:text-3xl">{detail.title}</h1>
-          {detail.summary ? <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300">{detail.summary}</p> : null}
+          {detail.summary ? <p className="mt-2 max-w-3xl text-sm leading-relaxed text-[#D7CDBA]">{detail.summary}</p> : null}
 
-          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] text-zinc-400">
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] text-[#B8AD9A]">
             {detail.estimatedMinutes != null ? <Meta icon={<Clock className="h-3.5 w-3.5" />} text={`${detail.estimatedMinutes} min de leitura`} /> : null}
             {detail.targetAudience ? <Meta icon={<Users className="h-3.5 w-3.5" />} text={detail.targetAudience} /> : null}
             {detail.responsible ? <Meta icon={<UserCog className="h-3.5 w-3.5" />} text={`Responsável: ${detail.responsible}`} /> : null}
@@ -70,14 +70,14 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
         {detail.objective ? <Block title="Objetivo">{detail.objective}</Block> : null}
         {detail.whenToUse ? <Block title="Quando usar">{detail.whenToUse}</Block> : null}
 
-        <section className="rounded-lg border border-gold/20 bg-black/40 p-5 backdrop-blur">
-          <h2 className="mb-3 flex items-center gap-2 font-serif text-lg text-white">
-            <Gauge className="h-4 w-4 text-gold" /> Passo a passo
+        <section className="rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0E0D0A] p-5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
+          <h2 className="mb-3 flex items-center gap-2 font-serif text-lg font-semibold text-[#F8F3E7]">
+            <Gauge className="h-4 w-4 text-[#D6AA3A]" /> Passo a passo
           </h2>
           {detail.content ? (
-            <div className="whitespace-pre-line text-sm leading-relaxed text-zinc-200">{detail.content}</div>
+            <div className="whitespace-pre-line text-sm leading-relaxed text-[#D7CDBA]">{detail.content}</div>
           ) : (
-            <p className="text-sm text-zinc-500">Conteúdo não informado.</p>
+            <p className="text-sm text-[#B8AD9A]">Conteúdo não informado.</p>
           )}
         </section>
 
@@ -87,9 +87,9 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
 
         {detail.tags.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
-            <Tag className="h-4 w-4 text-gold" />
+            <Tag className="h-4 w-4 text-[#D6AA3A]" />
             {detail.tags.map((tag) => (
-              <span key={tag} className="rounded-full border border-gold/25 bg-gold/10 px-2.5 py-0.5 text-[11px] font-semibold text-champagne">
+              <span key={tag} className="rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 px-2.5 py-0.5 text-[11px] font-semibold text-[#F6D98B]">
                 {tag}
               </span>
             ))}
@@ -103,7 +103,7 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
 function Meta({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (
     <span className="flex items-center gap-1.5">
-      <span className="text-gold">{icon}</span>
+      <span className="text-[#D6AA3A]">{icon}</span>
       {text}
     </span>
   );
@@ -111,9 +111,13 @@ function Meta({ icon, text }: { icon: React.ReactNode; text: string }) {
 
 function Block({ title, children, tone = "default" }: { title: string; children: React.ReactNode; tone?: "default" | "danger" }) {
   return (
-    <section className={`rounded-lg border p-5 backdrop-blur ${tone === "danger" ? "border-danger/30 bg-danger/5" : "border-gold/20 bg-black/40"}`}>
-      <h2 className={`mb-2 font-serif text-lg ${tone === "danger" ? "text-danger" : "text-white"}`}>{title}</h2>
-      <div className="whitespace-pre-line text-sm leading-relaxed text-zinc-200">{children}</div>
+    <section
+      className={`rounded-2xl border p-5 shadow-[0_16px_40px_rgba(0,0,0,0.35)] ${
+        tone === "danger" ? "border-danger/30 bg-danger/10" : "border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0E0D0A]"
+      }`}
+    >
+      <h2 className={`mb-2 font-serif text-lg font-semibold ${tone === "danger" ? "text-danger" : "text-[#F8F3E7]"}`}>{title}</h2>
+      <div className="whitespace-pre-line text-sm leading-relaxed text-[#D7CDBA]">{children}</div>
     </section>
   );
 }

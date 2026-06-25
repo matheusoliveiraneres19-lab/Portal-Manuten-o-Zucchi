@@ -20,6 +20,12 @@ function formatDate(iso: string): string {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("pt-BR");
 }
 
+/* Botões neutros (Voltar/Imprimir) e dourados (Editar) com alto contraste. */
+const NEUTRAL_BTN =
+  "inline-flex h-9 items-center gap-2 rounded-lg border border-[#C6A24A]/30 px-3 text-[13px] font-semibold text-[#D7CDBA] transition hover:border-[#D6AA3A]/55 hover:text-white";
+const GOLD_BTN =
+  "inline-flex h-9 items-center gap-2 rounded-lg border border-[#D6AA3A]/55 bg-[#D6AA3A]/15 px-3 text-[13px] font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25";
+
 export function ProcedureDetailActions({ detail, canManage, isFavorite, readConfirmedAt }: ProcedureDetailActionsProps) {
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
@@ -93,10 +99,7 @@ export function ProcedureDetailActions({ detail, canManage, isFavorite, readConf
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
-      <Link
-        href="/dashboard/procedimentos"
-        className="inline-flex h-9 items-center gap-2 rounded-lg border border-gold/20 px-3 text-[13px] font-semibold text-zinc-300 transition hover:border-gold/40 hover:text-white"
-      >
+      <Link href="/dashboard/procedimentos" className={NEUTRAL_BTN}>
         <ArrowLeft className="h-4 w-4" /> Voltar
       </Link>
 
@@ -106,16 +109,18 @@ export function ProcedureDetailActions({ detail, canManage, isFavorite, readConf
         onClick={toggleFavorite}
         disabled={favLoading}
         className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[13px] font-bold transition disabled:opacity-60 ${
-          favorite ? "border-gold/55 bg-gold/15 text-gold" : "border-gold/20 text-zinc-300 hover:border-gold/40 hover:text-white"
+          favorite
+            ? "border-[#D6AA3A]/60 bg-[#D6AA3A]/15 text-[#F6D98B]"
+            : "border-[#C6A24A]/30 text-[#D7CDBA] hover:border-[#D6AA3A]/55 hover:text-white"
         }`}
       >
-        {favLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className={`h-4 w-4 ${favorite ? "fill-gold" : ""}`} />}
+        {favLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className={`h-4 w-4 ${favorite ? "fill-[#D6AA3A]" : ""}`} />}
         {favorite ? "Favoritado" : "Favoritar"}
       </button>
 
       {/* Li e estou ciente — qualquer usuário */}
       {readAt ? (
-        <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#3f8f6b]/45 bg-[#3f8f6b]/15 px-3 text-[13px] font-bold text-[#7fd0ab]">
+        <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#3f8f6b]/50 bg-[#3f8f6b]/15 px-3 text-[13px] font-bold text-[#9be3c1]">
           <CheckCircle2 className="h-4 w-4" /> Lido em {formatDate(readAt)}
         </span>
       ) : (
@@ -123,28 +128,20 @@ export function ProcedureDetailActions({ detail, canManage, isFavorite, readConf
           type="button"
           onClick={confirmRead}
           disabled={readLoading}
-          className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#3f8f6b]/45 bg-[#3f8f6b]/15 px-3 text-[13px] font-bold text-[#7fd0ab] transition hover:bg-[#3f8f6b]/25 disabled:opacity-60"
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#3f8f6b]/50 bg-[#3f8f6b]/15 px-3 text-[13px] font-bold text-[#9be3c1] transition hover:bg-[#3f8f6b]/25 disabled:opacity-60"
         >
           {readLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
           Li e estou ciente
         </button>
       )}
 
-      <button
-        type="button"
-        onClick={() => window.print()}
-        className="inline-flex h-9 items-center gap-2 rounded-lg border border-gold/20 px-3 text-[13px] font-semibold text-zinc-300 transition hover:border-gold/40 hover:text-white"
-      >
+      <button type="button" onClick={() => window.print()} className={NEUTRAL_BTN}>
         <Printer className="h-4 w-4" /> Imprimir
       </button>
 
       {canManage ? (
         <>
-          <button
-            type="button"
-            onClick={() => setEditOpen(true)}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-gold/45 bg-gold/15 px-3 text-[13px] font-bold text-gold transition hover:bg-gold/25"
-          >
+          <button type="button" onClick={() => setEditOpen(true)} className={GOLD_BTN}>
             <Pencil className="h-4 w-4" /> Editar
           </button>
           {detail.status !== "Arquivado" ? (
