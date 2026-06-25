@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Clock, Eye, Gauge, RefreshCw, Tag, UserCog, Users } from "lucide-react";
 import { ProcedureDetailActions } from "@/components/procedures/ProcedureDetailActions";
+import { ProcedureAttachments } from "@/components/procedures/ProcedureAttachments";
 import { categoryIcon, levelStyle } from "@/components/procedures/shared";
-import { getProcedureBySlug, incrementProcedureView } from "@/services/procedures.service";
+import { getProcedureBySlug, getProcedureDetailForUser, incrementProcedureView } from "@/services/procedures.service";
 import { getSession } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
@@ -22,11 +23,11 @@ function formatDate(iso: string | null): string {
 }
 
 export default async function ProcedureDetailPage({ params }: DetailPageProps) {
-  const detail = await getProcedureBySlug(params.slug);
-  if (!detail) notFound();
-
   const session = await getSession();
   const canManage = session?.role === "ADMIN" || session?.role === "GESTOR";
+
+  const detail = await getProcedureDetailForUser(params.slug, session?.sub ?? null);
+  if (!detail) notFound();
 
   // Contador de visualização (best-effort — nunca quebra a renderização).
   await incrementProcedureView(detail.id);
@@ -35,7 +36,7 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
 
   return (
     <article className="mx-auto max-w-4xl space-y-5 text-champagne">
-      <ProcedureDetailActions detail={detail} canManage={canManage} />
+      <ProcedureDetailActions detail={detail} canManage={canManage} isFavorite={detail.isFavorite} readConfirmedAt={detail.readConfirmedAt} />
 
       {/* Cabeçalho */}
       <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-7">
@@ -81,6 +82,8 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
         </section>
 
         {detail.commonMistakes ? <Block title="Erros comuns" tone="danger">{detail.commonMistakes}</Block> : null}
+
+        <ProcedureAttachments slug={detail.slug} attachments={detail.attachments} canManage={canManage} />
 
         {detail.tags.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2">

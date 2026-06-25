@@ -4,19 +4,68 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Archive, ArrowLeft, Pencil, Printer } from "lucide-react";
+import { Archive, ArrowLeft, Check, CheckCircle2, Loader2, Pencil, Printer, Star } from "lucide-react";
 import { ProcedureForm } from "@/components/procedures/ProcedureForm";
 import type { ProcedureDetail } from "@/types/procedures";
 
 type ProcedureDetailActionsProps = {
   detail: ProcedureDetail;
   canManage: boolean;
+  isFavorite: boolean;
+  readConfirmedAt: string | null;
 };
 
-export function ProcedureDetailActions({ detail, canManage }: ProcedureDetailActionsProps) {
+function formatDate(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("pt-BR");
+}
+
+export function ProcedureDetailActions({ detail, canManage, isFavorite, readConfirmedAt }: ProcedureDetailActionsProps) {
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [favorite, setFavorite] = useState(isFavorite);
+  const [favLoading, setFavLoading] = useState(false);
+  const [readAt, setReadAt] = useState(readConfirmedAt);
+  const [readLoading, setReadLoading] = useState(false);
+
+  async function toggleFavorite() {
+    setFavLoading(true);
+    try {
+      const response = await fetch(`/api/procedures/${encodeURIComponent(detail.slug)}/favorite`, { method: "POST" });
+      const data = (await response.json().catch(() => null)) as { ok?: boolean; favorited?: boolean; message?: string } | null;
+      if (!response.ok || !data?.ok) {
+        toast.error(data?.message ?? "Não foi possível favoritar.");
+        return;
+      }
+      setFavorite(Boolean(data.favorited));
+      toast.success(data.favorited ? "Adicionado aos favoritos." : "Removido dos favoritos.");
+      router.refresh();
+    } catch {
+      toast.error("Falha de conexão.");
+    } finally {
+      setFavLoading(false);
+    }
+  }
+
+  async function confirmRead() {
+    setReadLoading(true);
+    try {
+      const response = await fetch(`/api/procedures/${encodeURIComponent(detail.slug)}/read`, { method: "POST" });
+      const data = (await response.json().catch(() => null)) as { ok?: boolean; confirmedAt?: string; message?: string } | null;
+      if (!response.ok || !data?.ok) {
+        toast.error(data?.message ?? "Não foi possível registrar a leitura.");
+        return;
+      }
+      setReadAt(data.confirmedAt ?? new Date().toISOString());
+      toast.success("Leitura confirmada. Obrigado!");
+      router.refresh();
+    } catch {
+      toast.error("Falha de conexão.");
+    } finally {
+      setReadLoading(false);
+    }
+  }
 
   async function archive() {
     if (!window.confirm("Arquivar este procedimento? Ele deixará de aparecer na lista pública.")) return;
@@ -43,13 +92,44 @@ export function ProcedureDetailActions({ detail, canManage }: ProcedureDetailAct
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2 print:hidden">
       <Link
         href="/dashboard/procedimentos"
         className="inline-flex h-9 items-center gap-2 rounded-lg border border-gold/20 px-3 text-[13px] font-semibold text-zinc-300 transition hover:border-gold/40 hover:text-white"
       >
         <ArrowLeft className="h-4 w-4" /> Voltar
       </Link>
+
+      {/* Favorito — qualquer usuário */}
+      <button
+        type="button"
+        onClick={toggleFavorite}
+        disabled={favLoading}
+        className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[13px] font-bold transition disabled:opacity-60 ${
+          favorite ? "border-gold/55 bg-gold/15 text-gold" : "border-gold/20 text-zinc-300 hover:border-gold/40 hover:text-white"
+        }`}
+      >
+        {favLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className={`h-4 w-4 ${favorite ? "fill-gold" : ""}`} />}
+        {favorite ? "Favoritado" : "Favoritar"}
+      </button>
+
+      {/* Li e estou ciente — qualquer usuário */}
+      {readAt ? (
+        <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#3f8f6b]/45 bg-[#3f8f6b]/15 px-3 text-[13px] font-bold text-[#7fd0ab]">
+          <CheckCircle2 className="h-4 w-4" /> Lido em {formatDate(readAt)}
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={confirmRead}
+          disabled={readLoading}
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#3f8f6b]/45 bg-[#3f8f6b]/15 px-3 text-[13px] font-bold text-[#7fd0ab] transition hover:bg-[#3f8f6b]/25 disabled:opacity-60"
+        >
+          {readLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+          Li e estou ciente
+        </button>
+      )}
+
       <button
         type="button"
         onClick={() => window.print()}
@@ -57,6 +137,7 @@ export function ProcedureDetailActions({ detail, canManage }: ProcedureDetailAct
       >
         <Printer className="h-4 w-4" /> Imprimir
       </button>
+
       {canManage ? (
         <>
           <button

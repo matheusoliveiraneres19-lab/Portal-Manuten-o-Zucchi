@@ -8,7 +8,7 @@ import {
   getProcedureBySlug,
   updateProcedure
 } from "@/services/procedures.service";
-import { PROCEDURE_WRITE_ROLES } from "../route";
+import { PROCEDURE_WRITE_ROLES } from "@/constants/procedure-categories";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

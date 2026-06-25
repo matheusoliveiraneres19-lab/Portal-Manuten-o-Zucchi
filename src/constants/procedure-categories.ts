@@ -39,6 +39,9 @@ export type ProcedureLevel = (typeof PROCEDURE_LEVELS)[number];
 export const PROCEDURE_STATUSES = ["Publicado", "Rascunho", "Em Revisão", "Arquivado"] as const;
 export type ProcedureStatus = (typeof PROCEDURE_STATUSES)[number];
 
+/** Papéis autorizados a criar/editar/arquivar/anexar procedimentos. */
+export const PROCEDURE_WRITE_ROLES: string[] = ["ADMIN", "GESTOR"];
+
 export function isProcedureCategoryName(value: unknown): value is ProcedureCategoryName {
   return typeof value === "string" && (PROCEDURE_CATEGORY_NAMES as readonly string[]).includes(value);
 }

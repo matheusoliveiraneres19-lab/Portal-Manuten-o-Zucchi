@@ -10,7 +10,8 @@ export const metadata: Metadata = {
 };
 
 export default async function ProcedimentosPage() {
-  const [data, session] = await Promise.all([getProceduresCenterData(), getSession()]);
+  const session = await getSession();
+  const data = await getProceduresCenterData(session?.sub ?? null);
   const canManage = session?.role === "ADMIN" || session?.role === "GESTOR";
   return <ProceduresCenter data={data} canManage={canManage} />;
 }

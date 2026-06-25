@@ -5,19 +5,30 @@ import Link from "next/link";
 import {
   ArrowRight,
   BookOpen,
+  CheckCircle2,
   Clock,
+  FileStack,
   Gauge,
   Library,
   Plus,
+  RefreshCw,
   Route,
   Search,
   Sparkles,
+  Star,
+  TrendingUp,
   Users,
   X
 } from "lucide-react";
 import { ProcedureForm } from "@/components/procedures/ProcedureForm";
 import { categoryIcon, levelStyle } from "@/components/procedures/shared";
-import type { ProcedureCategoryCount, ProcedureListItem, ProceduresCenterData } from "@/types/procedures";
+import type {
+  OnboardingProgress,
+  ProcedureCategoryCount,
+  ProcedureListItem,
+  ProceduresCenterData,
+  ProceduresIndicators
+} from "@/types/procedures";
 
 type ProceduresCenterProps = {
   data: ProceduresCenterData;
@@ -113,15 +124,64 @@ export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
         <SearchResults results={results} query={query} onClear={() => setQuery("")} />
       ) : (
         <>
+          <Indicators indicators={data.indicators} />
           <Categories categories={data.categories} onPick={(name) => setQuery(name)} />
+          {data.favorites.length > 0 ? <Favorites procedures={data.favorites} /> : null}
           <MostAccessed procedures={data.featured} />
-          <OnboardingTrailBlock procedures={data.onboarding} />
+          <OnboardingTrailBlock procedures={data.onboarding} progress={data.onboardingProgress} readIds={data.readIds} />
           <AllProcedures procedures={data.all} />
         </>
       )}
 
       {canManage ? <ProcedureForm open={formOpen} onClose={() => setFormOpen(false)} /> : null}
     </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Indicadores                                                        */
+/* ------------------------------------------------------------------ */
+
+function Indicators({ indicators }: { indicators: ProceduresIndicators }) {
+  const cards = [
+    { icon: <Library className="h-4 w-4" />, label: "Publicados", value: String(indicators.totalPublished) },
+    { icon: <TrendingUp className="h-4 w-4" />, label: "Mais acessado", value: indicators.mostAccessedTitle ?? "—", small: true },
+    { icon: <Clock className="h-4 w-4" />, label: "Pendentes de leitura", value: String(indicators.pendingReadCount) },
+    { icon: <Route className="h-4 w-4" />, label: "Progresso funcionário novo", value: `${indicators.onboardingPercent}%` },
+    { icon: <FileStack className="h-4 w-4" />, label: "Com anexos", value: String(indicators.withAttachmentsCount) },
+    { icon: <RefreshCw className="h-4 w-4" />, label: "Atualizados (30d)", value: String(indicators.recentlyUpdatedCount) }
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+      {cards.map((card) => (
+        <div key={card.label} className="rounded-lg border border-gold/15 bg-black/40 p-3 backdrop-blur">
+          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gold/80">
+            {card.icon}
+            <span className="truncate">{card.label}</span>
+          </div>
+          <div className={`font-bold text-white ${card.small ? "truncate text-[13px]" : "text-xl tabular-nums"}`} title={card.value}>
+            {card.value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Meus favoritos                                                     */
+/* ------------------------------------------------------------------ */
+
+function Favorites({ procedures }: { procedures: ProcedureListItem[] }) {
+  return (
+    <div>
+      <SectionTitle icon={<Star className="h-4 w-4" />} title="Meus favoritos" subtitle="Procedimentos que você marcou para acesso rápido." />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {procedures.map((procedure) => (
+          <ProcedureCard key={procedure.id} procedure={procedure} />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -222,9 +282,20 @@ function ProcedureCard({ procedure }: { procedure: ProcedureListItem }) {
 /* Trilha — funcionário novo                                          */
 /* ------------------------------------------------------------------ */
 
-function OnboardingTrailBlock({ procedures }: { procedures: ProcedureListItem[] }) {
+function OnboardingTrailBlock({
+  procedures,
+  progress,
+  readIds
+}: {
+  procedures: ProcedureListItem[];
+  progress: OnboardingProgress;
+  readIds: string[];
+}) {
   if (procedures.length === 0) return null;
-  const first = procedures[0];
+  const readSet = new Set(readIds);
+  // Inicia na primeira pendente; se tudo concluído, na primeira.
+  const firstPending = procedures.find((procedure) => !readSet.has(procedure.id)) ?? procedures[0];
+
   return (
     <div className="relative overflow-hidden rounded-lg border border-gold/25 bg-[#0a0b0b] p-5 shadow-premium sm:p-6">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_92%_0%,rgba(196,154,69,0.14),transparent_20rem)]" />
@@ -237,28 +308,47 @@ function OnboardingTrailBlock({ procedures }: { procedures: ProcedureListItem[] 
             flush
           />
           <Link
-            href={detailHref(first.slug)}
+            href={detailHref(firstPending.slug)}
             className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-4 text-sm font-bold text-gold transition hover:bg-gold/25"
           >
-            <Route className="h-4 w-4" /> Iniciar trilha
+            <Route className="h-4 w-4" /> {progress.completed > 0 ? "Continuar trilha" : "Iniciar trilha"}
           </Link>
         </div>
 
+        {/* Progresso */}
+        <div className="mt-4">
+          <div className="mb-1.5 flex items-center justify-between text-[12px] font-semibold text-champagne">
+            <span>{progress.completed} de {progress.total} concluídos</span>
+            <span className="text-gold">{progress.percent}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-black/50">
+            <div className="h-full rounded-full bg-gold transition-all" style={{ width: `${progress.percent}%` }} />
+          </div>
+        </div>
+
         <ol className="mt-5 space-y-2.5">
-          {procedures.map((procedure, index) => (
-            <li key={procedure.id}>
-              <Link
-                href={detailHref(procedure.slug)}
-                className="group flex w-full items-center gap-3 rounded-lg border border-gold/15 bg-black/40 px-4 py-3 text-left transition hover:border-gold/40 hover:bg-black/55"
-              >
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-gold/40 bg-gold/10 font-serif text-sm font-bold text-gold">
-                  {index + 1}
-                </span>
-                <span className="flex-1 text-sm font-semibold text-champagne">{procedure.title}</span>
-                <ArrowRight className="h-4 w-4 text-gold opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
-              </Link>
-            </li>
-          ))}
+          {procedures.map((procedure, index) => {
+            const done = readSet.has(procedure.id);
+            return (
+              <li key={procedure.id}>
+                <Link
+                  href={detailHref(procedure.slug)}
+                  className="group flex w-full items-center gap-3 rounded-lg border border-gold/15 bg-black/40 px-4 py-3 text-left transition hover:border-gold/40 hover:bg-black/55"
+                >
+                  <span
+                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border font-serif text-sm font-bold ${
+                      done ? "border-[#3f8f6b]/50 bg-[#3f8f6b]/20 text-[#7fd0ab]" : "border-gold/40 bg-gold/10 text-gold"
+                    }`}
+                  >
+                    {done ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
+                  </span>
+                  <span className="flex-1 text-sm font-semibold text-champagne">{procedure.title}</span>
+                  {done ? <span className="text-[11px] font-semibold uppercase tracking-wide text-[#7fd0ab]">Lido</span> : null}
+                  <ArrowRight className="h-4 w-4 text-gold opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
+                </Link>
+              </li>
+            );
+          })}
         </ol>
       </div>
     </div>

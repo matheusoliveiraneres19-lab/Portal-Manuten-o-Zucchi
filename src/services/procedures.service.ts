@@ -6,13 +6,19 @@ import {
   isProcedureLevel,
   isProcedureStatus
 } from "@/constants/procedure-categories";
+import { PROCEDURE_ATTACHMENTS_BUCKET, createSignedUrl, removeObject } from "@/lib/supabase-storage";
 import type {
+  OnboardingProgress,
+  ProcedureAttachmentItem,
+  ProcedureAttachmentKind,
   ProcedureCategoryCount,
   ProcedureDetail,
+  ProcedureDetailForUser,
   ProcedureInput,
   ProcedureListFilters,
   ProcedureListItem,
-  ProceduresCenterData
+  ProceduresCenterData,
+  ProceduresIndicators
 } from "@/types/procedures";
 
 /** Erros de domínio para a camada de API mapear em 400/404/409. */
@@ -158,8 +164,11 @@ function buildWhere(filters: ProcedureListFilters): Prisma.ProcedureWhereInput {
         { title: { contains: term, mode: "insensitive" } },
         { categoryName: { contains: term, mode: "insensitive" } },
         { summary: { contains: term, mode: "insensitive" } },
+        { objective: { contains: term, mode: "insensitive" } },
+        { whenToUse: { contains: term, mode: "insensitive" } },
         { content: { contains: term, mode: "insensitive" } },
         { tags: { contains: term, mode: "insensitive" } },
+        { targetAudience: { contains: term, mode: "insensitive" } },
         { responsible: { contains: term, mode: "insensitive" } }
       ]
     });
@@ -198,6 +207,7 @@ export async function getProcedureBySlug(slug: string): Promise<ProcedureDetail 
     whenToUse: record.whenToUse,
     content: record.content,
     commonMistakes: record.commonMistakes,
+    onboardingOrder: record.onboardingOrder,
     createdAt: record.createdAt.toISOString(),
     lastReviewedAt: record.lastReviewedAt ? record.lastReviewedAt.toISOString() : null,
     nextReviewAt: record.nextReviewAt ? record.nextReviewAt.toISOString() : null
@@ -217,7 +227,7 @@ export async function getFeaturedProcedures(): Promise<ProcedureListItem[]> {
 export async function getOnboardingProcedures(): Promise<ProcedureListItem[]> {
   const rows = await prisma.procedure.findMany({
     where: { status: "Publicado", isOnboarding: true },
-    orderBy: { createdAt: "asc" },
+    orderBy: [{ onboardingOrder: "asc" }, { createdAt: "asc" }],
     select: listSelect
   });
   return rows.map(toListItem);
@@ -240,16 +250,242 @@ export async function getProcedureCategories(): Promise<ProcedureCategoryCount[]
   }));
 }
 
-/** Monta tudo o que a página da Central precisa numa só chamada. */
-export async function getProceduresCenterData(): Promise<ProceduresCenterData> {
-  const [totalPublished, categories, featured, onboarding, all] = await Promise.all([
-    prisma.procedure.count({ where: { status: "Publicado", categoryName: { not: null } } }),
-    getProcedureCategories(),
-    getFeaturedProcedures(),
-    getOnboardingProcedures(),
-    getProcedures({ sort: "recent" })
+/** Monta tudo o que a página da Central precisa numa só chamada (por usuário). */
+export async function getProceduresCenterData(userId?: string | null): Promise<ProceduresCenterData> {
+  const [totalPublished, categories, featured, onboarding, all, favorites, readIds, mostAccessed, attachedIds] =
+    await Promise.all([
+      prisma.procedure.count({ where: { status: "Publicado", categoryName: { not: null } } }),
+      getProcedureCategories(),
+      getFeaturedProcedures(),
+      getOnboardingProcedures(),
+      getProcedures({ sort: "recent" }),
+      userId ? getUserFavorites(userId) : Promise.resolve([] as ProcedureListItem[]),
+      userId ? getUserReadIds(userId) : Promise.resolve([] as string[]),
+      prisma.procedure.findFirst({
+        where: { status: "Publicado", categoryName: { not: null }, viewCount: { gt: 0 } },
+        orderBy: { viewCount: "desc" },
+        select: { title: true }
+      }),
+      prisma.procedureAttachment.findMany({ distinct: ["procedureId"], select: { procedureId: true } })
+    ]);
+
+  const readSet = new Set(readIds);
+  const publishedIds = new Set(all.map((item) => item.id));
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const onboardingCompleted = onboarding.filter((item) => readSet.has(item.id)).length;
+  const onboardingProgress: OnboardingProgress = {
+    total: onboarding.length,
+    completed: onboardingCompleted,
+    percent: onboarding.length > 0 ? Math.round((onboardingCompleted / onboarding.length) * 100) : 0
+  };
+
+  const indicators: ProceduresIndicators = {
+    totalPublished,
+    mostAccessedTitle: mostAccessed?.title ?? null,
+    pendingReadCount: all.filter((item) => !readSet.has(item.id)).length,
+    onboardingPercent: onboardingProgress.percent,
+    withAttachmentsCount: attachedIds.filter((row) => publishedIds.has(row.procedureId)).length,
+    recentlyUpdatedCount: all.filter((item) => new Date(item.updatedAt) >= thirtyDaysAgo).length
+  };
+
+  return { totalPublished, categories, featured, onboarding, all, favorites, readIds, onboardingProgress, indicators };
+}
+
+/* ------------------------------------------------------------------ */
+/* Materiais de apoio (anexos)                                        */
+/* ------------------------------------------------------------------ */
+
+/** Resolve um id OU slug para o id real do procedimento (público). */
+export async function resolveProcedureId(idOrSlug: string): Promise<string | null> {
+  const record = await resolveId(idOrSlug);
+  return record?.id ?? null;
+}
+
+const YOUTUBE_RE = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})/;
+const VIMEO_RE = /vimeo\.com\/(?:video\/)?(\d+)/;
+
+function embedUrlFor(url: string): string | null {
+  const yt = url.match(YOUTUBE_RE);
+  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
+  const vimeo = url.match(VIMEO_RE);
+  if (vimeo) return `https://player.vimeo.com/video/${vimeo[1]}`;
+  return null;
+}
+
+function attachmentKind(fileType: string, url: string): ProcedureAttachmentKind {
+  if (fileType.startsWith("image/")) return "image";
+  if (fileType === "application/pdf") return "pdf";
+  if (fileType.startsWith("video/")) return "video";
+  if (fileType === "link") return embedUrlFor(url) ? "video" : "link";
+  return "link";
+}
+
+type AttachmentRecord = {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileUrl: string;
+  fileSize: number | null;
+  description: string | null;
+  createdAt: Date;
+};
+
+async function toAttachmentItem(record: AttachmentRecord): Promise<ProcedureAttachmentItem> {
+  const isExternal = record.fileType === "link";
+  let url = record.fileUrl;
+  if (!isExternal) {
+    try {
+      // URL assinada de 1h (material de treinamento, não dado pessoal). Regerada a cada load.
+      url = await createSignedUrl(record.fileUrl, 3600, PROCEDURE_ATTACHMENTS_BUCKET);
+    } catch {
+      url = "";
+    }
+  }
+  return {
+    id: record.id,
+    fileName: record.fileName,
+    fileType: record.fileType,
+    fileSize: record.fileSize,
+    description: record.description,
+    kind: attachmentKind(record.fileType, record.fileUrl),
+    isExternal,
+    url,
+    embedUrl: isExternal ? embedUrlFor(record.fileUrl) : null,
+    createdAt: record.createdAt.toISOString()
+  };
+}
+
+export async function getProcedureAttachments(procedureId: string): Promise<ProcedureAttachmentItem[]> {
+  const rows = await prisma.procedureAttachment.findMany({
+    where: { procedureId },
+    orderBy: { createdAt: "asc" }
+  });
+  return Promise.all(rows.map(toAttachmentItem));
+}
+
+export async function createAttachmentRecord(input: {
+  procedureId: string;
+  fileName: string;
+  fileType: string;
+  fileUrl: string;
+  fileSize?: number | null;
+  description?: string | null;
+}): Promise<ProcedureAttachmentItem> {
+  const created = await prisma.procedureAttachment.create({
+    data: {
+      procedureId: input.procedureId,
+      fileName: input.fileName,
+      fileType: input.fileType,
+      fileUrl: input.fileUrl,
+      fileSize: input.fileSize ?? null,
+      description: input.description ?? null
+    }
+  });
+  return toAttachmentItem(created);
+}
+
+/** Cria um anexo do tipo LINK externo (ex.: vídeo do YouTube). */
+export async function createLinkAttachment(input: {
+  procedureId: string;
+  url: string;
+  fileName?: string | null;
+  description?: string | null;
+}): Promise<ProcedureAttachmentItem> {
+  const url = input.url.trim();
+  if (!/^https?:\/\//i.test(url)) throw new ProcedureValidationError("Informe uma URL válida (http/https).");
+  return createAttachmentRecord({
+    procedureId: input.procedureId,
+    fileName: input.fileName?.trim() || url,
+    fileType: "link",
+    fileUrl: url,
+    description: input.description ?? null
+  });
+}
+
+/** Busca o registro cru de um anexo (para excluir o objeto do Storage). */
+export async function getAttachmentRecord(attId: string) {
+  return prisma.procedureAttachment.findUnique({ where: { id: attId } });
+}
+
+export async function deleteAttachmentRecord(attId: string): Promise<void> {
+  await prisma.procedureAttachment.delete({ where: { id: attId } });
+}
+
+/* ------------------------------------------------------------------ */
+/* Favoritos                                                          */
+/* ------------------------------------------------------------------ */
+
+/** Alterna o favorito do usuário. Retorna o estado final (favoritado ou não). */
+export async function toggleFavorite(userId: string, procedureId: string): Promise<{ favorited: boolean }> {
+  const existing = await prisma.procedureFavorite.findUnique({
+    where: { userId_procedureId: { userId, procedureId } },
+    select: { id: true }
+  });
+  if (existing) {
+    await prisma.procedureFavorite.delete({ where: { id: existing.id } });
+    return { favorited: false };
+  }
+  await prisma.procedureFavorite.create({ data: { userId, procedureId } });
+  return { favorited: true };
+}
+
+export async function getUserFavorites(userId: string): Promise<ProcedureListItem[]> {
+  const favorites = await prisma.procedureFavorite.findMany({
+    where: { userId, procedure: { status: "Publicado", categoryName: { not: null } } },
+    orderBy: { createdAt: "desc" },
+    select: { procedure: { select: listSelect } }
+  });
+  return favorites.map((favorite) => toListItem(favorite.procedure));
+}
+
+export async function isFavorited(userId: string, procedureId: string): Promise<boolean> {
+  const existing = await prisma.procedureFavorite.findUnique({
+    where: { userId_procedureId: { userId, procedureId } },
+    select: { id: true }
+  });
+  return Boolean(existing);
+}
+
+/* ------------------------------------------------------------------ */
+/* Confirmação de leitura ("Li e estou ciente")                       */
+/* ------------------------------------------------------------------ */
+
+export async function confirmRead(userId: string, procedureId: string): Promise<{ confirmedAt: string }> {
+  const record = await prisma.procedureReadConfirmation.upsert({
+    where: { userId_procedureId: { userId, procedureId } },
+    update: {},
+    create: { userId, procedureId }
+  });
+  return { confirmedAt: record.confirmedAt.toISOString() };
+}
+
+export async function getReadConfirmedAt(userId: string, procedureId: string): Promise<string | null> {
+  const record = await prisma.procedureReadConfirmation.findUnique({
+    where: { userId_procedureId: { userId, procedureId } },
+    select: { confirmedAt: true }
+  });
+  return record ? record.confirmedAt.toISOString() : null;
+}
+
+export async function getUserReadIds(userId: string): Promise<string[]> {
+  const rows = await prisma.procedureReadConfirmation.findMany({ where: { userId }, select: { procedureId: true } });
+  return rows.map((row) => row.procedureId);
+}
+
+/** Detalhe + estado do usuário (favorito/leitura) + materiais de apoio. */
+export async function getProcedureDetailForUser(
+  slug: string,
+  userId?: string | null
+): Promise<ProcedureDetailForUser | null> {
+  const detail = await getProcedureBySlug(slug);
+  if (!detail) return null;
+  const [attachments, favorite, readConfirmedAt] = await Promise.all([
+    getProcedureAttachments(detail.id),
+    userId ? isFavorited(userId, detail.id) : Promise.resolve(false),
+    userId ? getReadConfirmedAt(userId, detail.id) : Promise.resolve(null)
   ]);
-  return { totalPublished, categories, featured, onboarding, all };
+  return { ...detail, attachments, isFavorite: favorite, readConfirmedAt };
 }
 
 /* ------------------------------------------------------------------ */
@@ -311,6 +547,15 @@ function normalizeInput(input: ProcedureInput, partial = false): Prisma.Procedur
       data.estimatedMinutes = Math.round(minutes);
     }
   }
+  if (input.onboardingOrder !== undefined) {
+    if (input.onboardingOrder === null || input.onboardingOrder === ("" as unknown)) {
+      data.onboardingOrder = null;
+    } else {
+      const order = Number(input.onboardingOrder);
+      if (!Number.isFinite(order) || order < 0) throw new ProcedureValidationError("Ordem da trilha inválida.");
+      data.onboardingOrder = Math.round(order);
+    }
+  }
   if (input.tags !== undefined) data.tags = serializeTags(input.tags);
   if (input.isFeatured !== undefined) data.isFeatured = Boolean(input.isFeatured);
   if (input.isOnboarding !== undefined) data.isOnboarding = Boolean(input.isOnboarding);
@@ -341,7 +586,8 @@ export async function createProcedure(input: ProcedureInput): Promise<ProcedureD
       estimatedMinutes: (data.estimatedMinutes as number | null) ?? null,
       tags: (data.tags as string | null) ?? null,
       isFeatured: Boolean(data.isFeatured),
-      isOnboarding: Boolean(data.isOnboarding)
+      isOnboarding: Boolean(data.isOnboarding),
+      onboardingOrder: (data.onboardingOrder as number | null) ?? null
     }
   });
 

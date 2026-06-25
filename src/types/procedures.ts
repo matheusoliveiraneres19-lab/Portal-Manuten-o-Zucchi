@@ -18,6 +18,26 @@ export type ProcedureListItem = {
   updatedAt: string;
 };
 
+/** Tipo de material de apoio para a UI escolher como renderizar. */
+export type ProcedureAttachmentKind = "image" | "pdf" | "video" | "link";
+
+/** Material de apoio com URL já resolvida (assinada para uploads, direta para links). */
+export type ProcedureAttachmentItem = {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number | null;
+  description: string | null;
+  kind: ProcedureAttachmentKind;
+  /** true quando é link externo (não está no Storage). */
+  isExternal: boolean;
+  /** URL para abrir/baixar/exibir (assinada e temporária quando é upload). */
+  url: string;
+  /** URL de incorporação (embed) quando reconhecida (YouTube/Vimeo). */
+  embedUrl: string | null;
+  createdAt: string;
+};
+
 /** Procedimento completo (página de detalhe). */
 export type ProcedureDetail = ProcedureListItem & {
   summary: string | null;
@@ -25,9 +45,34 @@ export type ProcedureDetail = ProcedureListItem & {
   whenToUse: string | null;
   content: string | null;
   commonMistakes: string | null;
+  onboardingOrder: number | null;
   createdAt: string;
   lastReviewedAt: string | null;
   nextReviewAt: string | null;
+};
+
+/** Detalhe + estado do usuário atual (favorito, leitura) + materiais de apoio. */
+export type ProcedureDetailForUser = ProcedureDetail & {
+  attachments: ProcedureAttachmentItem[];
+  isFavorite: boolean;
+  readConfirmedAt: string | null;
+};
+
+/** Progresso da trilha de funcionário novo para o usuário atual. */
+export type OnboardingProgress = {
+  total: number;
+  completed: number;
+  percent: number;
+};
+
+/** Indicadores discretos do topo da Central. */
+export type ProceduresIndicators = {
+  totalPublished: number;
+  mostAccessedTitle: string | null;
+  pendingReadCount: number;
+  onboardingPercent: number;
+  withAttachmentsCount: number;
+  recentlyUpdatedCount: number;
 };
 
 /** Contagem por categoria (cards de categoria). */
@@ -66,6 +111,7 @@ export type ProcedureInput = {
   tags?: string[] | string | null;
   isFeatured?: boolean;
   isOnboarding?: boolean;
+  onboardingOrder?: number | null;
 };
 
 /** Resumo para a página da Central (montado no service). */
@@ -75,4 +121,10 @@ export type ProceduresCenterData = {
   featured: ProcedureListItem[];
   onboarding: ProcedureListItem[];
   all: ProcedureListItem[];
+  /** Favoritos do usuário atual. */
+  favorites: ProcedureListItem[];
+  /** IDs de procedimentos que o usuário já confirmou leitura. */
+  readIds: string[];
+  onboardingProgress: OnboardingProgress;
+  indicators: ProceduresIndicators;
 };

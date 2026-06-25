@@ -44,6 +44,7 @@ type Seed = {
   tags: string[];
   isFeatured?: boolean;
   isOnboarding?: boolean;
+  onboardingOrder?: number;
 };
 
 const SEEDS: Seed[] = [
@@ -62,7 +63,8 @@ const SEEDS: Seed[] = [
       "1. Identifique todas as fontes de energia do equipamento.\n2. Desligue o equipamento pelo comando local.\n3. Aplique o bloqueio físico no dispositivo de seccionamento.\n4. Coloque a etiqueta de bloqueio com seu nome e data.\n5. Teste a ausência de energia (tente acionar — deve permanecer parado).\n6. Só então inicie a intervenção.\n7. Ao final, remova o bloqueio apenas você, conferindo a área antes de religar.",
     commonMistakes: "Confiar apenas no botão de parada; não testar a ausência de energia; outro colega remover seu bloqueio.",
     tags: ["bloqueio", "loto", "segurança", "energia", "lockout"],
-    isOnboarding: true
+    isOnboarding: true,
+    onboardingOrder: 1
   },
   {
     slug: "como-preencher-corretamente-uma-os",
@@ -80,7 +82,8 @@ const SEEDS: Seed[] = [
     commonMistakes: "Descrições genéricas ('consertado'); não informar causa; esquecer de apontar horas.",
     tags: ["os", "ordem de serviço", "descrição", "preencher"],
     isFeatured: true,
-    isOnboarding: true
+    isOnboarding: true,
+    onboardingOrder: 2
   },
   {
     slug: "como-apontar-horas-no-sap-fiori",
@@ -98,7 +101,8 @@ const SEEDS: Seed[] = [
     commonMistakes: "Apontar na operação errada; lançar horas no dia errado; esquecer de salvar.",
     tags: ["sap", "fiori", "apontamento", "horas", "apontar horas"],
     isFeatured: true,
-    isOnboarding: true
+    isOnboarding: true,
+    onboardingOrder: 3
   },
   {
     slug: "como-alterar-status-para-manutencao-mecanica-no-pc-factory",
@@ -115,7 +119,8 @@ const SEEDS: Seed[] = [
       "1. Selecione o recurso/máquina no PC-Factory.\n2. Abra a troca de status.\n3. Escolha 'Manutenção Mecânica'.\n4. Confirme o horário de início.\n5. Ao concluir, altere para o status seguinte (produção ou aguardando).",
     commonMistakes: "Deixar a máquina em 'Aguardando Manutenção' durante o reparo; esquecer de encerrar o status.",
     tags: ["pc-factory", "status", "manutenção mecânica", "mecânica"],
-    isOnboarding: true
+    isOnboarding: true,
+    onboardingOrder: 4
   },
   {
     slug: "como-fechar-uma-ordem-de-manutencao",
@@ -133,7 +138,8 @@ const SEEDS: Seed[] = [
     commonMistakes: "Fechar sem apontar horas; fechar com pendência de material em aberto.",
     tags: ["os", "ordem", "fechar", "encerrar", "finalizar"],
     isFeatured: true,
-    isOnboarding: true
+    isOnboarding: true,
+    onboardingOrder: 5
   },
   {
     slug: "como-consultar-historico-de-equipamento",
@@ -243,6 +249,7 @@ async function main() {
       status: "Publicado",
       isFeatured: Boolean(seed.isFeatured),
       isOnboarding: Boolean(seed.isOnboarding),
+      onboardingOrder: seed.onboardingOrder ?? null,
       active: true
     };
 

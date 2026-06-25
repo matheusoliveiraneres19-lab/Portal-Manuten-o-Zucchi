@@ -6,13 +6,11 @@ import {
   createProcedure,
   getProcedures
 } from "@/services/procedures.service";
+import { PROCEDURE_WRITE_ROLES } from "@/constants/procedure-categories";
 import type { ProcedureSort } from "@/types/procedures";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** Papéis autorizados a criar/editar/excluir procedimentos. */
-export const PROCEDURE_WRITE_ROLES = ["ADMIN", "GESTOR"];
 
 function parseSort(value: string | null): ProcedureSort | undefined {
   return value === "popular" || value === "title" || value === "recent" ? value : undefined;

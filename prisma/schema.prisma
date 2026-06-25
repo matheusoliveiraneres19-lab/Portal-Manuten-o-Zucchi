@@ -723,12 +723,18 @@ model Procedure {
   tags             String?
   isFeatured       Boolean   @default(false)
   isOnboarding     Boolean   @default(false)
+  /// Ordem na trilha "Primeiros passos para funcionário novo" (fase 03).
+  onboardingOrder  Int?
   viewCount        Int       @default(0)
   lastReviewedAt   DateTime?
   nextReviewAt     DateTime?
 
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
+
+  attachments       ProcedureAttachment[]
+  favorites         ProcedureFavorite[]
+  readConfirmations ProcedureReadConfirmation[]
 
   @@index([category])
   @@index([active])
@@ -737,6 +743,49 @@ model Procedure {
   @@index([categoryName])
   @@index([isFeatured])
   @@index([isOnboarding])
+}
+
+/// Material de apoio de um procedimento (fase 03). Arquivos ficam no Supabase Storage
+/// (bucket privado); `fileUrl` guarda o caminho do objeto (uploads) ou a URL externa
+/// (fileType = "link", ex.: vídeo do YouTube). Nada é salvo no repositório.
+model ProcedureAttachment {
+  id          String    @id @default(cuid())
+  procedureId String
+  fileName    String
+  fileType    String
+  fileUrl     String
+  fileSize    Int?
+  description String?
+  createdAt   DateTime  @default(now())
+  procedure   Procedure @relation(fields: [procedureId], references: [id], onDelete: Cascade)
+
+  @@index([procedureId])
+}
+
+/// Favorito de um procedimento por usuário (fase 03).
+model ProcedureFavorite {
+  id          String    @id @default(cuid())
+  userId      String
+  procedureId String
+  createdAt   DateTime  @default(now())
+  procedure   Procedure @relation(fields: [procedureId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, procedureId])
+  @@index([userId])
+  @@index([procedureId])
+}
+
+/// Registro de leitura ("Li e estou ciente") de um procedimento por usuário (fase 03).
+model ProcedureReadConfirmation {
+  id          String    @id @default(cuid())
+  userId      String
+  procedureId String
+  confirmedAt DateTime  @default(now())
+  procedure   Procedure @relation(fields: [procedureId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, procedureId])
+  @@index([userId])
+  @@index([procedureId])
 }
 
 /// Registro operacional importado do PC-Factory (status/tempo de máquinas e linhas).
