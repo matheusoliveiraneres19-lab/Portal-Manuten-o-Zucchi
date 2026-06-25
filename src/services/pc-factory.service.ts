@@ -472,8 +472,10 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
       dataQualityIssue: !hasPlanned
         ? "Sem tempo planejado no período — MTBF/disponibilidade não calculáveis."
         : maintenanceDowntimeHours > plannedHours
-          ? "Paradas de manutenção excedem o tempo planejado."
-          : null
+          ? "Paradas de manutenção excedem o tempo planejado (verificar importação)."
+          : operatingHours <= 0
+            ? "Toda a base de tempo é manutenção (sem produção) — MTBF/disponibilidade pouco representativos."
+            : null
     });
   }
 
