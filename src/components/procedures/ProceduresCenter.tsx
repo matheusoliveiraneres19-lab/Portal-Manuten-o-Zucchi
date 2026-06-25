@@ -2,7 +2,10 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
+  AlertTriangle,
   ArrowRight,
   BookOpen,
   CheckCircle2,
@@ -10,6 +13,9 @@ import {
   FileStack,
   Gauge,
   Library,
+  Loader2,
+  MoreVertical,
+  Pencil,
   Plus,
   RefreshCw,
   Route,
@@ -17,6 +23,7 @@ import {
   Sparkles,
   Star,
   TrendingUp,
+  Trash2,
   Users,
   X
 } from "lucide-react";
@@ -25,10 +32,17 @@ import { categoryIcon, levelStyle } from "@/components/procedures/shared";
 import type {
   OnboardingProgress,
   ProcedureCategoryCount,
+  ProcedureDetail,
   ProcedureListItem,
   ProceduresCenterData,
   ProceduresIndicators
 } from "@/types/procedures";
+
+/** Ações de gestão (Editar/Excluir) propagadas até os cards. null = sem permissão. */
+type CardActions = {
+  onEdit: (procedure: ProcedureListItem) => void;
+  onDelete: (procedure: ProcedureListItem) => void;
+} | null;
 
 type ProceduresCenterProps = {
   data: ProceduresCenterData;
@@ -59,8 +73,12 @@ function detailHref(slug: string): string {
 }
 
 export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<ProcedureDetail | null>(null);
+  const [deleting, setDeleting] = useState<ProcedureListItem | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const tokens = useMemo(() => normalize(query).split(/\s+/).filter(Boolean), [query]);
   const isSearching = tokens.length > 0;
@@ -72,6 +90,48 @@ export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
       return tokens.every((token) => hay.includes(token));
     });
   }, [tokens, isSearching, data.all]);
+
+  // Editar: busca o detalhe completo (cards só têm o resumo) e abre o modal.
+  async function openEdit(procedure: ProcedureListItem) {
+    try {
+      const response = await fetch(`/api/procedures/${encodeURIComponent(procedure.slug)}`);
+      const data = (await response.json().catch(() => null)) as { ok?: boolean; procedure?: ProcedureDetail } | null;
+      if (!response.ok || !data?.ok || !data.procedure) {
+        toast.error("Não foi possível concluir a ação. Tente novamente.");
+        return;
+      }
+      setEditing(data.procedure);
+    } catch {
+      toast.error("Não foi possível concluir a ação. Tente novamente.");
+    }
+  }
+
+  // Excluir = arquivamento lógico (status="Arquivado"): some da Central, preserva o histórico.
+  async function confirmArchive() {
+    if (!deleting) return;
+    setDeleteLoading(true);
+    try {
+      const response = await fetch(`/api/procedures/${deleting.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Arquivado" })
+      });
+      const data = (await response.json().catch(() => null)) as { ok?: boolean } | null;
+      if (!response.ok || !data?.ok) {
+        toast.error("Não foi possível concluir a ação. Tente novamente.");
+        return;
+      }
+      toast.success("Procedimento removido da Central de Procedimentos.");
+      setDeleting(null);
+      router.refresh();
+    } catch {
+      toast.error("Não foi possível concluir a ação. Tente novamente.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
+  const actions: CardActions = canManage ? { onEdit: openEdit, onDelete: (procedure) => setDeleting(procedure) } : null;
 
   return (
     <section className="space-y-6 text-[#F8F3E7]">
@@ -130,18 +190,78 @@ export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
       </header>
 
       {isSearching ? (
-        <SearchResults results={results} query={query} onClear={() => setQuery("")} />
+        <SearchResults results={results} query={query} onClear={() => setQuery("")} actions={actions} />
       ) : (
         <>
           <Indicators indicators={data.indicators} />
           <Categories categories={data.categories} onPick={(name) => setQuery(name)} />
-          {data.favorites.length > 0 ? <Favorites procedures={data.favorites} /> : null}
+          {data.favorites.length > 0 ? <Favorites procedures={data.favorites} actions={actions} /> : null}
           <OnboardingTrailBlock procedures={data.onboarding} progress={data.onboardingProgress} readIds={data.readIds} />
         </>
       )}
 
-      {canManage ? <ProcedureForm open={formOpen} onClose={() => setFormOpen(false)} /> : null}
+      {canManage ? (
+        <>
+          {/* Criar (botão Novo Procedimento) */}
+          <ProcedureForm open={formOpen} onClose={() => setFormOpen(false)} />
+          {/* Editar (a partir do card) */}
+          <ProcedureForm open={editing !== null} initial={editing} onClose={() => setEditing(null)} />
+          {deleting ? (
+            <DeleteConfirm title={deleting.title} loading={deleteLoading} onCancel={() => setDeleting(null)} onConfirm={confirmArchive} />
+          ) : null}
+        </>
+      ) : null}
     </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Confirmação de exclusão                                            */
+/* ------------------------------------------------------------------ */
+
+function DeleteConfirm({
+  title,
+  loading,
+  onCancel,
+  onConfirm
+}: {
+  title: string;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#15130E] to-[#0E0D0A] p-5 shadow-[0_24px_60px_rgba(0,0,0,0.5)]">
+        <div className="mb-3 flex items-center gap-2">
+          <span className="grid h-9 w-9 place-items-center rounded-lg border border-danger/40 bg-danger/10 text-danger">
+            <AlertTriangle className="h-5 w-5" />
+          </span>
+          <h2 className="font-serif text-lg font-semibold text-[#F8F3E7]">Excluir procedimento</h2>
+        </div>
+        <p className="text-sm leading-relaxed text-[#D7CDBA]">
+          Tem certeza que deseja excluir <strong className="text-white">{title}</strong>? Essa ação não poderá ser desfeita.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="h-10 rounded-lg border border-[#C6A24A]/30 px-4 text-sm font-semibold text-[#D7CDBA] transition hover:border-[#D6AA3A]/55 hover:text-white"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-danger/50 bg-danger/15 px-4 text-sm font-bold text-danger transition hover:bg-danger/25 disabled:opacity-60"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Excluir procedimento
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -182,13 +302,13 @@ function Indicators({ indicators }: { indicators: ProceduresIndicators }) {
 /* Meus favoritos                                                     */
 /* ------------------------------------------------------------------ */
 
-function Favorites({ procedures }: { procedures: ProcedureListItem[] }) {
+function Favorites({ procedures, actions }: { procedures: ProcedureListItem[]; actions: CardActions }) {
   return (
     <div>
       <SectionTitle icon={<Star className="h-4 w-4" />} title="Meus favoritos" subtitle="Procedimentos que você marcou para acesso rápido." />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {procedures.map((procedure) => (
-          <ProcedureCard key={procedure.id} procedure={procedure} />
+          <ProcedureCard key={procedure.id} procedure={procedure} actions={actions} />
         ))}
       </div>
     </div>
@@ -232,10 +352,53 @@ function Categories({ categories, onPick }: { categories: ProcedureCategoryCount
   );
 }
 
-function ProcedureCard({ procedure }: { procedure: ProcedureListItem }) {
+/** Menu discreto de 3 pontos com Editar/Excluir (somente ADMIN/Gestão). */
+function CardMenu({ procedure, actions }: { procedure: ProcedureListItem; actions: NonNullable<CardActions> }) {
+  const [open, setOpen] = useState(false);
   return (
-    <article className={`flex h-full flex-col p-4 ${CARD} ${CARD_HOVER}`}>
-      <div className="mb-2 flex flex-wrap items-center gap-2">
+    <div className="absolute right-2 top-2 z-20">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-label="Ações do procedimento"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="grid h-7 w-7 place-items-center rounded-md border border-[#C6A24A]/30 bg-black/40 text-[#D7CDBA] transition hover:border-[#D6AA3A]/55 hover:text-white"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+      {open ? (
+        <>
+          <button type="button" aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} />
+          <div role="menu" className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-lg border border-[#C6A24A]/30 bg-[#15130E] shadow-[0_16px_40px_rgba(0,0,0,0.5)]">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => { setOpen(false); actions.onEdit(procedure); }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] font-semibold text-[#D7CDBA] transition hover:bg-[#1F1B13] hover:text-white"
+            >
+              <Pencil className="h-3.5 w-3.5 text-[#D6AA3A]" /> Editar
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => { setOpen(false); actions.onDelete(procedure); }}
+              className="flex w-full items-center gap-2 border-t border-[#C6A24A]/15 px-3 py-2 text-left text-[12px] font-semibold text-danger transition hover:bg-danger/10"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Excluir
+            </button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function ProcedureCard({ procedure, actions }: { procedure: ProcedureListItem; actions?: CardActions }) {
+  return (
+    <article className={`relative flex h-full flex-col p-4 ${CARD} ${CARD_HOVER}`}>
+      {actions ? <CardMenu procedure={procedure} actions={actions} /> : null}
+      <div className={`mb-2 flex flex-wrap items-center gap-2 ${actions ? "pr-8" : ""}`}>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 px-2.5 py-0.5 text-[11px] font-semibold text-[#F6D98B]">
           {procedure.categoryName}
         </span>
@@ -349,7 +512,7 @@ function OnboardingTrailBlock({
 /* Resultados da busca + empty state                                  */
 /* ------------------------------------------------------------------ */
 
-function SearchResults({ results, query, onClear }: { results: ProcedureListItem[]; query: string; onClear: () => void }) {
+function SearchResults({ results, query, onClear, actions }: { results: ProcedureListItem[]; query: string; onClear: () => void; actions: CardActions }) {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -376,7 +539,7 @@ function SearchResults({ results, query, onClear }: { results: ProcedureListItem
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {results.map((procedure) => (
-            <ProcedureCard key={procedure.id} procedure={procedure} />
+            <ProcedureCard key={procedure.id} procedure={procedure} actions={actions} />
           ))}
         </div>
       )}

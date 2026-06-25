@@ -134,7 +134,7 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
         return;
       }
 
-      toast.success(isEditing ? "Procedimento atualizado." : "Procedimento criado.");
+      toast.success(isEditing ? "Procedimento atualizado com sucesso." : "Procedimento criado com sucesso.");
       onClose();
       router.refresh();
       if (data.procedure?.slug) onSaved?.(data.procedure.slug);
