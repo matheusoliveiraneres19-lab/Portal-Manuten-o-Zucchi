@@ -16,7 +16,6 @@ import { PcFactoryImportModal } from "@/components/pc-factory/PcFactoryImportMod
 import { PcFactoryQualityPanel } from "@/components/pc-factory/PcFactoryQualityPanel";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import { PC_FACTORY_CATEGORY_LABELS } from "@/utils/pc-factory-normalizer";
-import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryPageData, PcFactoryResourceDetails, PcFactoryStatusCategory } from "@/types/pc-factory";
 
 const PcFactoryStatusChart = dynamic(() => import("@/components/pc-factory/PcFactoryStatusChart").then((m) => m.PcFactoryStatusChart), {
@@ -27,21 +26,9 @@ const PcFactoryMaintenanceSplitChart = dynamic(
   () => import("@/components/pc-factory/PcFactoryMaintenanceSplitChart").then((m) => m.PcFactoryMaintenanceSplitChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-7" /> }
 );
-const PcFactoryRankingChart = dynamic(() => import("@/components/pc-factory/PcFactoryRankingChart").then((m) => m.PcFactoryRankingChart), {
-  ssr: false,
-  loading: () => <ChartSkeleton className="xl:col-span-6" />
-});
 const PcFactoryCriticalMachinesStackedChart = dynamic(
   () =>
     import("@/components/pc-factory/PcFactoryCriticalMachinesStackedChart").then((m) => m.PcFactoryCriticalMachinesStackedChart),
-  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
-);
-const PcFactoryLineSummaryChart = dynamic(
-  () => import("@/components/pc-factory/PcFactoryLineSummaryChart").then((m) => m.PcFactoryLineSummaryChart),
-  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
-);
-const PcFactoryGroupChart = dynamic(
-  () => import("@/components/pc-factory/PcFactoryGroupChart").then((m) => m.PcFactoryGroupChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
 );
 const PcFactoryCompositionChart = dynamic(
@@ -250,50 +237,8 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
               rows={data.criticalResources}
               onSelect={openDetails}
             />
-            <PcFactoryRankingChart
-              className="xl:col-span-6"
-              title="Top manutenção mecânica"
-              subtitle="Top 10 máquinas por horas em Manutenção Mecânica."
-              rows={data.topMechanical}
-              metric="mechanicalHours"
-              color={PC_FACTORY_COLORS.MANUTENCAO_MECANICA}
-              emptyDescription="Sem manutenção mecânica no período."
-              onSelect={openDetails}
-            />
-            <PcFactoryRankingChart
-              className="xl:col-span-6"
-              title="Top manutenção elétrica"
-              subtitle="Top 10 máquinas por horas em Manutenção Elétrica."
-              rows={data.topElectrical}
-              metric="electricalHours"
-              color={PC_FACTORY_COLORS.MANUTENCAO_ELETRICA}
-              emptyDescription="Sem manutenção elétrica no período."
-              onSelect={openDetails}
-            />
-            <PcFactoryRankingChart
-              className="xl:col-span-6"
-              title="Top manutenção automação"
-              subtitle="Top 10 máquinas por horas em Manutenção Automação."
-              rows={data.topAutomation}
-              metric="automationHours"
-              color={PC_FACTORY_COLORS.MANUTENCAO_AUTOMACAO}
-              emptyDescription="Sem manutenção de automação no período."
-              onSelect={openDetails}
-            />
-            <PcFactoryRankingChart
-              className="xl:col-span-6"
-              title="Top máquinas aguardando manutenção"
-              subtitle="Top 10 máquinas por horas em Aguardando Manutenção."
-              rows={data.topWaiting}
-              metric="waitingHours"
-              color={PC_FACTORY_COLORS.AGUARDANDO_MANUTENCAO}
-              emptyDescription="Sem espera por manutenção no período."
-              onSelect={openDetails}
-            />
-
-            <PcFactoryGroupChart className="xl:col-span-6" rows={data.groupSummary} />
-            <PcFactoryLineSummaryChart className="xl:col-span-6" rows={data.productionLines} />
             <PcFactoryCompositionChart className="xl:col-span-6" rows={data.productionLines} />
+
             <PcFactoryTrendChart className="xl:col-span-12" points={data.trend} />
           </section>
 
