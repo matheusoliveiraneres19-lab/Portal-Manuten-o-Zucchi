@@ -229,7 +229,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
             <PcFactoryStatusChart className="xl:col-span-5" slices={data.statusDistribution} />
             <PcFactoryMaintenanceSplitChart className="xl:col-span-7" split={data.maintenanceSplit} />
 
-            <PcFactoryReliabilityTable className="xl:col-span-6" rows={data.criticalResources} onSelect={openDetails} />
+            <PcFactoryReliabilityTable className="xl:col-span-6" rows={data.reliabilityByMachine} onSelect={openDetails} />
             <PcFactoryRootCauseChart className="xl:col-span-6" rows={data.rootCausePareto} />
 
             <PcFactoryCriticalMachinesStackedChart

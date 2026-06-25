@@ -156,6 +156,49 @@ export type PcFactoryResourceRow = {
   availabilityPercent: number | null;
 };
 
+/**
+ * Confiabilidade por máquina (dashboard "Confiabilidade por Máquina"). Segue as regras
+ * OFICIAIS do PC-Factory: base = durationHours (Tempo Decorrido); reparo = Mecânica +
+ * Elétrica + Automação + Terceiros (NÃO inclui Aguardando nem Planejada); Aguardando entra
+ * só no MTTA e nas Paradas. Tudo calculado no service central. null = não aplicável → UI "—".
+ */
+export type PcFactoryReliabilityRow = {
+  machineName: string;
+  machineCode: string | null;
+  productionLine: string | null;
+  groupPortal: string | null;
+
+  /** Tempo planejado (Tempo Decorrido) excluindo Fora de Turno e Recurso Não Programado. */
+  plannedHours: number;
+  /** plannedHours − paradas de manutenção (≥ 0). */
+  operatingHours: number;
+
+  /** Quebras = eventos de manutenção (Mec+Elét+Autom+Terceiros+Aguardando). Exclui Planejada. */
+  failureEvents: number;
+
+  /** Soma de durationHours de Mecânica+Elétrica+Automação+Terceiros (sem Aguardando). */
+  repairHours: number;
+  /** Soma de durationHours de "Aguardando Manutenção". */
+  waitingMaintenanceHours: number;
+  /** Paradas de manutenção = repairHours + waitingMaintenanceHours. */
+  maintenanceDowntimeHours: number;
+
+  /** (operatingHours / failureEvents). null = sem tempo planejado ou sem quebras. */
+  mtbf: number | null;
+  /** (repairHours / failureEvents). null = sem reparo ou sem quebras. */
+  mttr: number | null;
+  /** (waitingMaintenanceHours / failureEvents). null = sem Aguardando Manutenção. */
+  mtta: number | null;
+
+  /** Alias de maintenanceDowntimeHours (coluna "Paradas"). */
+  downtimeHours: number;
+  /** ((plannedHours − paradas de manutenção) / plannedHours) × 100. null = sem tempo planejado. */
+  availability: number | null;
+
+  /** Aviso de qualidade de dados (ex.: paradas > planejado, sem tempo planejado). */
+  dataQualityIssue: string | null;
+};
+
 /** Fatia do Pareto de causas raiz de manutenção (ordenado por horas, com % acumulado). */
 export type PcFactoryRootCauseSlice = {
   cause: string;
@@ -300,6 +343,8 @@ export type PcFactoryPageData = {
   managementTable: PcFactoryManagementGroupRow[];
   maintenanceSplit: PcFactoryMaintenanceSplit[];
   criticalResources: PcFactoryResourceRow[];
+  /** Confiabilidade por máquina (regras oficiais: MTBF/MTTR/MTTA/disponibilidade). */
+  reliabilityByMachine: PcFactoryReliabilityRow[];
   topMechanical: PcFactoryResourceRow[];
   topElectrical: PcFactoryResourceRow[];
   topAutomation: PcFactoryResourceRow[];

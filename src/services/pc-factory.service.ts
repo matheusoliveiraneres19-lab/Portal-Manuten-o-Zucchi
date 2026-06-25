@@ -31,6 +31,7 @@ import type {
   PcFactoryRecordRow,
   PcFactoryRecordsResult,
   PcFactoryReferencePeriod,
+  PcFactoryReliabilityRow,
   PcFactoryResourceDetails,
   PcFactoryResourceRow,
   PcFactoryRootCauseSlice,
@@ -379,6 +380,109 @@ function topByMaintenance(rows: PcFactoryResourceRow[]): PcFactoryTopResource {
     if (row.maintenanceHours > 0 && (!best || row.maintenanceHours > best.maintenanceHours)) best = row;
   }
   return best ? { resourceName: best.resourceName, resourceCode: best.resourceCode, hours: best.maintenanceHours } : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Confiabilidade por máquina (MTBF / MTTR / MTTA / disponibilidade)   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Indicadores de confiabilidade por máquina, alinhados às regras OFICIAIS do PC-Factory
+ * (Management View). Base de tempo = durationHours (Tempo Decorrido), via metricHours().
+ *
+ * Definições (decididas com o gestor):
+ *  - Reparo (repairHours)   = Mecânica + Elétrica + Automação + Terceiros. NÃO inclui
+ *                             "Aguardando Manutenção" nem "Manutenção Planejada".
+ *  - Aguardando (waiting)   = "Aguardando Manutenção" — entra só no MTTA e nas Paradas.
+ *  - Quebras (failureEvents)= eventos de Mecânica+Elétrica+Automação+Terceiros+Aguardando
+ *                             (exclui Planejada — manutenção preventiva não é falha).
+ *  - Paradas (downtime)     = repairHours + waitingHours.
+ *  - Tempo planejado        = Tempo Decorrido excluindo Fora de Turno e Recurso Não Programado
+ *                             (mesma regra dos cards principais — não cria regra paralela).
+ *
+ * Fórmulas:
+ *  - MTBF = (plannedHours − paradas) / quebras
+ *  - MTTR = repairHours / quebras                 (só tempo de reparo)
+ *  - MTTA = waitingHours / quebras
+ *  - Disponibilidade = (plannedHours − paradas de manutenção) / plannedHours × 100
+ *
+ * Toda divisão é protegida → null quando não aplicável (UI mostra "—", nunca 0/NaN/Infinity).
+ */
+function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabilityRow[] {
+  const groups = new Map<string, AnalyticsRecord[]>();
+  for (const record of records) {
+    const list = groups.get(record.resourceName);
+    if (list) list.push(record);
+    else groups.set(record.resourceName, [record]);
+  }
+
+  const rows: PcFactoryReliabilityRow[] = [];
+  for (const [machineName, list] of Array.from(groups.entries())) {
+    let plannedHours = 0;
+    let repairHours = 0;
+    let waitingHours = 0;
+    let repairEvents = 0;
+    let waitingEvents = 0;
+
+    for (const record of list) {
+      const hours = metricHours(record); // Tempo Decorrido (durationHours) — base oficial
+      // Fora de Turno / Recurso Não Programado saem do tempo planejado (mesma regra central).
+      if (record.statusCategory === PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO) continue;
+      plannedHours += hours;
+
+      const kind = maintenanceKind(record.statusRaw);
+      if (kind === "MECANICA" || kind === "ELETRICA" || kind === "AUTOMACAO" || kind === "TERCEIROS") {
+        repairHours += hours;
+        repairEvents += 1;
+      } else if (kind === "AGUARDANDO") {
+        waitingHours += hours;
+        waitingEvents += 1;
+      }
+      // kind === "PLANEJADA" → conta só no tempo planejado (não é falha/quebra).
+    }
+
+    const failureEvents = repairEvents + waitingEvents;
+    if (failureEvents <= 0) continue; // sem quebras → fora do dashboard de confiabilidade
+
+    plannedHours = round(plannedHours);
+    repairHours = round(repairHours);
+    waitingHours = round(waitingHours);
+    const maintenanceDowntimeHours = round(repairHours + waitingHours);
+    const operatingHours = round(Math.max(0, plannedHours - maintenanceDowntimeHours));
+
+    const hasPlanned = plannedHours > 0;
+    const sample = list.find((item) => item.resourceCode) ?? list[0];
+
+    rows.push({
+      machineName,
+      machineCode: sample.resourceCode ?? null,
+      productionLine: list.find((item) => item.productionLine)?.productionLine ?? null,
+      groupPortal: list.find((item) => item.groupPortal)?.groupPortal ?? null,
+      plannedHours,
+      operatingHours,
+      failureEvents,
+      repairHours,
+      waitingMaintenanceHours: waitingHours,
+      maintenanceDowntimeHours,
+      mtbf: hasPlanned ? safeRound(operatingHours / failureEvents) : null,
+      mttr: repairHours > 0 ? safeRound(repairHours / failureEvents) : null,
+      mtta: waitingHours > 0 ? safeRound(waitingHours / failureEvents) : null,
+      downtimeHours: maintenanceDowntimeHours,
+      availability: hasPlanned ? clampPercent(((plannedHours - maintenanceDowntimeHours) / plannedHours) * 100) : null,
+      dataQualityIssue: !hasPlanned
+        ? "Sem tempo planejado no período — MTBF/disponibilidade não calculáveis."
+        : maintenanceDowntimeHours > plannedHours
+          ? "Paradas de manutenção excedem o tempo planejado."
+          : null
+    });
+  }
+
+  // Mais críticas primeiro (mais horas de parada de manutenção).
+  return rows.sort((a, b) => b.maintenanceDowntimeHours - a.maintenanceDowntimeHours);
+}
+
+export async function getPcFactoryReliabilityByMachine(params: PcFactoryQueryParams): Promise<PcFactoryReliabilityRow[]> {
+  return buildReliabilityByMachine(await loadRecords(params));
 }
 
 /* ------------------------------------------------------------------ */
@@ -989,6 +1093,7 @@ export async function getPcFactoryPageData(params: PcFactoryQueryParams = {}): P
     managementTable: buildManagementTable(records),
     maintenanceSplit: maintenanceSplitFromAggregate(agg),
     criticalResources,
+    reliabilityByMachine: buildReliabilityByMachine(records),
     topMechanical,
     topElectrical,
     topAutomation,
@@ -1100,6 +1205,7 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
     managementTable: [],
     maintenanceSplit: [],
     criticalResources: [],
+    reliabilityByMachine: [],
     topMechanical: [],
     topElectrical: [],
     topAutomation: [],
