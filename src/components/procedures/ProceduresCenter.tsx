@@ -136,9 +136,7 @@ export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
           <Indicators indicators={data.indicators} />
           <Categories categories={data.categories} onPick={(name) => setQuery(name)} />
           {data.favorites.length > 0 ? <Favorites procedures={data.favorites} /> : null}
-          <MostAccessed procedures={data.featured} />
           <OnboardingTrailBlock procedures={data.onboarding} progress={data.onboardingProgress} readIds={data.readIds} />
-          <AllProcedures procedures={data.all} />
         </>
       )}
 
@@ -229,24 +227,6 @@ function Categories({ categories, onPick }: { categories: ProcedureCategoryCount
             </button>
           );
         })}
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Mais acessados                                                     */
-/* ------------------------------------------------------------------ */
-
-function MostAccessed({ procedures }: { procedures: ProcedureListItem[] }) {
-  if (procedures.length === 0) return null;
-  return (
-    <div>
-      <SectionTitle icon={<Sparkles className="h-4 w-4" />} title="Mais acessados" subtitle="Os procedimentos mais consultados pela equipe." />
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {procedures.map((procedure) => (
-          <ProcedureCard key={procedure.id} procedure={procedure} />
-        ))}
       </div>
     </div>
   );
@@ -366,98 +346,6 @@ function OnboardingTrailBlock({
 }
 
 /* ------------------------------------------------------------------ */
-/* Todos os procedimentos                                             */
-/* ------------------------------------------------------------------ */
-
-function AllProcedures({ procedures }: { procedures: ProcedureListItem[] }) {
-  return (
-    <div>
-      <SectionTitle icon={<Library className="h-4 w-4" />} title="Todos os procedimentos" subtitle="Lista completa de procedimentos disponíveis." />
-
-      {procedures.length === 0 ? (
-        <div className={`p-8 text-center text-sm ${CARD} ${TXT_DESC}`}>
-          Ainda não há procedimentos publicados. Use “Novo Procedimento” para cadastrar o primeiro.
-        </div>
-      ) : (
-        <>
-          {/* Desktop: tabela */}
-          <div className="hidden overflow-hidden rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#15130E] to-[#0E0D0A] shadow-[0_16px_40px_rgba(0,0,0,0.35)] md:block">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className={`border-b border-[#C6A24A]/25 text-left text-[11px] font-extrabold uppercase tracking-wide ${TXT_GOLD}`}>
-                    <th className="px-4 py-3">Procedimento</th>
-                    <th className="px-3 py-3">Categoria</th>
-                    <th className="px-3 py-3">Nível</th>
-                    <th className="px-3 py-3 text-right">Leitura</th>
-                    <th className="px-3 py-3">Responsável</th>
-                    <th className="px-3 py-3">Atualização</th>
-                    <th className="px-4 py-3 text-right">Ação</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {procedures.map((procedure) => (
-                    <tr key={procedure.id} className={`border-b border-[#C6A24A]/12 transition last:border-0 hover:bg-[#1F1B13] ${TXT_DESC}`}>
-                      <td className={`px-4 py-3 font-semibold ${TXT_TITLE}`}>{procedure.title}</td>
-                      <td className={`px-3 py-3 ${TXT_DESC}`}>{procedure.categoryName}</td>
-                      <td className="px-3 py-3">
-                        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${levelStyle(procedure.level)}`}>
-                          {procedure.level}
-                        </span>
-                      </td>
-                      <td className={`px-3 py-3 text-right tabular-nums ${TXT_DESC}`}>
-                        {procedure.estimatedMinutes != null ? `${procedure.estimatedMinutes} min` : "—"}
-                      </td>
-                      <td className={`px-3 py-3 ${TXT_DESC}`}>{procedure.responsible ?? "—"}</td>
-                      <td className={`px-3 py-3 tabular-nums ${TXT_MUTED}`}>{formatDate(procedure.updatedAt)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <Link
-                          href={detailHref(procedure.slug)}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#D6AA3A]/45 px-3 text-[12px] font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/15"
-                        >
-                          Ver <ArrowRight className="h-3.5 w-3.5" />
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Mobile: cards */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:hidden">
-            {procedures.map((procedure) => (
-              <article key={procedure.id} className={`p-4 ${CARD}`}>
-                <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 px-2.5 py-0.5 text-[11px] font-semibold text-[#F6D98B]">
-                    {procedure.categoryName}
-                  </span>
-                  <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${levelStyle(procedure.level)}`}>
-                    {procedure.level}
-                  </span>
-                </div>
-                <h3 className={`text-sm font-semibold leading-snug ${TXT_TITLE}`}>{procedure.title}</h3>
-                <p className={`mt-2 text-[12px] ${TXT_DESC}`}>
-                  {procedure.estimatedMinutes != null ? `${procedure.estimatedMinutes} min · ` : ""}
-                  {procedure.responsible ?? "—"} · atualizado em {formatDate(procedure.updatedAt)}
-                </p>
-                <Link
-                  href={detailHref(procedure.slug)}
-                  className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#D6AA3A]/45 px-3 text-[12px] font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/15"
-                >
-                  Ver <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
-              </article>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /* Resultados da busca + empty state                                  */
 /* ------------------------------------------------------------------ */
 
@@ -499,11 +387,6 @@ function SearchResults({ results, query, onClear }: { results: ProcedureListItem
 /* ------------------------------------------------------------------ */
 /* Auxiliares                                                         */
 /* ------------------------------------------------------------------ */
-
-function formatDate(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("pt-BR", { timeZone: "UTC" });
-}
 
 function SectionTitle({ icon, title, subtitle, flush = false }: { icon: React.ReactNode; title: string; subtitle?: string; flush?: boolean }) {
   return (
