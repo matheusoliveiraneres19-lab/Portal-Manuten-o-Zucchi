@@ -1,77 +1,57 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
+import Link from "next/link";
 import {
   ArrowRight,
   BookOpen,
   Clock,
   Gauge,
   Library,
+  Plus,
   Route,
   Search,
   Sparkles,
   Users,
   X
 } from "lucide-react";
-import {
-  CATEGORY_BY_SLUG,
-  ONBOARDING_TRAIL,
-  PROCEDURES,
-  PROCEDURE_CATEGORIES,
-  type Procedure,
-  type ProcedureLevel
-} from "@/data/procedures";
+import { ProcedureForm } from "@/components/procedures/ProcedureForm";
+import { categoryIcon, levelStyle } from "@/components/procedures/shared";
+import type { ProcedureCategoryCount, ProcedureListItem, ProceduresCenterData } from "@/types/procedures";
 
-/** Remove acentos e caixa para a busca tolerante. */
+type ProceduresCenterProps = {
+  data: ProceduresCenterData;
+  canManage: boolean;
+};
+
 function normalize(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .trim();
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 }
 
-/** Texto pesquisável de um procedimento (título + categoria + nível + público + tags). */
-function haystack(procedure: Procedure): string {
+function haystack(procedure: ProcedureListItem): string {
   return normalize(
-    [
-      procedure.title,
-      CATEGORY_BY_SLUG[procedure.categorySlug].name,
-      procedure.level,
-      procedure.audience,
-      procedure.responsible,
-      ...procedure.tags
-    ].join(" ")
+    [procedure.title, procedure.categoryName, procedure.level, procedure.targetAudience ?? "", procedure.responsible ?? "", ...procedure.tags].join(" ")
   );
 }
 
-/** Fase 01: ainda não há conteúdo navegável — apenas confirma a ação ao usuário. */
-function comingSoon() {
-  toast("Conteúdo disponível na próxima fase.", { description: "Os passo a passo serão publicados em breve." });
+function detailHref(slug: string): string {
+  return `/dashboard/procedimentos/${encodeURIComponent(slug)}`;
 }
 
-const LEVEL_STYLES: Record<ProcedureLevel, string> = {
-  Básico: "border-[#3f8f6b]/40 bg-[#3f8f6b]/15 text-[#7fd0ab]",
-  Intermediário: "border-gold/40 bg-gold/15 text-champagne",
-  Avançado: "border-danger/40 bg-danger/15 text-danger"
-};
-
-export function ProceduresCenter() {
+export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
   const [query, setQuery] = useState("");
+  const [formOpen, setFormOpen] = useState(false);
 
   const tokens = useMemo(() => normalize(query).split(/\s+/).filter(Boolean), [query]);
   const isSearching = tokens.length > 0;
 
   const results = useMemo(() => {
     if (!isSearching) return [];
-    return PROCEDURES.filter((procedure) => {
+    return data.all.filter((procedure) => {
       const hay = haystack(procedure);
       return tokens.every((token) => hay.includes(token));
     });
-  }, [tokens, isSearching]);
-
-  const popular = useMemo(() => PROCEDURES.filter((procedure) => procedure.popular), []);
+  }, [tokens, isSearching, data.all]);
 
   return (
     <section className="space-y-6 text-champagne">
@@ -80,11 +60,22 @@ export function ProceduresCenter() {
         <div className="login-marble-bg absolute inset-0 opacity-80" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78),rgba(0,0,0,0.44)),radial-gradient(circle_at_88%_8%,rgba(196,154,69,0.16),transparent_22rem)]" />
         <div className="relative z-10">
-          <div className="mb-3 flex flex-wrap items-center gap-3 text-gold">
-            <Library className="h-5 w-5" />
-            <span className="rounded-md border border-gold/40 bg-gold/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-champagne/80">
-              Central de conhecimento da manutenção
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-3 text-gold">
+              <Library className="h-5 w-5" />
+              <span className="rounded-md border border-gold/40 bg-gold/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-champagne/80">
+                Central de conhecimento da manutenção
+              </span>
             </span>
+            {canManage ? (
+              <button
+                type="button"
+                onClick={() => setFormOpen(true)}
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-4 text-sm font-bold text-gold transition hover:bg-gold/25"
+              >
+                <Plus className="h-4 w-4" /> Novo Procedimento
+              </button>
+            ) : null}
           </div>
           <h1 className="font-serif text-3xl leading-tight text-white sm:text-4xl">Central de Procedimentos</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300 sm:text-base">
@@ -93,6 +84,9 @@ export function ProceduresCenter() {
           <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-zinc-400">
             Encontre orientações rápidas sobre SAP/Fiori, PC-Factory, ordens de serviço, segurança, manutenção mecânica,
             elétrica e lubrificação.
+          </p>
+          <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-gold/80">
+            {data.totalPublished} procedimento(s) publicado(s)
           </p>
 
           {/* Busca */}
@@ -107,12 +101,7 @@ export function ProceduresCenter() {
               className="h-14 w-full rounded-xl border border-gold/30 bg-black/50 pl-12 pr-12 text-sm text-champagne shadow-inner outline-none backdrop-blur transition placeholder:text-zinc-500 focus:border-gold/60 focus:ring-2 focus:ring-gold/30 sm:text-base"
             />
             {query ? (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label="Limpar busca"
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 transition hover:text-white"
-              >
+              <button type="button" onClick={() => setQuery("")} aria-label="Limpar busca" className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 transition hover:text-white">
                 <X className="h-5 w-5" />
               </button>
             ) : null}
@@ -124,12 +113,14 @@ export function ProceduresCenter() {
         <SearchResults results={results} query={query} onClear={() => setQuery("")} />
       ) : (
         <>
-          <Categories />
-          <MostAccessed procedures={popular} />
-          <OnboardingTrailBlock />
-          <AllProcedures procedures={PROCEDURES} />
+          <Categories categories={data.categories} onPick={(name) => setQuery(name)} />
+          <MostAccessed procedures={data.featured} />
+          <OnboardingTrailBlock procedures={data.onboarding} />
+          <AllProcedures procedures={data.all} />
         </>
       )}
+
+      {canManage ? <ProcedureForm open={formOpen} onClose={() => setFormOpen(false)} /> : null}
     </section>
   );
 }
@@ -138,18 +129,18 @@ export function ProceduresCenter() {
 /* Categorias                                                         */
 /* ------------------------------------------------------------------ */
 
-function Categories() {
+function Categories({ categories, onPick }: { categories: ProcedureCategoryCount[]; onPick: (name: string) => void }) {
   return (
     <div>
       <SectionTitle icon={<Sparkles className="h-4 w-4" />} title="Categorias" subtitle="Navegue pelos principais temas da rotina de manutenção." />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {PROCEDURE_CATEGORIES.map((category) => {
-          const Icon = category.icon;
+        {categories.map((category) => {
+          const Icon = categoryIcon(category.name);
           return (
             <button
-              key={category.slug}
+              key={category.name}
               type="button"
-              onClick={comingSoon}
+              onClick={() => onPick(category.name)}
               className="group flex h-full flex-col rounded-lg border border-gold/20 bg-black/40 p-4 text-left backdrop-blur transition hover:-translate-y-0.5 hover:border-gold/45 hover:bg-black/55"
             >
               <div className="mb-3 flex items-center justify-between">
@@ -177,7 +168,8 @@ function Categories() {
 /* Mais acessados                                                     */
 /* ------------------------------------------------------------------ */
 
-function MostAccessed({ procedures }: { procedures: Procedure[] }) {
+function MostAccessed({ procedures }: { procedures: ProcedureListItem[] }) {
+  if (procedures.length === 0) return null;
   return (
     <div>
       <SectionTitle icon={<Sparkles className="h-4 w-4" />} title="Mais acessados" subtitle="Os procedimentos mais consultados pela equipe." />
@@ -190,36 +182,38 @@ function MostAccessed({ procedures }: { procedures: Procedure[] }) {
   );
 }
 
-function ProcedureCard({ procedure }: { procedure: Procedure }) {
-  const category = CATEGORY_BY_SLUG[procedure.categorySlug];
+function ProcedureCard({ procedure }: { procedure: ProcedureListItem }) {
   return (
     <article className="flex h-full flex-col rounded-lg border border-gold/20 bg-black/40 p-4 backdrop-blur transition hover:border-gold/45">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/10 px-2.5 py-0.5 text-[11px] font-semibold text-champagne">
-          {category.name}
+          {procedure.categoryName}
         </span>
-        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${LEVEL_STYLES[procedure.level]}`}>
+        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${levelStyle(procedure.level)}`}>
           {procedure.level}
         </span>
       </div>
       <h3 className="text-sm font-bold leading-snug text-white">{procedure.title}</h3>
       <dl className="mt-3 space-y-1.5 text-[12px] text-zinc-400">
-        <div className="flex items-center gap-2">
-          <Clock className="h-3.5 w-3.5 text-gold" />
-          <span>{procedure.readingMinutes} min de leitura</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Users className="h-3.5 w-3.5 text-gold" />
-          <span>{procedure.audience}</span>
-        </div>
+        {procedure.estimatedMinutes != null ? (
+          <div className="flex items-center gap-2">
+            <Clock className="h-3.5 w-3.5 text-gold" />
+            <span>{procedure.estimatedMinutes} min de leitura</span>
+          </div>
+        ) : null}
+        {procedure.targetAudience ? (
+          <div className="flex items-center gap-2">
+            <Users className="h-3.5 w-3.5 text-gold" />
+            <span>{procedure.targetAudience}</span>
+          </div>
+        ) : null}
       </dl>
-      <button
-        type="button"
-        onClick={comingSoon}
+      <Link
+        href={detailHref(procedure.slug)}
         className="mt-4 inline-flex h-9 items-center justify-center gap-2 self-start rounded-lg border border-gold/45 bg-gold/15 px-3 text-[12px] font-bold text-gold transition hover:bg-gold/25"
       >
         <BookOpen className="h-4 w-4" /> Ver passo a passo
-      </button>
+      </Link>
     </article>
   );
 }
@@ -228,43 +222,41 @@ function ProcedureCard({ procedure }: { procedure: Procedure }) {
 /* Trilha — funcionário novo                                          */
 /* ------------------------------------------------------------------ */
 
-function OnboardingTrailBlock() {
+function OnboardingTrailBlock({ procedures }: { procedures: ProcedureListItem[] }) {
+  if (procedures.length === 0) return null;
+  const first = procedures[0];
   return (
     <div className="relative overflow-hidden rounded-lg border border-gold/25 bg-[#0a0b0b] p-5 shadow-premium sm:p-6">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_92%_0%,rgba(196,154,69,0.14),transparent_20rem)]" />
       <div className="relative z-10">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <SectionTitle
-              icon={<Route className="h-4 w-4" />}
-              title="Primeiros passos para funcionário novo"
-              subtitle="Uma trilha rápida para entender como a manutenção trabalha dentro da Zucchi."
-              flush
-            />
-          </div>
-          <button
-            type="button"
-            onClick={comingSoon}
+          <SectionTitle
+            icon={<Route className="h-4 w-4" />}
+            title="Primeiros passos para funcionário novo"
+            subtitle="Uma trilha rápida para entender como a manutenção trabalha dentro da Zucchi."
+            flush
+          />
+          <Link
+            href={detailHref(first.slug)}
             className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-4 text-sm font-bold text-gold transition hover:bg-gold/25"
           >
             <Route className="h-4 w-4" /> Iniciar trilha
-          </button>
+          </Link>
         </div>
 
         <ol className="mt-5 space-y-2.5">
-          {ONBOARDING_TRAIL.map((step) => (
-            <li key={step.order}>
-              <button
-                type="button"
-                onClick={comingSoon}
+          {procedures.map((procedure, index) => (
+            <li key={procedure.id}>
+              <Link
+                href={detailHref(procedure.slug)}
                 className="group flex w-full items-center gap-3 rounded-lg border border-gold/15 bg-black/40 px-4 py-3 text-left transition hover:border-gold/40 hover:bg-black/55"
               >
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-gold/40 bg-gold/10 font-serif text-sm font-bold text-gold">
-                  {step.order}
+                  {index + 1}
                 </span>
-                <span className="flex-1 text-sm font-semibold text-champagne">{step.title}</span>
+                <span className="flex-1 text-sm font-semibold text-champagne">{procedure.title}</span>
                 <ArrowRight className="h-4 w-4 text-gold opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
-              </button>
+              </Link>
             </li>
           ))}
         </ol>
@@ -277,87 +269,90 @@ function OnboardingTrailBlock() {
 /* Todos os procedimentos                                             */
 /* ------------------------------------------------------------------ */
 
-function AllProcedures({ procedures }: { procedures: Procedure[] }) {
+function AllProcedures({ procedures }: { procedures: ProcedureListItem[] }) {
   return (
     <div>
       <SectionTitle icon={<Library className="h-4 w-4" />} title="Todos os procedimentos" subtitle="Lista completa de procedimentos disponíveis." />
 
-      {/* Desktop: tabela */}
-      <div className="hidden overflow-hidden rounded-lg border border-gold/15 bg-black/30 backdrop-blur md:block">
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-gold/20 text-left text-[11px] font-extrabold uppercase tracking-wide text-gold/80">
-                <th className="px-4 py-3">Procedimento</th>
-                <th className="px-3 py-3">Categoria</th>
-                <th className="px-3 py-3">Nível</th>
-                <th className="px-3 py-3 text-right">Leitura</th>
-                <th className="px-3 py-3">Responsável</th>
-                <th className="px-3 py-3">Atualização</th>
-                <th className="px-4 py-3 text-right">Ação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {procedures.map((procedure) => {
-                const category = CATEGORY_BY_SLUG[procedure.categorySlug];
-                return (
-                  <tr key={procedure.id} className="border-b border-gold/10 text-zinc-200 transition last:border-0 hover:bg-gold/5">
-                    <td className="px-4 py-3 font-semibold text-white">{procedure.title}</td>
-                    <td className="px-3 py-3 text-zinc-300">{category.name}</td>
-                    <td className="px-3 py-3">
-                      <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${LEVEL_STYLES[procedure.level]}`}>
-                        {procedure.level}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-zinc-300">{procedure.readingMinutes} min</td>
-                    <td className="px-3 py-3 text-zinc-300">{procedure.responsible}</td>
-                    <td className="px-3 py-3 tabular-nums text-zinc-400">{procedure.updatedAt}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={comingSoon}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gold/40 px-3 text-[12px] font-bold text-gold transition hover:bg-gold/15"
-                      >
-                        Ver <ArrowRight className="h-3.5 w-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {procedures.length === 0 ? (
+        <div className="rounded-lg border border-gold/20 bg-black/40 p-8 text-center text-sm text-zinc-400 backdrop-blur">
+          Ainda não há procedimentos publicados. Use “Novo Procedimento” para cadastrar o primeiro.
         </div>
-      </div>
+      ) : (
+        <>
+          {/* Desktop: tabela */}
+          <div className="hidden overflow-hidden rounded-lg border border-gold/15 bg-black/30 backdrop-blur md:block">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-gold/20 text-left text-[11px] font-extrabold uppercase tracking-wide text-gold/80">
+                    <th className="px-4 py-3">Procedimento</th>
+                    <th className="px-3 py-3">Categoria</th>
+                    <th className="px-3 py-3">Nível</th>
+                    <th className="px-3 py-3 text-right">Leitura</th>
+                    <th className="px-3 py-3">Responsável</th>
+                    <th className="px-3 py-3">Atualização</th>
+                    <th className="px-4 py-3 text-right">Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {procedures.map((procedure) => (
+                    <tr key={procedure.id} className="border-b border-gold/10 text-zinc-200 transition last:border-0 hover:bg-gold/5">
+                      <td className="px-4 py-3 font-semibold text-white">{procedure.title}</td>
+                      <td className="px-3 py-3 text-zinc-300">{procedure.categoryName}</td>
+                      <td className="px-3 py-3">
+                        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${levelStyle(procedure.level)}`}>
+                          {procedure.level}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums text-zinc-300">
+                        {procedure.estimatedMinutes != null ? `${procedure.estimatedMinutes} min` : "—"}
+                      </td>
+                      <td className="px-3 py-3 text-zinc-300">{procedure.responsible ?? "—"}</td>
+                      <td className="px-3 py-3 tabular-nums text-zinc-400">{formatDate(procedure.updatedAt)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          href={detailHref(procedure.slug)}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gold/40 px-3 text-[12px] font-bold text-gold transition hover:bg-gold/15"
+                        >
+                          Ver <ArrowRight className="h-3.5 w-3.5" />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-      {/* Mobile: cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:hidden">
-        {procedures.map((procedure) => {
-          const category = CATEGORY_BY_SLUG[procedure.categorySlug];
-          return (
-            <article key={procedure.id} className="rounded-lg border border-gold/20 bg-black/40 p-4 backdrop-blur">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-gold/30 bg-gold/10 px-2.5 py-0.5 text-[11px] font-semibold text-champagne">
-                  {category.name}
-                </span>
-                <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${LEVEL_STYLES[procedure.level]}`}>
-                  {procedure.level}
-                </span>
-              </div>
-              <h3 className="text-sm font-bold leading-snug text-white">{procedure.title}</h3>
-              <p className="mt-2 text-[12px] text-zinc-400">
-                {procedure.readingMinutes} min · {procedure.responsible} · atualizado em {procedure.updatedAt}
-              </p>
-              <button
-                type="button"
-                onClick={comingSoon}
-                className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-gold/40 px-3 text-[12px] font-bold text-gold transition hover:bg-gold/15"
-              >
-                Ver <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            </article>
-          );
-        })}
-      </div>
+          {/* Mobile: cards */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:hidden">
+            {procedures.map((procedure) => (
+              <article key={procedure.id} className="rounded-lg border border-gold/20 bg-black/40 p-4 backdrop-blur">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-gold/30 bg-gold/10 px-2.5 py-0.5 text-[11px] font-semibold text-champagne">
+                    {procedure.categoryName}
+                  </span>
+                  <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${levelStyle(procedure.level)}`}>
+                    {procedure.level}
+                  </span>
+                </div>
+                <h3 className="text-sm font-bold leading-snug text-white">{procedure.title}</h3>
+                <p className="mt-2 text-[12px] text-zinc-400">
+                  {procedure.estimatedMinutes != null ? `${procedure.estimatedMinutes} min · ` : ""}
+                  {procedure.responsible ?? "—"} · atualizado em {formatDate(procedure.updatedAt)}
+                </p>
+                <Link
+                  href={detailHref(procedure.slug)}
+                  className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-gold/40 px-3 text-[12px] font-bold text-gold transition hover:bg-gold/15"
+                >
+                  Ver <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -366,7 +361,7 @@ function AllProcedures({ procedures }: { procedures: Procedure[] }) {
 /* Resultados da busca + empty state                                  */
 /* ------------------------------------------------------------------ */
 
-function SearchResults({ results, query, onClear }: { results: Procedure[]; query: string; onClear: () => void }) {
+function SearchResults({ results, query, onClear }: { results: ProcedureListItem[]; query: string; onClear: () => void }) {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -402,20 +397,15 @@ function SearchResults({ results, query, onClear }: { results: Procedure[]; quer
 }
 
 /* ------------------------------------------------------------------ */
-/* Título de seção                                                    */
+/* Auxiliares                                                         */
 /* ------------------------------------------------------------------ */
 
-function SectionTitle({
-  icon,
-  title,
-  subtitle,
-  flush = false
-}: {
-  icon: React.ReactNode;
-  title: string;
-  subtitle?: string;
-  flush?: boolean;
-}) {
+function formatDate(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("pt-BR", { timeZone: "UTC" });
+}
+
+function SectionTitle({ icon, title, subtitle, flush = false }: { icon: React.ReactNode; title: string; subtitle?: string; flush?: boolean }) {
   return (
     <div className={flush ? "" : "mb-3"}>
       <h2 className="flex items-center gap-2 font-serif text-xl text-white">

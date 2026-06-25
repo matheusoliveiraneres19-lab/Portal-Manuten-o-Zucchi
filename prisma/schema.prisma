@@ -700,17 +700,43 @@ model Procedure {
   id          String            @id @default(cuid())
   title       String
   description String?
-  category    ProcedureCategory
+  category    ProcedureCategory @default(OUTROS)
   version     String            @default("1.0")
   fileUrl     String?
   active      Boolean           @default(true)
   responsible String?
+
+  /// Central de Procedimentos (fase 02) — campos aditivos. categoryName guarda a
+  /// categoria de exibição (8 categorias da Central); o enum `category` continua para
+  /// compatibilidade com o KPI "Procedimentos Ativos" e dados legados.
+  slug             String?   @unique
+  categoryName     String?
+  summary          String?
+  objective        String?
+  whenToUse        String?
+  content          String?
+  commonMistakes   String?
+  level            String    @default("Básico")
+  estimatedMinutes Int?
+  targetAudience   String?
+  status           String    @default("Publicado")
+  tags             String?
+  isFeatured       Boolean   @default(false)
+  isOnboarding     Boolean   @default(false)
+  viewCount        Int       @default(0)
+  lastReviewedAt   DateTime?
+  nextReviewAt     DateTime?
+
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
   @@index([category])
   @@index([active])
   @@index([title])
+  @@index([status])
+  @@index([categoryName])
+  @@index([isFeatured])
+  @@index([isOnboarding])
 }
 
 /// Registro operacional importado do PC-Factory (status/tempo de máquinas e linhas).
