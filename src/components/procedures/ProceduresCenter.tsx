@@ -35,6 +35,15 @@ type ProceduresCenterProps = {
   canManage: boolean;
 };
 
+/* Classes de contraste premium reutilizadas (fundo escuro + dourado, alta legibilidade). */
+const CARD = "rounded-xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0E0D0A] shadow-[0_16px_40px_rgba(0,0,0,0.35)]";
+const CARD_HOVER = "transition hover:border-[#D6AA3A]/70 hover:bg-[#1F1B13]";
+const BADGE = "rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/15 px-2.5 py-0.5 text-[11px] font-bold text-[#F6D98B]";
+const TXT_TITLE = "text-[#F8F3E7]";
+const TXT_DESC = "text-[#D7CDBA]";
+const TXT_MUTED = "text-[#B8AD9A]";
+const TXT_GOLD = "text-[#D6AA3A]";
+
 function normalize(value: string): string {
   return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 }
@@ -65,16 +74,16 @@ export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
   }, [tokens, isSearching, data.all]);
 
   return (
-    <section className="space-y-6 text-champagne">
+    <section className="space-y-6 text-[#F8F3E7]">
       {/* Hero */}
-      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-7">
-        <div className="login-marble-bg absolute inset-0 opacity-80" />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78),rgba(0,0,0,0.44)),radial-gradient(circle_at_88%_8%,rgba(196,154,69,0.16),transparent_22rem)]" />
+      <header className="relative overflow-hidden rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#11100C] via-[#0B0A08] to-[#050504] p-5 shadow-[0_18px_45px_rgba(0,0,0,0.4)] sm:p-7">
+        <div className="login-marble-bg absolute inset-0 opacity-10" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(214,170,58,0.14),transparent_22rem)]" />
         <div className="relative z-10">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <span className="inline-flex items-center gap-3 text-gold">
+            <span className={`inline-flex items-center gap-3 ${TXT_GOLD}`}>
               <Library className="h-5 w-5" />
-              <span className="rounded-md border border-gold/40 bg-gold/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-champagne/80">
+              <span className="rounded-md border border-[#D6AA3A]/40 bg-[#D6AA3A]/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-[#F6D98B]">
                 Central de conhecimento da manutenção
               </span>
             </span>
@@ -82,37 +91,37 @@ export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
               <button
                 type="button"
                 onClick={() => setFormOpen(true)}
-                className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-4 text-sm font-bold text-gold transition hover:bg-gold/25"
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#D6AA3A]/60 bg-[#D6AA3A]/15 px-4 text-sm font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25"
               >
                 <Plus className="h-4 w-4" /> Novo Procedimento
               </button>
             ) : null}
           </div>
           <h1 className="font-serif text-3xl leading-tight text-white sm:text-4xl">Central de Procedimentos</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300 sm:text-base">
+          <p className={`mt-2 max-w-3xl text-sm leading-relaxed sm:text-base ${TXT_DESC}`}>
             Consulte o passo a passo das principais atividades do dia a dia da manutenção Zucchi.
           </p>
-          <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-zinc-400">
+          <p className={`mt-1 max-w-3xl text-[13px] leading-relaxed ${TXT_MUTED}`}>
             Encontre orientações rápidas sobre SAP/Fiori, PC-Factory, ordens de serviço, segurança, manutenção mecânica,
             elétrica e lubrificação.
           </p>
-          <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-gold/80">
+          <p className={`mt-3 text-[11px] font-semibold uppercase tracking-wide ${TXT_GOLD}`}>
             {data.totalPublished} procedimento(s) publicado(s)
           </p>
 
           {/* Busca */}
           <div className="relative mt-5 max-w-2xl">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gold" />
+            <Search className={`pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 ${TXT_GOLD}`} />
             <input
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Buscar procedimento, atividade, sistema ou equipamento..."
               aria-label="Buscar procedimento"
-              className="h-14 w-full rounded-xl border border-gold/30 bg-black/50 pl-12 pr-12 text-sm text-champagne shadow-inner outline-none backdrop-blur transition placeholder:text-zinc-500 focus:border-gold/60 focus:ring-2 focus:ring-gold/30 sm:text-base"
+              className="h-14 w-full rounded-2xl border border-[#C6A24A]/30 bg-[#11100C] pl-12 pr-12 text-sm text-[#F8F3E7] outline-none transition placeholder:text-[#8F846F] focus:border-[#D6AA3A] focus:ring-2 focus:ring-[#D6AA3A]/20 sm:text-base"
             />
             {query ? (
-              <button type="button" onClick={() => setQuery("")} aria-label="Limpar busca" className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 transition hover:text-white">
+              <button type="button" onClick={() => setQuery("")} aria-label="Limpar busca" className={`absolute right-4 top-1/2 -translate-y-1/2 ${TXT_MUTED} transition hover:text-white`}>
                 <X className="h-5 w-5" />
               </button>
             ) : null}
@@ -154,12 +163,15 @@ function Indicators({ indicators }: { indicators: ProceduresIndicators }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
       {cards.map((card) => (
-        <div key={card.label} className="rounded-lg border border-gold/15 bg-black/40 p-3 backdrop-blur">
-          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gold/80">
+        <div
+          key={card.label}
+          className="rounded-2xl border border-[#C6A24A]/25 bg-gradient-to-br from-[#18150F] to-[#0D0C09] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.35)]"
+        >
+          <div className={`mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${TXT_GOLD}`}>
             {card.icon}
             <span className="truncate">{card.label}</span>
           </div>
-          <div className={`font-bold text-white ${card.small ? "truncate text-[13px]" : "text-xl tabular-nums"}`} title={card.value}>
+          <div className={`font-bold text-white ${card.small ? "truncate text-[13px]" : "mt-1 text-2xl tabular-nums"}`} title={card.value}>
             {card.value}
           </div>
         </div>
@@ -201,19 +213,17 @@ function Categories({ categories, onPick }: { categories: ProcedureCategoryCount
               key={category.name}
               type="button"
               onClick={() => onPick(category.name)}
-              className="group flex h-full flex-col rounded-lg border border-gold/20 bg-black/40 p-4 text-left backdrop-blur transition hover:-translate-y-0.5 hover:border-gold/45 hover:bg-black/55"
+              className="group flex h-full flex-col rounded-2xl border border-[#C6A24A]/25 bg-gradient-to-br from-[#1A1710] via-[#14120D] to-[#0B0A08] p-5 text-left shadow-[0_16px_40px_rgba(0,0,0,0.35)] transition-all duration-300 hover:-translate-y-1 hover:border-[#D6AA3A]/70 hover:shadow-[0_22px_55px_rgba(0,0,0,0.45)]"
             >
               <div className="mb-3 flex items-center justify-between">
-                <span className="grid h-11 w-11 place-items-center rounded-lg border border-gold/35 bg-gold/10 text-gold transition group-hover:bg-gold/20">
+                <span className={`grid h-11 w-11 place-items-center rounded-xl border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 ${TXT_GOLD} transition group-hover:bg-[#D6AA3A]/22`}>
                   <Icon className="h-5 w-5" />
                 </span>
-                <span className="rounded-full border border-gold/25 bg-black/40 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-champagne/80">
-                  {category.count}
-                </span>
+                <span className={BADGE + " tabular-nums"}>{category.count}</span>
               </div>
-              <h3 className="text-sm font-bold text-white">{category.name}</h3>
-              <p className="mt-1 text-[12px] leading-relaxed text-zinc-400">{category.description}</p>
-              <span className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-gold opacity-0 transition group-hover:opacity-100">
+              <h3 className={`text-base font-semibold ${TXT_TITLE}`}>{category.name}</h3>
+              <p className={`mt-2 text-sm leading-relaxed ${TXT_DESC}`}>{category.description}</p>
+              <span className={`mt-3 inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide ${TXT_GOLD} opacity-0 transition group-hover:opacity-100`}>
                 Ver procedimentos <ArrowRight className="h-3.5 w-3.5" />
               </span>
             </button>
@@ -244,33 +254,33 @@ function MostAccessed({ procedures }: { procedures: ProcedureListItem[] }) {
 
 function ProcedureCard({ procedure }: { procedure: ProcedureListItem }) {
   return (
-    <article className="flex h-full flex-col rounded-lg border border-gold/20 bg-black/40 p-4 backdrop-blur transition hover:border-gold/45">
+    <article className={`flex h-full flex-col p-4 ${CARD} ${CARD_HOVER}`}>
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/10 px-2.5 py-0.5 text-[11px] font-semibold text-champagne">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 px-2.5 py-0.5 text-[11px] font-semibold text-[#F6D98B]">
           {procedure.categoryName}
         </span>
         <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${levelStyle(procedure.level)}`}>
           {procedure.level}
         </span>
       </div>
-      <h3 className="text-sm font-bold leading-snug text-white">{procedure.title}</h3>
-      <dl className="mt-3 space-y-1.5 text-[12px] text-zinc-400">
+      <h3 className={`text-sm font-semibold leading-snug ${TXT_TITLE}`}>{procedure.title}</h3>
+      <dl className={`mt-3 space-y-1.5 text-[12px] ${TXT_DESC}`}>
         {procedure.estimatedMinutes != null ? (
           <div className="flex items-center gap-2">
-            <Clock className="h-3.5 w-3.5 text-gold" />
+            <Clock className={`h-3.5 w-3.5 ${TXT_GOLD}`} />
             <span>{procedure.estimatedMinutes} min de leitura</span>
           </div>
         ) : null}
         {procedure.targetAudience ? (
           <div className="flex items-center gap-2">
-            <Users className="h-3.5 w-3.5 text-gold" />
+            <Users className={`h-3.5 w-3.5 ${TXT_GOLD}`} />
             <span>{procedure.targetAudience}</span>
           </div>
         ) : null}
       </dl>
       <Link
         href={detailHref(procedure.slug)}
-        className="mt-4 inline-flex h-9 items-center justify-center gap-2 self-start rounded-lg border border-gold/45 bg-gold/15 px-3 text-[12px] font-bold text-gold transition hover:bg-gold/25"
+        className="mt-4 inline-flex h-9 items-center justify-center gap-2 self-start rounded-lg border border-[#D6AA3A]/50 bg-[#D6AA3A]/15 px-3 text-[12px] font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25"
       >
         <BookOpen className="h-4 w-4" /> Ver passo a passo
       </Link>
@@ -297,8 +307,8 @@ function OnboardingTrailBlock({
   const firstPending = procedures.find((procedure) => !readSet.has(procedure.id)) ?? procedures[0];
 
   return (
-    <div className="relative overflow-hidden rounded-lg border border-gold/25 bg-[#0a0b0b] p-5 shadow-premium sm:p-6">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_92%_0%,rgba(196,154,69,0.14),transparent_20rem)]" />
+    <div className="relative overflow-hidden rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0B0A08] p-5 shadow-[0_18px_45px_rgba(0,0,0,0.4)] sm:p-6">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_92%_0%,rgba(214,170,58,0.12),transparent_20rem)]" />
       <div className="relative z-10">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <SectionTitle
@@ -309,7 +319,7 @@ function OnboardingTrailBlock({
           />
           <Link
             href={detailHref(firstPending.slug)}
-            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-4 text-sm font-bold text-gold transition hover:bg-gold/25"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-[#D6AA3A]/60 bg-[#D6AA3A]/15 px-4 text-sm font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25"
           >
             <Route className="h-4 w-4" /> {progress.completed > 0 ? "Continuar trilha" : "Iniciar trilha"}
           </Link>
@@ -317,12 +327,12 @@ function OnboardingTrailBlock({
 
         {/* Progresso */}
         <div className="mt-4">
-          <div className="mb-1.5 flex items-center justify-between text-[12px] font-semibold text-champagne">
+          <div className={`mb-1.5 flex items-center justify-between text-[12px] font-semibold ${TXT_TITLE}`}>
             <span>{progress.completed} de {progress.total} concluídos</span>
-            <span className="text-gold">{progress.percent}%</span>
+            <span className={TXT_GOLD}>{progress.percent}%</span>
           </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-black/50">
-            <div className="h-full rounded-full bg-gold transition-all" style={{ width: `${progress.percent}%` }} />
+          <div className="h-2 w-full overflow-hidden rounded-full bg-black/60">
+            <div className="h-full rounded-full bg-[#D6AA3A] transition-all" style={{ width: `${progress.percent}%` }} />
           </div>
         </div>
 
@@ -333,18 +343,18 @@ function OnboardingTrailBlock({
               <li key={procedure.id}>
                 <Link
                   href={detailHref(procedure.slug)}
-                  className="group flex w-full items-center gap-3 rounded-lg border border-gold/15 bg-black/40 px-4 py-3 text-left transition hover:border-gold/40 hover:bg-black/55"
+                  className="group flex w-full items-center gap-3 rounded-xl border border-[#C6A24A]/20 bg-[#15130E] px-4 py-3 text-left transition hover:border-[#D6AA3A]/55 hover:bg-[#1F1B13]"
                 >
                   <span
                     className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border font-serif text-sm font-bold ${
-                      done ? "border-[#3f8f6b]/50 bg-[#3f8f6b]/20 text-[#7fd0ab]" : "border-gold/40 bg-gold/10 text-gold"
+                      done ? "border-[#3f8f6b]/55 bg-[#3f8f6b]/20 text-[#9be3c1]" : "border-[#D6AA3A]/45 bg-[#D6AA3A]/12 text-[#F6D98B]"
                     }`}
                   >
                     {done ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
                   </span>
-                  <span className="flex-1 text-sm font-semibold text-champagne">{procedure.title}</span>
-                  {done ? <span className="text-[11px] font-semibold uppercase tracking-wide text-[#7fd0ab]">Lido</span> : null}
-                  <ArrowRight className="h-4 w-4 text-gold opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
+                  <span className={`flex-1 text-sm font-semibold ${TXT_TITLE}`}>{procedure.title}</span>
+                  {done ? <span className="text-[11px] font-semibold uppercase tracking-wide text-[#9be3c1]">Lido</span> : null}
+                  <ArrowRight className={`h-4 w-4 ${TXT_GOLD} opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100`} />
                 </Link>
               </li>
             );
@@ -365,17 +375,17 @@ function AllProcedures({ procedures }: { procedures: ProcedureListItem[] }) {
       <SectionTitle icon={<Library className="h-4 w-4" />} title="Todos os procedimentos" subtitle="Lista completa de procedimentos disponíveis." />
 
       {procedures.length === 0 ? (
-        <div className="rounded-lg border border-gold/20 bg-black/40 p-8 text-center text-sm text-zinc-400 backdrop-blur">
+        <div className={`p-8 text-center text-sm ${CARD} ${TXT_DESC}`}>
           Ainda não há procedimentos publicados. Use “Novo Procedimento” para cadastrar o primeiro.
         </div>
       ) : (
         <>
           {/* Desktop: tabela */}
-          <div className="hidden overflow-hidden rounded-lg border border-gold/15 bg-black/30 backdrop-blur md:block">
+          <div className="hidden overflow-hidden rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#15130E] to-[#0E0D0A] shadow-[0_16px_40px_rgba(0,0,0,0.35)] md:block">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-sm">
                 <thead>
-                  <tr className="border-b border-gold/20 text-left text-[11px] font-extrabold uppercase tracking-wide text-gold/80">
+                  <tr className={`border-b border-[#C6A24A]/25 text-left text-[11px] font-extrabold uppercase tracking-wide ${TXT_GOLD}`}>
                     <th className="px-4 py-3">Procedimento</th>
                     <th className="px-3 py-3">Categoria</th>
                     <th className="px-3 py-3">Nível</th>
@@ -387,23 +397,23 @@ function AllProcedures({ procedures }: { procedures: ProcedureListItem[] }) {
                 </thead>
                 <tbody>
                   {procedures.map((procedure) => (
-                    <tr key={procedure.id} className="border-b border-gold/10 text-zinc-200 transition last:border-0 hover:bg-gold/5">
-                      <td className="px-4 py-3 font-semibold text-white">{procedure.title}</td>
-                      <td className="px-3 py-3 text-zinc-300">{procedure.categoryName}</td>
+                    <tr key={procedure.id} className={`border-b border-[#C6A24A]/12 transition last:border-0 hover:bg-[#1F1B13] ${TXT_DESC}`}>
+                      <td className={`px-4 py-3 font-semibold ${TXT_TITLE}`}>{procedure.title}</td>
+                      <td className={`px-3 py-3 ${TXT_DESC}`}>{procedure.categoryName}</td>
                       <td className="px-3 py-3">
                         <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${levelStyle(procedure.level)}`}>
                           {procedure.level}
                         </span>
                       </td>
-                      <td className="px-3 py-3 text-right tabular-nums text-zinc-300">
+                      <td className={`px-3 py-3 text-right tabular-nums ${TXT_DESC}`}>
                         {procedure.estimatedMinutes != null ? `${procedure.estimatedMinutes} min` : "—"}
                       </td>
-                      <td className="px-3 py-3 text-zinc-300">{procedure.responsible ?? "—"}</td>
-                      <td className="px-3 py-3 tabular-nums text-zinc-400">{formatDate(procedure.updatedAt)}</td>
+                      <td className={`px-3 py-3 ${TXT_DESC}`}>{procedure.responsible ?? "—"}</td>
+                      <td className={`px-3 py-3 tabular-nums ${TXT_MUTED}`}>{formatDate(procedure.updatedAt)}</td>
                       <td className="px-4 py-3 text-right">
                         <Link
                           href={detailHref(procedure.slug)}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gold/40 px-3 text-[12px] font-bold text-gold transition hover:bg-gold/15"
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#D6AA3A]/45 px-3 text-[12px] font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/15"
                         >
                           Ver <ArrowRight className="h-3.5 w-3.5" />
                         </Link>
@@ -418,23 +428,23 @@ function AllProcedures({ procedures }: { procedures: ProcedureListItem[] }) {
           {/* Mobile: cards */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:hidden">
             {procedures.map((procedure) => (
-              <article key={procedure.id} className="rounded-lg border border-gold/20 bg-black/40 p-4 backdrop-blur">
+              <article key={procedure.id} className={`p-4 ${CARD}`}>
                 <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded-full border border-gold/30 bg-gold/10 px-2.5 py-0.5 text-[11px] font-semibold text-champagne">
+                  <span className="rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 px-2.5 py-0.5 text-[11px] font-semibold text-[#F6D98B]">
                     {procedure.categoryName}
                   </span>
                   <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${levelStyle(procedure.level)}`}>
                     {procedure.level}
                   </span>
                 </div>
-                <h3 className="text-sm font-bold leading-snug text-white">{procedure.title}</h3>
-                <p className="mt-2 text-[12px] text-zinc-400">
+                <h3 className={`text-sm font-semibold leading-snug ${TXT_TITLE}`}>{procedure.title}</h3>
+                <p className={`mt-2 text-[12px] ${TXT_DESC}`}>
                   {procedure.estimatedMinutes != null ? `${procedure.estimatedMinutes} min · ` : ""}
                   {procedure.responsible ?? "—"} · atualizado em {formatDate(procedure.updatedAt)}
                 </p>
                 <Link
                   href={detailHref(procedure.slug)}
-                  className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-gold/40 px-3 text-[12px] font-bold text-gold transition hover:bg-gold/15"
+                  className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#D6AA3A]/45 px-3 text-[12px] font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/15"
                 >
                   Ver <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
@@ -455,23 +465,23 @@ function SearchResults({ results, query, onClear }: { results: ProcedureListItem
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-bold text-white">
-          <Search className="h-4 w-4 text-gold" />
-          Resultados para <span className="text-gold">“{query}”</span>
-          <span className="text-[12px] font-normal text-zinc-500">· {results.length} encontrado(s)</span>
+        <h2 className={`flex items-center gap-2 text-sm font-bold ${TXT_TITLE}`}>
+          <Search className={`h-4 w-4 ${TXT_GOLD}`} />
+          Resultados para <span className={TXT_GOLD}>“{query}”</span>
+          <span className={`text-[12px] font-normal ${TXT_MUTED}`}>· {results.length} encontrado(s)</span>
         </h2>
-        <button type="button" onClick={onClear} className="text-[12px] font-semibold text-gold transition hover:text-champagne">
+        <button type="button" onClick={onClear} className={`text-[12px] font-semibold ${TXT_GOLD} transition hover:text-white`}>
           Limpar busca
         </button>
       </div>
 
       {results.length === 0 ? (
-        <div className="rounded-lg border border-gold/20 bg-black/40 p-10 text-center backdrop-blur">
-          <span className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full border border-gold/30 bg-gold/10 text-gold">
+        <div className={`p-10 text-center ${CARD}`}>
+          <span className={`mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 ${TXT_GOLD}`}>
             <Gauge className="h-6 w-6" />
           </span>
-          <p className="text-base font-semibold text-white">Nenhum procedimento encontrado para sua busca.</p>
-          <p className="mx-auto mt-2 max-w-md text-[13px] text-zinc-400">
+          <p className={`text-base font-semibold ${TXT_TITLE}`}>Nenhum procedimento encontrado para sua busca.</p>
+          <p className={`mx-auto mt-2 max-w-md text-[13px] ${TXT_DESC}`}>
             Tente buscar por SAP, OS, PC-Factory, segurança, mecânica, elétrica ou lubrificação.
           </p>
         </div>
@@ -498,11 +508,11 @@ function formatDate(iso: string): string {
 function SectionTitle({ icon, title, subtitle, flush = false }: { icon: React.ReactNode; title: string; subtitle?: string; flush?: boolean }) {
   return (
     <div className={flush ? "" : "mb-3"}>
-      <h2 className="flex items-center gap-2 font-serif text-xl text-white">
-        <span className="text-gold">{icon}</span>
+      <h2 className="flex items-center gap-2 font-serif text-2xl font-semibold text-[#F8F3E7]">
+        <span className={TXT_GOLD}>{icon}</span>
         {title}
       </h2>
-      {subtitle ? <p className="mt-0.5 text-[13px] text-zinc-400">{subtitle}</p> : null}
+      {subtitle ? <p className="mt-0.5 text-sm text-[#CFC3AE]">{subtitle}</p> : null}
     </div>
   );
 }
