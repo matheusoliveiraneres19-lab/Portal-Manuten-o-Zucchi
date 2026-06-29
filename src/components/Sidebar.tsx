@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  BarChart3,
+  CalendarCheck2,
   ClipboardList,
   Factory,
   FileBarChart,
@@ -28,7 +28,7 @@ const baseMenu = [
   { label: "PC-Factory", href: "/dashboard/pc-factory", icon: Factory },
   { label: "Central de Procedimentos", href: "/dashboard/procedimentos", icon: FileText },
   { label: "Equipe e Horas", href: "/dashboard/equipe-horas", icon: UsersRound },
-  { label: "Relatórios", href: "/dashboard/relatorios", icon: BarChart3 },
+  { label: "Preventivas Programadas", href: "/dashboard/preventivas-programadas", icon: CalendarCheck2 },
   { label: "Configurações", href: "/dashboard/configuracoes", icon: Settings }
 ];
 

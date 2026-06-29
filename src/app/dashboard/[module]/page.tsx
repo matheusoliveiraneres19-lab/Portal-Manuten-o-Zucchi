@@ -30,10 +30,6 @@ const modules = {
     title: "Equipe e Horas",
     description: "Acompanhe apontamentos, disponibilidade e produtividade da equipe de manutenção."
   },
-  relatorios: {
-    title: "Relatórios",
-    description: "Gere análises executivas e indicadores consolidados da operação."
-  },
   configuracoes: {
     title: "Configurações",
     description: "Gerencie parâmetros do portal e preferências administrativas."
