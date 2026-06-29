@@ -2,22 +2,26 @@ import { cache } from "react";
 import { Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
-import type {
-  PreventiveAlerts,
-  PreventiveAreaBreakdown,
-  PreventiveArea,
-  PreventiveExecutionStatus,
-  PreventiveFilterOptions,
-  PreventiveFilters,
-  PreventiveManagementStatus,
-  PreventiveMachineRow,
-  PreventiveMonthlyPoint,
-  PreventiveOrderRow,
-  PreventivePageData,
-  PreventiveStatusSlice,
-  PreventiveSummary,
-  PreventiveType,
-  PreventiveTypeBreakdown
+import {
+  PREVENTIVE_TARGETS,
+  type PreventiveAlerts,
+  type PreventiveAreaBreakdown,
+  type PreventiveArea,
+  type PreventiveBacklog,
+  type PreventiveCriticalAlerts,
+  type PreventiveExecutionStatus,
+  type PreventiveFilterOptions,
+  type PreventiveFilters,
+  type PreventiveManagementStatus,
+  type PreventiveMachineRow,
+  type PreventiveMonthlyPoint,
+  type PreventiveOrderRow,
+  type PreventivePageData,
+  type PreventiveResponsibleRow,
+  type PreventiveStatusSlice,
+  type PreventiveSummary,
+  type PreventiveType,
+  type PreventiveTypeBreakdown
 } from "@/types/preventive-orders";
 
 // ── Regras oficiais ────────────────────────────────────────────────────────
@@ -115,7 +119,11 @@ const preventiveSelect = {
   responsibleName: true,
   openedAt: true,
   closedAt: true,
-  workedHours: true
+  workedHours: true,
+  operation: true,
+  description: true,
+  failureCause: true,
+  solution: true
 } satisfies Prisma.ServiceOrderSelect;
 
 type PreventiveRecord = Prisma.ServiceOrderGetPayload<{ select: typeof preventiveSelect }>;
@@ -186,7 +194,9 @@ const loadClassifiedOrders = cache(async (periodKey: string): Promise<Preventive
       workedHours,
       openedAt: record.openedAt?.toISOString() ?? null,
       closedAt: record.closedAt?.toISOString() ?? null,
-      daysOpen
+      daysOpen,
+      operation: record.operation ?? null,
+      note: record.solution ?? record.failureCause ?? record.description ?? null
     });
   }
 
@@ -338,13 +348,35 @@ export async function getPreventiveOrdersByMachine(filters: PreventiveFilters = 
   return topMachines(await getPreventiveOrders(filters));
 }
 
+type MachineAccumulator = {
+  naoRealizadas: number;
+  total: number;
+  pl: number;
+  pv: number;
+  horas: number;
+  lastOrderNumber: string | null;
+  lastOrderAt: string | null;
+  responsible: string | null;
+};
+
 function topMachines(rows: PreventiveOrderRow[]): PreventiveMachineRow[] {
-  const map = new Map<string, { naoRealizadas: number; total: number }>();
+  const map = new Map<string, MachineAccumulator>();
   for (const row of rows) {
     const name = row.technicalObject ?? row.equipmentName ?? "Sem identificação";
-    const entry = map.get(name) ?? { naoRealizadas: 0, total: 0 };
+    const entry =
+      map.get(name) ??
+      ({ naoRealizadas: 0, total: 0, pl: 0, pv: 0, horas: 0, lastOrderNumber: null, lastOrderAt: null, responsible: null } as MachineAccumulator);
     entry.total += 1;
     if (row.executionStatus === "Não Realizada") entry.naoRealizadas += 1;
+    if (row.type === "PL") entry.pl += 1;
+    else entry.pv += 1;
+    entry.horas = round1(entry.horas + row.workedHours);
+    // A OS mais recente (por data de abertura) define a "última OS" e o responsável exibido.
+    if (row.openedAt && (!entry.lastOrderAt || row.openedAt > entry.lastOrderAt)) {
+      entry.lastOrderAt = row.openedAt;
+      entry.lastOrderNumber = row.osNumber;
+      entry.responsible = row.responsibleName;
+    }
     map.set(name, entry);
   }
   return Array.from(map.entries())
@@ -352,6 +384,77 @@ function topMachines(rows: PreventiveOrderRow[]): PreventiveMachineRow[] {
     .filter((m) => m.naoRealizadas > 0)
     .sort((a, b) => b.naoRealizadas - a.naoRealizadas)
     .slice(0, 10);
+}
+
+const BACKLOG_STATUSES = new Set<PreventiveManagementStatus>([
+  "Aberta sem execução",
+  "Atrasada",
+  "A vencer"
+]);
+
+/** Backlog = OS pendentes de execução (não fechadas/canceladas e ainda não realizadas). */
+function isBacklog(row: PreventiveOrderRow): boolean {
+  return BACKLOG_STATUSES.has(row.managementStatus);
+}
+
+function buildBacklog(rows: PreventiveOrderRow[]): PreventiveBacklog {
+  const backlogRows = rows.filter(isBacklog);
+  const machineMap = new Map<string, number>();
+  for (const row of backlogRows) {
+    const name = row.technicalObject ?? row.equipmentName ?? "Sem identificação";
+    machineMap.set(name, (machineMap.get(name) ?? 0) + 1);
+  }
+  const topMachinesBacklog = Array.from(machineMap.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
+  return {
+    total: backlogRows.length,
+    pl: backlogRows.filter((r) => r.type === "PL").length,
+    pv: backlogRows.filter((r) => r.type === "PV").length,
+    topMachines: topMachinesBacklog
+  };
+}
+
+function breakdownByResponsible(rows: PreventiveOrderRow[]): PreventiveResponsibleRow[] {
+  const map = new Map<string, PreventiveOrderRow[]>();
+  for (const row of rows) {
+    const name = row.responsibleName ?? "SEM RESPONSÁVEL";
+    const list = map.get(name) ?? [];
+    list.push(row);
+    map.set(name, list);
+  }
+  return Array.from(map.entries())
+    .map(([name, list]) => {
+      const realizadas = list.filter((r) => r.executionStatus === "Realizada").length;
+      return {
+        name,
+        total: list.length,
+        realizadas,
+        naoRealizadas: list.length - realizadas,
+        fechadasSemExecucao: list.filter((r) => r.managementStatus === "Fechada sem execução").length,
+        horas: round1(list.reduce((sum, r) => sum + r.workedHours, 0)),
+        aderencia: adherence(realizadas, list.length)
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+}
+
+function buildCriticalAlerts(rows: PreventiveOrderRow[], byArea: PreventiveAreaBreakdown[]): PreventiveCriticalAlerts {
+  const recurrentMachines = topMachines(rows)
+    .filter((m) => m.naoRealizadas >= 3)
+    .map((m) => ({ name: m.name, count: m.naoRealizadas }));
+
+  return {
+    closedNoExecCount: rows.filter((r) => r.managementStatus === "Fechada sem execução").length,
+    overdueCount: null, // Sem data de vencimento na base, atraso não é derivável.
+    recurrentMachines,
+    belowTargetAreas: byArea
+      .filter((a) => a.total > 0 && a.aderencia !== null && a.aderencia < PREVENTIVE_TARGETS.adherence - 5)
+      .map((a) => ({ area: a.area, aderencia: a.aderencia as number })),
+    withoutResponsibleCount: rows.filter((r) => !r.responsibleName || r.responsibleName === "SEM RESPONSÁVEL").length
+  };
 }
 
 export async function getPreventiveOrdersMonthlyTrend(
@@ -367,14 +470,45 @@ function monthlyTrend(rows: PreventiveOrderRow[]): PreventiveMonthlyPoint[] {
     const date = new Date(row.openedAt);
     const month = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
     const label = `${MONTH_LABELS[date.getUTCMonth()]}/${String(date.getUTCFullYear()).slice(2)}`;
-    const point = map.get(month) ?? { month, label, total: 0, realizadas: 0, naoRealizadas: 0, horas: 0 };
+    const point =
+      map.get(month) ??
+      ({
+        month,
+        label,
+        total: 0,
+        realizadas: 0,
+        naoRealizadas: 0,
+        horas: 0,
+        aderencia: null,
+        plTotal: 0,
+        plRealizadas: 0,
+        plAderencia: null,
+        pvTotal: 0,
+        pvRealizadas: 0,
+        pvAderencia: null
+      } as PreventiveMonthlyPoint);
+    const realized = row.executionStatus === "Realizada";
     point.total += 1;
-    if (row.executionStatus === "Realizada") point.realizadas += 1;
+    if (realized) point.realizadas += 1;
     else point.naoRealizadas += 1;
     point.horas = round1(point.horas + row.workedHours);
+    if (row.type === "PL") {
+      point.plTotal += 1;
+      if (realized) point.plRealizadas += 1;
+    } else {
+      point.pvTotal += 1;
+      if (realized) point.pvRealizadas += 1;
+    }
     map.set(month, point);
   }
-  return Array.from(map.values()).sort((a, b) => a.month.localeCompare(b.month));
+  return Array.from(map.values())
+    .sort((a, b) => a.month.localeCompare(b.month))
+    .map((point) => ({
+      ...point,
+      aderencia: adherence(point.realizadas, point.total),
+      plAderencia: adherence(point.plRealizadas, point.plTotal),
+      pvAderencia: adherence(point.pvRealizadas, point.pvTotal)
+    }));
 }
 
 function buildAlerts(rows: PreventiveOrderRow[], byArea: PreventiveAreaBreakdown[]): PreventiveAlerts {
@@ -425,6 +559,9 @@ export async function getPreventiveOrdersPageData(filters: PreventiveFilters = {
       byMachine: topMachines(rows),
       monthlyTrend: monthlyTrend(rows),
       alerts: buildAlerts(rows, byArea),
+      backlog: buildBacklog(rows),
+      byResponsible: breakdownByResponsible(rows),
+      criticalAlerts: buildCriticalAlerts(rows, byArea),
       rows: rows.slice(0, TABLE_ROW_CAP),
       totalRows: rows.length,
       rowsCapped: rows.length > TABLE_ROW_CAP,
@@ -456,6 +593,15 @@ function emptyPageData(): PreventivePageData {
     byMachine: [],
     monthlyTrend: [],
     alerts: { closedNoExecCount: 0, overdueCount: null, recurrentMachine: null, lowAdherenceAreas: [] },
+    backlog: { total: 0, pl: 0, pv: 0, topMachines: [] },
+    byResponsible: [],
+    criticalAlerts: {
+      closedNoExecCount: 0,
+      overdueCount: null,
+      recurrentMachines: [],
+      belowTargetAreas: [],
+      withoutResponsibleCount: 0
+    },
     rows: [],
     totalRows: 0,
     rowsCapped: false,

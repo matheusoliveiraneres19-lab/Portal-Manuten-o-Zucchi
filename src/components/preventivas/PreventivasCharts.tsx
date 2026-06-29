@@ -19,6 +19,7 @@ import type { TooltipProps } from "recharts";
 import type {
   PreventiveAreaBreakdown,
   PreventiveMachineRow,
+  PreventiveMonthlyPoint,
   PreventiveStatusSlice,
   PreventiveTypeBreakdown
 } from "@/types/preventive-orders";
@@ -136,6 +137,48 @@ export function StatusChart({ data }: { data: PreventiveStatusSlice[] }) {
         <Tooltip content={<DarkTooltip />} />
         <Legend layout="vertical" align="right" verticalAlign="middle" iconType="circle" wrapperStyle={legendStyle} />
       </PieChart>
+    </ResponsiveContainer>
+  );
+}
+
+// 5 — Evolução Mensal da Aderência (modo geral/PL/PV)
+export function MonthlyAdherenceChart({
+  data,
+  mode
+}: {
+  data: PreventiveMonthlyPoint[];
+  mode: "geral" | "pl" | "pv";
+}) {
+  if (!data.length) {
+    return <DarkEmpty message="Nenhuma ordem PL/PV encontrada no período selecionado." />;
+  }
+
+  const chartData = data.map((point) => {
+    const programadas = mode === "pl" ? point.plTotal : mode === "pv" ? point.pvTotal : point.total;
+    const realizadas = mode === "pl" ? point.plRealizadas : mode === "pv" ? point.pvRealizadas : point.realizadas;
+    const aderencia = mode === "pl" ? point.plAderencia : mode === "pv" ? point.pvAderencia : point.aderencia;
+    return {
+      name: point.label,
+      Programadas: programadas,
+      Realizadas: realizadas,
+      "Não realizadas": Math.max(0, programadas - realizadas),
+      "Aderência %": aderencia ?? 0
+    };
+  });
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+        <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} />
+        <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: GRID_STROKE }} tickLine={false} />
+        <YAxis yAxisId="left" tick={AXIS_TICK} axisLine={false} tickLine={false} allowDecimals={false} />
+        <YAxis yAxisId="right" orientation="right" tick={AXIS_TICK} axisLine={false} tickLine={false} domain={[0, 100]} unit="%" />
+        <Tooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} content={<DarkTooltip />} />
+        <Legend wrapperStyle={legendStyle} iconType="circle" />
+        <Bar yAxisId="left" dataKey="Programadas" fill={COLORS.total} radius={[3, 3, 0, 0]} barSize={18} />
+        <Bar yAxisId="left" dataKey="Realizadas" fill={COLORS.realizadas} radius={[3, 3, 0, 0]} barSize={18} />
+        <Line yAxisId="right" dataKey="Aderência %" stroke={COLORS.horas} strokeWidth={2.5} dot={{ r: 4 }} />
+      </ComposedChart>
     </ResponsiveContainer>
   );
 }
