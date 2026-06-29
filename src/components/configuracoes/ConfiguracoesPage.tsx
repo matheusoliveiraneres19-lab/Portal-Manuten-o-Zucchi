@@ -5,6 +5,7 @@ import { m } from "framer-motion";
 import {
   Bell,
   BellRing,
+  CalendarCheck2,
   ChevronRight,
   ClipboardList,
   Cloud,
@@ -27,6 +28,8 @@ import {
   X
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { PortalSettingDTO } from "@/types/settings";
+import { SettingsForm } from "@/components/configuracoes/SettingsForm";
 
 type StatusTone = "green" | "gold" | "blue" | "champagne";
 
@@ -37,103 +40,36 @@ const statusTone: Record<StatusTone, string> = {
   champagne: "border-champagne/30 bg-champagne/10 text-champagne"
 };
 
-type StatusCard = {
-  title: string;
-  value: string;
-  description: string;
-  icon: LucideIcon;
-  tone: StatusTone;
-  live?: boolean;
+type ConfiguracoesPageProps = {
+  settingsByCategory: Record<string, PortalSettingDTO[]>;
+  canEdit: boolean;
+  usersCount: number | null;
+  activeAlerts: number | null;
 };
-
-const STATUS_CARDS: StatusCard[] = [
-  { title: "Banco de Dados", value: "Conectado", description: "Status da conexão principal do portal.", icon: Database, tone: "green", live: true },
-  { title: "Versão do Portal", value: "V.01", description: "Versão atual do sistema.", icon: Tag, tone: "gold" },
-  { title: "Ambiente", value: "Produção", description: "Deploy ativo na Vercel.", icon: Cloud, tone: "blue" },
-  { title: "Última Importação", value: "—", description: "Último arquivo processado pelo portal.", icon: FileUp, tone: "champagne" },
-  { title: "Usuários Ativos", value: "—", description: "Total de usuários cadastrados.", icon: UsersRound, tone: "champagne" },
-  { title: "Alertas Ativos", value: "—", description: "Regras de alertas habilitadas.", icon: BellRing, tone: "champagne" }
-];
 
 type SettingsSection = {
   key: string;
   title: string;
   description: string;
   icon: LucideIcon;
-  planned: string[];
+  /** Categoria de settings correspondente; ausente = seção ainda sem parâmetros editáveis. */
+  category?: string;
+  /** Lista de configurações previstas (para seções sem settings). */
+  planned?: string[];
 };
 
 const SECTIONS: SettingsSection[] = [
-  {
-    key: "geral",
-    title: "Geral",
-    description: "Nome do portal, versão, logo, empresa e preferências gerais.",
-    icon: SlidersHorizontal,
-    planned: ["Nome e identidade do portal", "Logo e marca da empresa", "Dados da empresa (CNPJ, unidade)", "Fuso horário e formato de data", "Preferências de exibição"]
-  },
-  {
-    key: "metas",
-    title: "Metas dos Indicadores",
-    description: "Configure metas de aderência, disponibilidade, atrasos e horas.",
-    icon: Target,
-    planned: ["Meta de aderência preventiva", "Meta de disponibilidade", "Limite de atraso de OS", "Meta de horas apontadas", "Limite de backlog preventivo"]
-  },
-  {
-    key: "os",
-    title: "Regras de Ordens de Serviço",
-    description: "Configure regras de OS realizadas, prefixos PL/PV e horas mínimas.",
-    icon: ClipboardList,
-    planned: ["Prefixos PL e PV", "Horas mínimas para “realizada” (0,1 h)", "Mapeamento de status do SAP", "Classificação gerencial das OS"]
-  },
-  {
-    key: "pc-factory",
-    title: "Regras PC-Factory",
-    description: "Configure status, tempo oficial, cores e classificações do Management View.",
-    icon: Factory,
-    planned: ["Status que contam como manutenção", "Base oficial de tempo (Tempo Decorrido)", "Cores por status", "Classificações do Management View"]
-  },
-  {
-    key: "compras",
-    title: "Regras de Compras",
-    description: "Configure Y01, Y04, serviços, bloqueados, atrasos e recebimentos.",
-    icon: ShoppingCart,
-    planned: ["Y01 (compra normal)", "Y04 (regularização)", "Serviços", "Itens bloqueados", "Regras de atraso e recebimento"]
-  },
-  {
-    key: "importacoes",
-    title: "Importações",
-    description: "Acompanhe histórico e parâmetros das importações de planilhas.",
-    icon: Upload,
-    planned: ["Histórico de importações", "Layouts de planilha aceitos", "Validações de importação", "Reprocessamento de arquivos"]
-  },
-  {
-    key: "permissoes",
-    title: "Usuários e Permissões",
-    description: "Controle permissões por perfil e acesso aos módulos.",
-    icon: ShieldCheck,
-    planned: ["Perfis (Admin, Gestor, Operador)", "Acesso por módulo", "Gestão de usuários", "Política de senha"]
-  },
-  {
-    key: "procedimentos",
-    title: "Central de Procedimentos",
-    description: "Configure categorias, leitura, exclusão e trilha de funcionário novo.",
-    icon: FileText,
-    planned: ["Categorias de procedimentos", "Controle de leitura", "Edição e exclusão", "Trilha de funcionário novo"]
-  },
-  {
-    key: "alertas",
-    title: "Alertas",
-    description: "Configure alertas de OS atrasada, compra vencida, PC-Factory e preventivas.",
-    icon: Bell,
-    planned: ["OS atrasada", "Compra vencida", "Parada no PC-Factory", "Preventiva não executada", "Canais de notificação"]
-  },
-  {
-    key: "auditoria",
-    title: "Auditoria",
-    description: "Consulte ações sensíveis realizadas dentro do portal.",
-    icon: History,
-    planned: ["Ações sensíveis", "Login e logout", "Alterações de regras", "Exportações de dados"]
-  }
+  { key: "geral", title: "Geral", description: "Nome do portal, versão, logo, empresa e preferências gerais.", icon: SlidersHorizontal, category: "geral" },
+  { key: "metas", title: "Metas dos Indicadores", description: "Configure metas de aderência, disponibilidade, atrasos e horas.", icon: Target, category: "metas" },
+  { key: "ordens", title: "Regras de Ordens de Serviço", description: "Configure regras de OS realizadas, prefixos PL/PV e horas mínimas.", icon: ClipboardList, category: "ordens" },
+  { key: "preventivas", title: "Regras de Preventivas Programadas", description: "Prefixos PL/PV, hora mínima de execução e metas de aderência.", icon: CalendarCheck2, category: "preventivas" },
+  { key: "pc_factory", title: "Regras PC-Factory", description: "Configure status, tempo oficial, cores e classificações do Management View.", icon: Factory, category: "pc_factory" },
+  { key: "compras", title: "Regras de Compras", description: "Configure Y01, Y04, serviços, bloqueados, atrasos e recebimentos.", icon: ShoppingCart, category: "compras" },
+  { key: "importacoes", title: "Importações", description: "Acompanhe histórico e parâmetros das importações de planilhas.", icon: Upload, planned: ["Histórico de importações", "Layouts de planilha aceitos", "Validações de importação", "Reprocessamento de arquivos"] },
+  { key: "permissoes", title: "Usuários e Permissões", description: "Controle permissões por perfil e acesso aos módulos.", icon: ShieldCheck, planned: ["Perfis (Admin, Gestor, Operador)", "Acesso por módulo", "Gestão de usuários", "Política de senha"] },
+  { key: "procedimentos", title: "Central de Procedimentos", description: "Configure categorias, leitura, exclusão e trilha de funcionário novo.", icon: FileText, category: "procedimentos" },
+  { key: "alertas", title: "Alertas", description: "Configure alertas de OS atrasada, compra vencida, PC-Factory e preventivas.", icon: Bell, category: "alertas" },
+  { key: "auditoria", title: "Auditoria", description: "Consulte ações sensíveis realizadas dentro do portal.", icon: History, planned: ["Ações sensíveis", "Login e logout", "Alterações de regras", "Exportações de dados"] }
 ];
 
 const CRITICAL_RULES: Array<{ label: string; value: string }> = [
@@ -147,8 +83,17 @@ const CRITICAL_RULES: Array<{ label: string; value: string }> = [
   { label: "Bloqueados", value: "Fora dos KPIs principais" }
 ];
 
-export function ConfiguracoesPage() {
+export function ConfiguracoesPage({ settingsByCategory, canEdit, usersCount, activeAlerts }: ConfiguracoesPageProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection | null>(null);
+
+  const statusCards: Array<{ title: string; value: string; description: string; icon: LucideIcon; tone: StatusTone; live?: boolean }> = [
+    { title: "Banco de Dados", value: "Conectado", description: "Status da conexão principal do portal.", icon: Database, tone: "green", live: true },
+    { title: "Versão do Portal", value: "V.01", description: "Versão atual do sistema.", icon: Tag, tone: "gold" },
+    { title: "Ambiente", value: "Produção", description: "Deploy ativo na Vercel.", icon: Cloud, tone: "blue" },
+    { title: "Última Importação", value: "—", description: "Último arquivo processado pelo portal.", icon: FileUp, tone: "champagne" },
+    { title: "Usuários Ativos", value: usersCount === null ? "—" : String(usersCount), description: "Total de usuários cadastrados.", icon: UsersRound, tone: "champagne" },
+    { title: "Alertas Ativos", value: activeAlerts === null ? "—" : String(activeAlerts), description: "Regras de alertas habilitadas.", icon: BellRing, tone: "champagne" }
+  ];
 
   return (
     <section className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#060707] shadow-premium">
@@ -160,24 +105,25 @@ export function ConfiguracoesPage() {
         <header className="max-w-4xl">
           <div className="mb-4 flex items-center gap-3 text-gold">
             <Gem className="h-5 w-5" />
-            <span className="text-xs font-bold uppercase tracking-[0.28em] text-champagne/80">
-              Portal de Gestão da Manutenção
-            </span>
+            <span className="text-xs font-bold uppercase tracking-[0.28em] text-champagne/80">Portal de Gestão da Manutenção</span>
           </div>
           <h1 className="font-serif text-4xl leading-tight text-white sm:text-5xl">Configurações</h1>
           <p className="mt-4 text-base leading-relaxed text-zinc-200">
-            Gerencie parâmetros, metas, regras, importações, permissões e alertas do Portal de Gestão da Manutenção
-            Zucchi.
+            Gerencie parâmetros, metas, regras, importações, permissões e alertas do Portal de Gestão da Manutenção Zucchi.
           </p>
           <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-            Use esta área para ajustar as regras que alimentam os dashboards e controlar parâmetros administrativos do
-            portal.
+            Use esta área para ajustar as regras que alimentam os dashboards e controlar parâmetros administrativos do portal.
           </p>
+          {!canEdit ? (
+            <p className="mt-3 inline-flex items-center gap-2 rounded-lg border border-gold/25 bg-black/40 px-3 py-1.5 text-xs text-champagne/80">
+              <Lock className="h-3.5 w-3.5 text-gold" /> Você pode visualizar as configurações. A edição é restrita a administradores e gestores.
+            </p>
+          ) : null}
         </header>
 
         {/* Cards de status */}
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {STATUS_CARDS.map((card, index) => {
+          {statusCards.map((card, index) => {
             const Icon = card.icon;
             return (
               <m.article
@@ -211,6 +157,7 @@ export function ConfiguracoesPage() {
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {SECTIONS.map((section, index) => {
             const Icon = section.icon;
+            const count = section.category ? settingsByCategory[section.category]?.length ?? 0 : 0;
             return (
               <m.button
                 key={section.key}
@@ -227,6 +174,15 @@ export function ConfiguracoesPage() {
                 <div className="min-w-0 flex-1">
                   <h3 className="font-semibold text-white">{section.title}</h3>
                   <p className="mt-1 text-xs leading-relaxed text-zinc-400">{section.description}</p>
+                  {count > 0 ? (
+                    <span className="mt-2 inline-block rounded-full border border-gold/25 bg-gold/5 px-2 py-0.5 text-[10px] font-semibold text-champagne">
+                      {count} parâmetro(s) editável(is)
+                    </span>
+                  ) : (
+                    <span className="mt-2 inline-block rounded-full border border-gold/15 px-2 py-0.5 text-[10px] text-zinc-500">
+                      Próxima fase
+                    </span>
+                  )}
                 </div>
                 <ChevronRight className="mt-1 h-5 w-5 shrink-0 text-zinc-500 transition group-hover:translate-x-0.5 group-hover:text-gold" />
               </m.button>
@@ -241,31 +197,40 @@ export function ConfiguracoesPage() {
             <h2 className="text-sm font-bold uppercase tracking-[0.2em]">Regras Críticas do Portal</h2>
           </div>
           <p className="mt-1 text-xs text-zinc-400">
-            Regras vigentes que alimentam os dashboards. Nesta fase são apenas exibidas — a edição entra nas próximas
-            etapas.
+            Regras vigentes que alimentam os dashboards. As que já são editáveis aparecem nas seções acima; as demais seguem fixas no código.
           </p>
           <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             {CRITICAL_RULES.map((rule) => (
-              <div
-                key={rule.label}
-                className="flex items-center justify-between gap-3 rounded-lg border border-gold/15 bg-black/30 px-4 py-3"
-              >
+              <div key={rule.label} className="flex items-center justify-between gap-3 rounded-lg border border-gold/15 bg-black/30 px-4 py-3">
                 <span className="text-sm text-zinc-300">{rule.label}</span>
-                <span className="rounded-md border border-gold/25 bg-gold/5 px-2.5 py-1 text-right text-xs font-semibold text-champagne">
-                  {rule.value}
-                </span>
+                <span className="rounded-md border border-gold/25 bg-gold/5 px-2.5 py-1 text-right text-xs font-semibold text-champagne">{rule.value}</span>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      <SectionPanel section={activeSection} onClose={() => setActiveSection(null)} />
+      <SectionPanel
+        section={activeSection}
+        settings={activeSection?.category ? settingsByCategory[activeSection.category] ?? [] : []}
+        canEdit={canEdit}
+        onClose={() => setActiveSection(null)}
+      />
     </section>
   );
 }
 
-function SectionPanel({ section, onClose }: { section: SettingsSection | null; onClose: () => void }) {
+function SectionPanel({
+  section,
+  settings,
+  canEdit,
+  onClose
+}: {
+  section: SettingsSection | null;
+  settings: PortalSettingDTO[];
+  canEdit: boolean;
+  onClose: () => void;
+}) {
   useEffect(() => {
     if (!section) return;
     const handler = (event: KeyboardEvent) => event.key === "Escape" && onClose();
@@ -275,6 +240,7 @@ function SectionPanel({ section, onClose }: { section: SettingsSection | null; o
 
   if (!section) return null;
   const Icon = section.icon;
+  const hasSettings = Boolean(section.category) && settings.length > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={section.title}>
@@ -301,20 +267,25 @@ function SectionPanel({ section, onClose }: { section: SettingsSection | null; o
         </div>
 
         <div className="p-5">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-champagne/70">Configurações previstas</p>
-          <ul className="mt-3 space-y-2">
-            {section.planned.map((item) => (
-              <li key={item} className="flex items-start gap-3 rounded-lg border border-gold/15 bg-black/30 px-4 py-3 text-sm text-zinc-200">
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-gold" />
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-
-          <div className="mt-5 flex items-start gap-3 rounded-lg border border-gold/30 bg-gold/10 p-4">
-            <ScrollText className="mt-0.5 h-5 w-5 shrink-0 text-gold" />
-            <p className="text-sm leading-relaxed text-champagne">Configuração será ativada na próxima fase.</p>
-          </div>
+          {hasSettings ? (
+            <SettingsForm category={section.category as string} settings={settings} canEdit={canEdit} />
+          ) : (
+            <>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-champagne/70">Configurações previstas</p>
+              <ul className="mt-3 space-y-2">
+                {(section.planned ?? []).map((item) => (
+                  <li key={item} className="flex items-start gap-3 rounded-lg border border-gold/15 bg-black/30 px-4 py-3 text-sm text-zinc-200">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-gold" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-5 flex items-start gap-3 rounded-lg border border-gold/30 bg-gold/10 p-4">
+                <ScrollText className="mt-0.5 h-5 w-5 shrink-0 text-gold" />
+                <p className="text-sm leading-relaxed text-champagne">Configuração será ativada na próxima fase.</p>
+              </div>
+            </>
+          )}
         </div>
       </aside>
     </div>

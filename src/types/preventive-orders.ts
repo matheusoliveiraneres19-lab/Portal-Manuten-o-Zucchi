@@ -203,5 +203,7 @@ export type PreventivePageData = {
   filterOptions: PreventiveFilterOptions;
   /** Havia alguma OS PL/PV no período antes dos filtros secundários? (empty state global) */
   hasAnyPreventiveInPeriod: boolean;
+  /** Meta de aderência (%) vinda das configurações (fallback 85). */
+  adherenceTarget: number;
   source: "database" | "empty";
 };

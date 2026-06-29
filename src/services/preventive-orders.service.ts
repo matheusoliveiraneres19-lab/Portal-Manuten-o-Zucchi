@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getSettingValue } from "@/services/settings.service";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
 import {
   PREVENTIVE_TARGETS,
@@ -39,6 +40,41 @@ export function detectPreventiveType(title: string | null | undefined): Preventi
   return match ? (match[1].toUpperCase() as PreventiveType) : null;
 }
 
+const PREVENTIVE_FALLBACK = { plPrefix: "PL -", pvPrefix: "PV -", threshold: EXECUTION_THRESHOLD_HOURS };
+
+/** Configuração editável (settings) com fallback ao código atual. */
+async function loadPreventiveConfig(): Promise<{ plPrefix: string; pvPrefix: string; threshold: number }> {
+  const [plPrefix, pvPrefix, threshold] = await Promise.all([
+    getSettingValue("preventivas", "prefixo_lubrificacao", PREVENTIVE_FALLBACK.plPrefix),
+    getSettingValue("preventivas", "prefixo_preventiva_eletrica", PREVENTIVE_FALLBACK.pvPrefix),
+    getSettingValue("preventivas", "hora_minima_realizada", PREVENTIVE_FALLBACK.threshold)
+  ]);
+  return {
+    plPrefix: plPrefix || PREVENTIVE_FALLBACK.plPrefix,
+    pvPrefix: pvPrefix || PREVENTIVE_FALLBACK.pvPrefix,
+    threshold: Number.isFinite(threshold) ? threshold : PREVENTIVE_FALLBACK.threshold
+  };
+}
+
+/** Só as letras do prefixo, p/ o pré-filtro no banco (ex.: "PL -" → "PL"). */
+function prefixLetters(prefix: string): string {
+  return prefix.replace(/[^a-zA-Z]/g, "").toUpperCase() || "PL";
+}
+
+/** True se o título começa com o prefixo (tolerante a espaço: "PL -" e "PL-"). */
+function matchesPrefix(title: string, prefix: string): boolean {
+  const t = title.trim().toUpperCase();
+  const p = prefix.trim().toUpperCase();
+  return t.startsWith(p) || t.replace(/\s+/g, "").startsWith(p.replace(/\s+/g, ""));
+}
+
+function detectTypeWith(title: string | null | undefined, plPrefix: string, pvPrefix: string): PreventiveType | null {
+  if (!title) return null;
+  if (matchesPrefix(title, plPrefix)) return "PL";
+  if (matchesPrefix(title, pvPrefix)) return "PV";
+  return null;
+}
+
 export function areaForType(type: PreventiveType): PreventiveArea {
   return type === "PL" ? "Lubrificação" : "Elétrica";
 }
@@ -47,10 +83,13 @@ export function labelForType(type: PreventiveType): string {
   return type === "PL" ? "PL — Lubrificação" : "PV — Preventiva Elétrica";
 }
 
-/** Realizada quando workedHours > 0,1 h; vazio/null conta como 0. */
-export function classifyExecution(workedHours: number | null | undefined): PreventiveExecutionStatus {
+/** Realizada quando workedHours > limite (default 0,1 h); vazio/null conta como 0. */
+export function classifyExecution(
+  workedHours: number | null | undefined,
+  threshold: number = EXECUTION_THRESHOLD_HOURS
+): PreventiveExecutionStatus {
   const hours = Number(workedHours ?? 0);
-  return hours > EXECUTION_THRESHOLD_HOURS ? "Realizada" : "Não Realizada";
+  return hours > threshold ? "Realizada" : "Não Realizada";
 }
 
 // Considera-se "concluída" no SAP o status FECHADA (a base não preenche closedAt;
@@ -63,9 +102,10 @@ const CLOSED_STATUSES = new Set<ServiceOrderStatus>([ServiceOrderStatus.FECHADA]
  */
 export function classifyManagement(
   status: ServiceOrderStatus,
-  workedHours: number | null | undefined
+  workedHours: number | null | undefined,
+  threshold: number = EXECUTION_THRESHOLD_HOURS
 ): PreventiveManagementStatus {
-  const realized = classifyExecution(workedHours) === "Realizada";
+  const realized = classifyExecution(workedHours, threshold) === "Realizada";
 
   if (status === ServiceOrderStatus.CANCELADA) return "Cancelada";
 
@@ -135,12 +175,13 @@ type PreventiveRecord = Prisma.ServiceOrderGetPayload<{ select: typeof preventiv
  * para que as 6 funções públicas compartilhem o mesmo fetch.
  */
 const loadClassifiedOrders = cache(async (periodKey: string): Promise<PreventiveOrderRow[]> => {
+  const config = await loadPreventiveConfig();
   const [startDate, endDate] = periodKey.split("|");
   const and: Prisma.ServiceOrderWhereInput[] = [
     {
       OR: [
-        { title: { startsWith: "PL", mode: "insensitive" } },
-        { title: { startsWith: "PV", mode: "insensitive" } }
+        { title: { startsWith: prefixLetters(config.plPrefix), mode: "insensitive" } },
+        { title: { startsWith: prefixLetters(config.pvPrefix), mode: "insensitive" } }
       ]
     }
   ];
@@ -164,12 +205,12 @@ const loadClassifiedOrders = cache(async (periodKey: string): Promise<Preventive
   const now = Date.now();
 
   for (const record of records) {
-    const type = detectPreventiveType(record.title);
+    const type = detectTypeWith(record.title, config.plPrefix, config.pvPrefix);
     if (!type) continue; // descarta falso-positivo do startsWith (ex.: "PLACA").
 
     const workedHours = Number(record.workedHours ?? 0);
-    const executionStatus = classifyExecution(workedHours);
-    const managementStatus = classifyManagement(record.status, workedHours);
+    const executionStatus = classifyExecution(workedHours, config.threshold);
+    const managementStatus = classifyManagement(record.status, workedHours, config.threshold);
     const isClosed = CLOSED_STATUSES.has(record.status) || record.status === ServiceOrderStatus.CANCELADA;
     const daysOpen =
       !isClosed && record.openedAt
@@ -549,6 +590,7 @@ export async function getPreventiveOrdersPageData(filters: PreventiveFilters = {
     const allInPeriod = await loadClassifiedOrders(periodKey(filters));
     const rows = applyFilters(allInPeriod, filters);
 
+    const adherenceTarget = await getSettingValue("metas", "aderencia_preventiva_min", PREVENTIVE_TARGETS.adherence);
     const byArea = breakdownByArea(rows);
 
     return {
@@ -567,6 +609,7 @@ export async function getPreventiveOrdersPageData(filters: PreventiveFilters = {
       rowsCapped: rows.length > TABLE_ROW_CAP,
       filterOptions: buildFilterOptions(allInPeriod),
       hasAnyPreventiveInPeriod: allInPeriod.length > 0,
+      adherenceTarget,
       source: "database"
     };
   } catch (error) {
@@ -607,6 +650,7 @@ function emptyPageData(): PreventivePageData {
     rowsCapped: false,
     filterOptions: { statuses: [], managementStatuses: [], responsibles: [] },
     hasAnyPreventiveInPeriod: false,
+    adherenceTarget: PREVENTIVE_TARGETS.adherence,
     source: "empty"
   };
 }

@@ -90,10 +90,10 @@ const hoursFmt = (value: number) => `${value.toLocaleString("pt-BR", { maximumFr
 const percentFmt = (value: number | null) =>
   value === null ? "—" : `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 
-function adherenceLevel(value: number | null): TargetLevel {
+function adherenceLevel(value: number | null, target: number): TargetLevel {
   if (value === null) return "warn";
-  if (value >= PREVENTIVE_TARGETS.adherence) return "ok";
-  if (value >= 70) return "warn";
+  if (value >= target) return "ok";
+  if (value >= target * 0.82) return "warn";
   return "crit";
 }
 
@@ -128,7 +128,7 @@ export function PreventivasProgramadasPage({ data, applied }: PreventivasProgram
 
   const exportHref = `/api/preventivas/export${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
 
-  const aderenciaLevel = adherenceLevel(summary.aderencia);
+  const aderenciaLevel = adherenceLevel(summary.aderencia, data.adherenceTarget);
 
   const kpiCards: Array<{ title: string; value: string; description: string; icon: LucideIcon; tone: Tone; level?: TargetLevel }> = [
     { title: "Total Programadas", value: intFmt.format(summary.total), description: "Total de ordens PL e PV no período.", icon: ClipboardList, tone: "champagne" },
@@ -219,7 +219,7 @@ export function PreventivasProgramadasPage({ data, applied }: PreventivasProgram
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <MetaCard
             title="Meta de Aderência"
-            target={`≥ ${PREVENTIVE_TARGETS.adherence}%`}
+            target={`≥ ${data.adherenceTarget}%`}
             current={percentFmt(summary.aderencia)}
             level={aderenciaLevel}
           />

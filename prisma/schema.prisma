@@ -899,3 +899,23 @@ model SystemConfig {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+/// Parâmetros administrativos editáveis do portal (metas, regras, prefixos…).
+/// Genérico por (category, key); `value` é Json para suportar número, texto,
+/// booleano, lista de palavras e seleção. Sempre há fallback no código.
+model PortalSetting {
+  id          String   @id @default(cuid())
+  category    String
+  key         String
+  label       String
+  description String?
+  value       Json
+  valueType   String
+  isEditable  Boolean  @default(true)
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([category, key])
+  @@index([category])
+}
