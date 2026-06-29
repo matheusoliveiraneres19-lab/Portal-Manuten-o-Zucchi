@@ -29,10 +29,6 @@ const modules = {
   "equipe-horas": {
     title: "Equipe e Horas",
     description: "Acompanhe apontamentos, disponibilidade e produtividade da equipe de manutenção."
-  },
-  configuracoes: {
-    title: "Configurações",
-    description: "Gerencie parâmetros do portal e preferências administrativas."
   }
 } as const;
 
