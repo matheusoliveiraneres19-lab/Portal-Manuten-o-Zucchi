@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { m } from "framer-motion";
 import {
   AlertTriangle,
@@ -22,6 +23,37 @@ import {
   Zap
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type {
+  PreventiveManagementStatus,
+  PreventiveOrderRow,
+  PreventivePageData
+} from "@/types/preventive-orders";
+import {
+  AreaAdherenceChart,
+  PlPvChart,
+  StatusChart,
+  TopMachinesChart
+} from "@/components/preventivas/PreventivasCharts";
+
+type AppliedFilters = {
+  startDate: string;
+  endDate: string;
+  type: string;
+  area: string;
+  statusSap: string;
+  mgmt: string;
+  resp: string;
+  local: string;
+  equip: string;
+  onlyNotDone: boolean;
+  onlyClosedNoExec: boolean;
+  onlyLate: boolean;
+};
+
+type PreventivasProgramadasPageProps = {
+  data: PreventivePageData;
+  applied: AppliedFilters;
+};
 
 type Tone = "gold" | "blue" | "green" | "red" | "champagne";
 
@@ -33,163 +65,95 @@ const toneChip: Record<Tone, string> = {
   champagne: "border-champagne/30 bg-champagne/10 text-champagne"
 };
 
-type KpiCard = {
-  title: string;
-  value: string;
-  description: string;
-  icon: LucideIcon;
-  tone: Tone;
-};
+const intFmt = new Intl.NumberFormat("pt-BR");
+const hoursFmt = (value: number) => `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h`;
+const percentFmt = (value: number | null) =>
+  value === null ? "—" : `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 
-// Fase 01: valores zerados/placeholder. Na fase 02 serão substituídos pelos
-// cálculos reais sobre as ordens PL/PV importadas do SAP.
-const KPI_CARDS: KpiCard[] = [
-  {
-    title: "Total Programadas",
-    value: "0",
-    description: "Total de ordens PL e PV no período.",
-    icon: ClipboardList,
-    tone: "champagne"
-  },
-  {
-    title: "Lubrificação PL",
-    value: "0",
-    description: "Ordens de lubrificação programadas.",
-    icon: Droplet,
-    tone: "blue"
-  },
-  {
-    title: "Preventiva Elétrica PV",
-    value: "0",
-    description: "Ordens preventivas elétricas programadas.",
-    icon: Zap,
-    tone: "gold"
-  },
-  {
-    title: "Realizadas",
-    value: "0",
-    description: "Ordens com trabalho real maior que 0,1 h.",
-    icon: CheckCircle2,
-    tone: "green"
-  },
-  {
-    title: "Não Realizadas",
-    value: "0",
-    description: "Ordens com trabalho real igual ou menor que 0,1 h.",
-    icon: XCircle,
-    tone: "red"
-  },
-  {
-    title: "Fechadas sem Execução",
-    value: "0",
-    description: "Ordens fechadas sem evidência de execução real.",
-    icon: FileWarning,
-    tone: "red"
-  },
-  {
-    title: "Horas Apontadas",
-    value: "0,0 h",
-    description: "Total de horas apontadas em PL e PV.",
-    icon: Timer,
-    tone: "blue"
-  },
-  {
-    title: "Aderência Preventiva",
-    value: "—",
-    description: "Percentual de ordens realizadas sobre o total programado.",
-    icon: Gauge,
-    tone: "gold"
-  }
-];
+export function PreventivasProgramadasPage({ data, applied }: PreventivasProgramadasPageProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
-type ChartBlock = {
-  title: string;
-  hint: string;
-  icon: LucideIcon;
-};
+  const [localDraft, setLocalDraft] = useState(applied.local);
+  const [equipDraft, setEquipDraft] = useState(applied.equip);
 
-const CHART_BLOCKS: ChartBlock[] = [
-  {
-    title: "PL × PV",
-    hint: "Comparação de quantidade de ordens e horas por tipo de plano.",
-    icon: BarChart3
-  },
-  {
-    title: "Aderência por Área",
-    hint: "Lubrificação × Preventiva Elétrica.",
-    icon: PieChart
-  },
-  {
-    title: "OS por Status",
-    hint: "Abertas, em andamento, fechadas, fechadas sem execução e atrasadas.",
-    icon: LineChart
-  },
-  {
-    title: "Top Máquinas com OS Não Realizadas",
-    hint: "Locais de instalação com maior quantidade de PL/PV não executadas.",
-    icon: AlertTriangle
-  }
-];
+  // Atualiza search params preservando os demais; valor vazio remove a chave.
+  const updateParams = useCallback(
+    (mutations: Record<string, string | null>) => {
+      const next = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(mutations)) {
+        if (value === null || value === "") next.delete(key);
+        else next.set(key, value);
+      }
+      const query = next.toString();
+      router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
 
-const TABLE_COLUMNS = [
-  "Tipo",
-  "Área",
-  "Nº OS",
-  "Título",
-  "Local de instalação",
-  "Equipamento",
-  "Responsável",
-  "Status SAP",
-  "Status Gerencial",
-  "Trabalho Real",
-  "Data início",
-  "Data fim",
-  "Dias em aberto",
-  "Situação"
-] as const;
+  const toggleParam = (key: string, active: boolean) => updateParams({ [key]: active ? null : "1" });
 
-type AlertCard = {
-  title: string;
-  description: string;
-  icon: LucideIcon;
-  tone: Tone;
-};
+  const { summary, byType, byArea, byStatus, byMachine, alerts, rows, filterOptions } = data;
 
-const ALERT_CARDS: AlertCard[] = [
-  {
-    title: "OS fechada sem execução",
-    description: "Ordens encerradas no SAP sem trabalho real apontado.",
-    icon: FileWarning,
-    tone: "red"
-  },
-  {
-    title: "Preventiva vencida",
-    description: "Planos PL/PV cuja data programada já passou sem conclusão.",
-    icon: CalendarX2,
-    tone: "gold"
-  },
-  {
-    title: "Máquina com recorrência de preventivas não executadas",
-    description: "Equipamentos que acumulam PL/PV não realizadas em sequência.",
-    icon: Repeat2,
-    tone: "red"
-  },
-  {
-    title: "Área com baixa aderência",
-    description: "Áreas cuja execução fica abaixo da meta de aderência preventiva.",
-    icon: TrendingDown,
-    tone: "champagne"
-  }
-];
-
-export function PreventivasProgramadasPage() {
-  // Estado visual dos filtros (fase 01). A aplicação real sobre os dados PL/PV
-  // entra na fase 02 — por ora os controles apenas refletem a seleção.
-  const [type, setType] = useState<"todos" | "pl" | "pv">("todos");
-  const [area, setArea] = useState<"todas" | "lubrificacao" | "eletrica">("todas");
-  const [onlyNotDone, setOnlyNotDone] = useState(false);
-  const [onlyClosedNoExec, setOnlyClosedNoExec] = useState(false);
-  const [onlyLate, setOnlyLate] = useState(false);
+  const kpiCards: Array<{ title: string; value: string; description: string; icon: LucideIcon; tone: Tone }> = [
+    {
+      title: "Total Programadas",
+      value: intFmt.format(summary.total),
+      description: "Total de ordens PL e PV no período.",
+      icon: ClipboardList,
+      tone: "champagne"
+    },
+    {
+      title: "Lubrificação PL",
+      value: intFmt.format(summary.totalPL),
+      description: "Ordens de lubrificação programadas.",
+      icon: Droplet,
+      tone: "blue"
+    },
+    {
+      title: "Preventiva Elétrica PV",
+      value: intFmt.format(summary.totalPV),
+      description: "Ordens preventivas elétricas programadas.",
+      icon: Zap,
+      tone: "gold"
+    },
+    {
+      title: "Realizadas",
+      value: intFmt.format(summary.realizadas),
+      description: "Ordens com trabalho real maior que 0,1 h.",
+      icon: CheckCircle2,
+      tone: "green"
+    },
+    {
+      title: "Não Realizadas",
+      value: intFmt.format(summary.naoRealizadas),
+      description: "Ordens com trabalho real igual ou menor que 0,1 h.",
+      icon: XCircle,
+      tone: "red"
+    },
+    {
+      title: "Fechadas sem Execução",
+      value: intFmt.format(summary.fechadasSemExecucao),
+      description: "Ordens fechadas sem evidência de execução real.",
+      icon: FileWarning,
+      tone: "red"
+    },
+    {
+      title: "Horas Apontadas",
+      value: hoursFmt(summary.horasApontadas),
+      description: "Total de horas apontadas em PL e PV.",
+      icon: Timer,
+      tone: "blue"
+    },
+    {
+      title: "Aderência Preventiva",
+      value: percentFmt(summary.aderencia),
+      description: "Percentual de ordens realizadas sobre o total programado.",
+      icon: Gauge,
+      tone: "gold"
+    }
+  ];
 
   return (
     <section className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#060707] shadow-premium">
@@ -197,7 +161,7 @@ export function PreventivasProgramadasPage() {
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.72),rgba(0,0,0,0.42)),radial-gradient(circle_at_84%_12%,rgba(196,154,69,0.16),transparent_24rem)]" />
 
       <div className="relative z-10 px-4 py-7 sm:px-6 lg:px-8">
-        {/* TAREFA 2 — Cabeçalho */}
+        {/* Cabeçalho */}
         <header className="max-w-4xl">
           <div className="mb-4 flex items-center gap-3 text-gold">
             <Gem className="h-5 w-5" />
@@ -216,9 +180,9 @@ export function PreventivasProgramadasPage() {
           </p>
         </header>
 
-        {/* TAREFA 3 — Cards principais */}
+        {/* Cards principais */}
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-          {KPI_CARDS.map((card, index) => {
+          {kpiCards.map((card, index) => {
             const Icon = card.icon;
             return (
               <m.article
@@ -245,7 +209,7 @@ export function PreventivasProgramadasPage() {
           })}
         </div>
 
-        {/* TAREFA 4 — Filtros */}
+        {/* Filtros */}
         <div className="mt-6 rounded-lg border border-gold/25 bg-black/45 p-5 shadow-[0_14px_36px_rgba(0,0,0,0.3)] backdrop-blur">
           <div className="mb-4 flex items-center gap-2 text-champagne">
             <CalendarClock className="h-4 w-4 text-gold" />
@@ -255,111 +219,160 @@ export function PreventivasProgramadasPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             <Field label="Período">
               <div className="flex items-center gap-2">
-                <input type="date" className={inputClass} aria-label="Data inicial" />
+                <input
+                  type="date"
+                  className={inputClass}
+                  aria-label="Data inicial"
+                  value={applied.startDate}
+                  max={applied.endDate || undefined}
+                  onChange={(e) => updateParams({ startDate: e.target.value })}
+                />
                 <span className="text-zinc-500">–</span>
-                <input type="date" className={inputClass} aria-label="Data final" />
+                <input
+                  type="date"
+                  className={inputClass}
+                  aria-label="Data final"
+                  value={applied.endDate}
+                  min={applied.startDate || undefined}
+                  onChange={(e) => updateParams({ endDate: e.target.value })}
+                />
               </div>
             </Field>
 
             <Field label="Tipo">
-              <select className={inputClass} value={type} onChange={(e) => setType(e.target.value as typeof type)}>
-                <option value="todos">Todos</option>
-                <option value="pl">PL — Lubrificação</option>
-                <option value="pv">PV — Preventiva Elétrica</option>
+              <select className={inputClass} value={applied.type} onChange={(e) => updateParams({ type: e.target.value })}>
+                <option value="">Todos</option>
+                <option value="PL">PL — Lubrificação</option>
+                <option value="PV">PV — Preventiva Elétrica</option>
               </select>
             </Field>
 
             <Field label="Área">
-              <select className={inputClass} value={area} onChange={(e) => setArea(e.target.value as typeof area)}>
-                <option value="todas">Todas</option>
-                <option value="lubrificacao">Lubrificação</option>
-                <option value="eletrica">Elétrica</option>
+              <select className={inputClass} value={applied.area} onChange={(e) => updateParams({ area: e.target.value })}>
+                <option value="">Todas</option>
+                <option value="Lubrificação">Lubrificação</option>
+                <option value="Elétrica">Elétrica</option>
               </select>
             </Field>
 
             <Field label="Status SAP">
-              <select className={inputClass} defaultValue="">
+              <select className={inputClass} value={applied.statusSap} onChange={(e) => updateParams({ statusSap: e.target.value })}>
                 <option value="">Todos</option>
-                <option value="aberta">Aberta</option>
-                <option value="andamento">Em andamento</option>
-                <option value="fechada">Fechada</option>
+                {filterOptions.statuses.map((status) => (
+                  <option key={status.value} value={status.value}>
+                    {status.label}
+                  </option>
+                ))}
               </select>
             </Field>
 
             <Field label="Status Gerencial">
-              <select className={inputClass} defaultValue="">
+              <select className={inputClass} value={applied.mgmt} onChange={(e) => updateParams({ mgmt: e.target.value })}>
                 <option value="">Todos</option>
-                <option value="realizada">Realizada</option>
-                <option value="nao-realizada">Não realizada</option>
-                <option value="sem-execucao">Fechada sem execução</option>
+                {filterOptions.managementStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
               </select>
             </Field>
 
             <Field label="Responsável">
-              <input type="text" placeholder="Todos" className={inputClass} />
+              <select className={inputClass} value={applied.resp} onChange={(e) => updateParams({ resp: e.target.value })}>
+                <option value="">Todos</option>
+                {filterOptions.responsibles.map((resp) => (
+                  <option key={resp} value={resp}>
+                    {resp}
+                  </option>
+                ))}
+              </select>
             </Field>
 
             <Field label="Local de instalação">
-              <input type="text" placeholder="Todos" className={inputClass} />
+              <input
+                type="text"
+                placeholder="Todos"
+                className={inputClass}
+                value={localDraft}
+                onChange={(e) => setLocalDraft(e.target.value)}
+                onBlur={() => updateParams({ local: localDraft })}
+                onKeyDown={(e) => e.key === "Enter" && updateParams({ local: localDraft })}
+              />
             </Field>
 
             <Field label="Equipamento">
-              <input type="text" placeholder="Todos" className={inputClass} />
+              <input
+                type="text"
+                placeholder="Todos"
+                className={inputClass}
+                value={equipDraft}
+                onChange={(e) => setEquipDraft(e.target.value)}
+                onBlur={() => updateParams({ equip: equipDraft })}
+                onKeyDown={(e) => e.key === "Enter" && updateParams({ equip: equipDraft })}
+              />
             </Field>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-gold/15 pt-4">
-            <Toggle active={onlyNotDone} onClick={() => setOnlyNotDone((v) => !v)}>
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-gold/15 pt-4">
+            <Toggle active={applied.onlyNotDone} onClick={() => toggleParam("nd", applied.onlyNotDone)}>
               Somente não realizadas
             </Toggle>
-            <Toggle active={onlyClosedNoExec} onClick={() => setOnlyClosedNoExec((v) => !v)}>
+            <Toggle active={applied.onlyClosedNoExec} onClick={() => toggleParam("cne", applied.onlyClosedNoExec)}>
               Somente fechadas sem execução
             </Toggle>
-            <Toggle active={onlyLate} onClick={() => setOnlyLate((v) => !v)}>
+            <Toggle active={applied.onlyLate} onClick={() => toggleParam("late", applied.onlyLate)}>
               Somente atrasadas
             </Toggle>
+            <button
+              type="button"
+              onClick={() => {
+                setLocalDraft("");
+                setEquipDraft("");
+                router.push(pathname, { scroll: false });
+              }}
+              className="ml-auto rounded-full border border-gold/25 px-4 py-1.5 text-xs font-medium text-zinc-300 transition hover:border-gold/45 hover:text-white"
+            >
+              Limpar filtros
+            </button>
           </div>
         </div>
 
-        {/* TAREFA 5 — Gráficos */}
+        {/* Gráficos */}
         <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {CHART_BLOCKS.map((chart) => {
-            const Icon = chart.icon;
-            return (
-              <div
-                key={chart.title}
-                className="rounded-lg border border-gold/25 bg-black/45 p-5 shadow-[0_14px_36px_rgba(0,0,0,0.3)] backdrop-blur"
-              >
-                <div className="flex items-center gap-2 text-champagne">
-                  <Icon className="h-4 w-4 text-gold" />
-                  <h3 className="text-sm font-bold tracking-wide">{chart.title}</h3>
-                </div>
-                <p className="mt-1 text-xs text-zinc-400">{chart.hint}</p>
-                <div className="mt-4 grid h-48 place-items-center rounded-lg border border-dashed border-gold/25 bg-gradient-to-br from-white/[0.04] to-transparent">
-                  <div className="flex flex-col items-center gap-2 text-center">
-                    <Icon className="h-8 w-8 text-gold/60" strokeWidth={1.4} />
-                    <span className="text-xs font-medium text-zinc-400">Gráfico disponível na fase 02</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          <ChartPanel title="PL × PV" hint="Quantidade de ordens realizadas/não realizadas e horas por tipo." icon={BarChart3}>
+            <PlPvChart data={byType} />
+          </ChartPanel>
+          <ChartPanel title="Aderência por Área" hint="Lubrificação × Preventiva Elétrica (meta 80%)." icon={PieChart}>
+            <AreaAdherenceChart data={byArea} />
+          </ChartPanel>
+          <ChartPanel title="OS por Status Gerencial" hint="Distribuição por situação gerencial das ordens." icon={LineChart}>
+            <StatusChart data={byStatus} />
+          </ChartPanel>
+          <ChartPanel title="Top Máquinas com OS Não Realizadas" hint="Locais de instalação com mais PL/PV não executadas." icon={AlertTriangle}>
+            <TopMachinesChart data={byMachine} />
+          </ChartPanel>
         </div>
 
-        {/* TAREFA 6 — Tabela */}
+        {/* Tabela */}
         <div className="mt-6 rounded-lg border border-gold/25 bg-black/45 shadow-[0_14px_36px_rgba(0,0,0,0.3)] backdrop-blur">
-          <div className="flex items-center gap-2 border-b border-gold/15 px-5 py-4 text-champagne">
-            <ClipboardList className="h-4 w-4 text-gold" />
-            <h2 className="text-sm font-bold tracking-wide">Ordens Programadas PL/PV</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gold/15 px-5 py-4 text-champagne">
+            <div className="flex items-center gap-2">
+              <ClipboardList className="h-4 w-4 text-gold" />
+              <h2 className="text-sm font-bold tracking-wide">Ordens Programadas PL/PV</h2>
+            </div>
+            <span className="text-xs text-zinc-400">
+              {intFmt.format(data.totalRows)} ordens
+              {data.rowsCapped ? ` • exibindo as primeiras ${intFmt.format(rows.length)}` : ""}
+            </span>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] text-left text-sm">
+            <table className="w-full min-w-[1180px] text-left text-sm">
               <thead>
                 <tr className="border-b border-gold/15">
                   {TABLE_COLUMNS.map((col) => (
                     <th
                       key={col}
-                      className="whitespace-nowrap px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-champagne/70"
+                      className="whitespace-nowrap px-3 py-3 text-[11px] font-bold uppercase tracking-wide text-champagne/70"
                     >
                       {col}
                     </th>
@@ -367,57 +380,168 @@ export function PreventivasProgramadasPage() {
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td colSpan={TABLE_COLUMNS.length} className="px-4 py-16 text-center">
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="grid h-12 w-12 place-items-center rounded-full border border-gold/30 bg-gold/10 text-gold">
-                        <ClipboardList className="h-6 w-6" strokeWidth={1.6} />
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={TABLE_COLUMNS.length} className="px-4 py-16 text-center">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="grid h-12 w-12 place-items-center rounded-full border border-gold/30 bg-gold/10 text-gold">
+                          <ClipboardList className="h-6 w-6" strokeWidth={1.6} />
+                        </div>
+                        <p className="text-sm text-zinc-300">{emptyTableMessage(data, applied)}</p>
                       </div>
-                      <p className="text-sm text-zinc-300">
-                        Nenhuma ordem PL/PV encontrada para os filtros selecionados.
-                      </p>
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((row) => <OrderRow key={row.id} row={row} />)
+                )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* TAREFA 7 — Alertas Gerenciais */}
+        {/* Alertas Gerenciais */}
         <div className="mt-6">
           <div className="mb-3 flex items-center gap-2 text-champagne">
             <AlertTriangle className="h-4 w-4 text-gold" />
             <h2 className="text-sm font-bold uppercase tracking-[0.2em]">Alertas Gerenciais</h2>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {ALERT_CARDS.map((alert) => {
-              const Icon = alert.icon;
-              return (
-                <div
-                  key={alert.title}
-                  className="flex gap-3 rounded-lg border border-gold/25 bg-black/45 p-4 shadow-[0_14px_36px_rgba(0,0,0,0.3)] backdrop-blur"
-                >
-                  <div
-                    className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg border ${toneChip[alert.tone]}`}
-                  >
-                    <Icon className="h-5 w-5" strokeWidth={1.8} />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-semibold text-white">{alert.title}</h3>
-                    <p className="mt-1 text-xs leading-snug text-zinc-400">{alert.description}</p>
-                    <span className="mt-2 inline-block rounded-full border border-gold/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-champagne/70">
-                      Aguardando dados • fase 02
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
+            <AlertCard
+              icon={FileWarning}
+              tone="red"
+              title="OS fechada sem execução"
+              metric={intFmt.format(alerts.closedNoExecCount)}
+              description="Ordens encerradas no SAP sem trabalho real apontado."
+            />
+            <AlertCard
+              icon={CalendarX2}
+              tone="gold"
+              title="Preventiva vencida"
+              metric={alerts.overdueCount === null ? "—" : intFmt.format(alerts.overdueCount)}
+              description={
+                alerts.overdueCount === null
+                  ? "Sem data de vencimento na base; atraso não pôde ser calculado."
+                  : "Planos PL/PV com data programada vencida e ainda não concluídos."
+              }
+            />
+            <AlertCard
+              icon={Repeat2}
+              tone="red"
+              title="Máquina com recorrência"
+              metric={alerts.recurrentMachine ? intFmt.format(alerts.recurrentMachine.count) : "—"}
+              description={
+                alerts.recurrentMachine
+                  ? `${alerts.recurrentMachine.name} — OS não executadas.`
+                  : "Nenhuma máquina com recorrência de não execução."
+              }
+            />
+            <AlertCard
+              icon={alerts.lowAdherenceAreas.length ? TrendingDown : Gauge}
+              tone={alerts.lowAdherenceAreas.length ? "champagne" : "green"}
+              title="Área com baixa aderência"
+              metric={alerts.lowAdherenceAreas.length ? `${alerts.lowAdherenceAreas.length}` : "OK"}
+              description={
+                alerts.lowAdherenceAreas.length
+                  ? alerts.lowAdherenceAreas.map((a) => `${a.area} (${percentFmt(a.aderencia)})`).join(" • ")
+                  : "Todas as áreas com aderência igual ou acima de 80%."
+              }
+            />
           </div>
         </div>
       </div>
     </section>
   );
+}
+
+const TABLE_COLUMNS = [
+  "Tipo",
+  "Área",
+  "Nº OS",
+  "Título",
+  "Local de instalação",
+  "Equipamento",
+  "Responsável",
+  "Status SAP",
+  "Status Gerencial",
+  "Trabalho Real",
+  "Data início",
+  "Data fim",
+  "Dias em aberto",
+  "Situação"
+] as const;
+
+const MANAGEMENT_BADGE: Record<PreventiveManagementStatus, string> = {
+  "Aberta sem execução": "border-gold/40 bg-gold/10 text-gold",
+  "Em andamento": "border-sky-400/40 bg-sky-400/10 text-sky-300",
+  Realizada: "border-emerald-400/40 bg-emerald-400/10 text-emerald-300",
+  "Fechada sem execução": "border-red-500/60 bg-red-500/20 text-red-200",
+  Atrasada: "border-orange-400/50 bg-orange-400/15 text-orange-300",
+  "A vencer": "border-yellow-400/50 bg-yellow-400/10 text-yellow-300",
+  Cancelada: "border-zinc-500/40 bg-zinc-500/10 text-zinc-300"
+};
+
+function OrderRow({ row }: { row: PreventiveOrderRow }) {
+  const executionClass =
+    row.executionStatus === "Realizada" ? "text-emerald-300" : "text-red-300";
+
+  return (
+    <tr className="border-b border-white/5 transition hover:bg-white/[0.03]">
+      <td className="whitespace-nowrap px-3 py-2.5">
+        <span
+          className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${
+            row.type === "PL" ? "bg-sky-400/15 text-sky-300" : "bg-gold/15 text-gold"
+          }`}
+        >
+          {row.type}
+        </span>
+      </td>
+      <td className="whitespace-nowrap px-3 py-2.5 text-zinc-300">{row.area}</td>
+      <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-200">{row.osNumber}</td>
+      <td className="max-w-[260px] truncate px-3 py-2.5 text-zinc-200" title={row.title}>
+        {row.title}
+      </td>
+      <td className="max-w-[200px] truncate px-3 py-2.5 text-zinc-300" title={row.technicalObject ?? "—"}>
+        {row.technicalObject ?? "—"}
+      </td>
+      <td className="max-w-[160px] truncate px-3 py-2.5 text-zinc-400" title={row.equipmentName ?? "—"}>
+        {row.equipmentName ?? "—"}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2.5 text-zinc-300">{row.responsibleName ?? "—"}</td>
+      <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{row.statusSapLabel}</td>
+      <td className="whitespace-nowrap px-3 py-2.5">
+        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${MANAGEMENT_BADGE[row.managementStatus]}`}>
+          {row.managementStatus}
+        </span>
+      </td>
+      <td className={`whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums ${executionClass}`}>
+        {row.workedHours.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h
+      </td>
+      <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{formatDate(row.openedAt)}</td>
+      <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{formatDate(row.closedAt)}</td>
+      <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-zinc-400">
+        {row.daysOpen === null ? "—" : `${row.daysOpen} d`}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2.5">
+        <span className={`text-[11px] font-semibold ${executionClass}`}>{row.executionStatus}</span>
+      </td>
+    </tr>
+  );
+}
+
+function emptyTableMessage(data: PreventivePageData, applied: AppliedFilters): string {
+  if (!data.hasAnyPreventiveInPeriod) {
+    return "Nenhuma ordem PL/PV encontrada no período selecionado.";
+  }
+  if (applied.onlyNotDone || applied.onlyClosedNoExec || applied.onlyLate) {
+    return "Nenhuma OS não realizada encontrada para os filtros selecionados.";
+  }
+  return "Nenhuma ordem PL/PV encontrada para os filtros selecionados.";
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC", day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
 }
 
 const inputClass =
@@ -432,15 +556,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Toggle({
-  active,
-  onClick,
-  children
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
+function Toggle({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
@@ -454,5 +570,57 @@ function Toggle({
     >
       {children}
     </button>
+  );
+}
+
+function ChartPanel({
+  title,
+  hint,
+  icon: Icon,
+  children
+}: {
+  title: string;
+  hint: string;
+  icon: LucideIcon;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-gold/25 bg-black/45 p-5 shadow-[0_14px_36px_rgba(0,0,0,0.3)] backdrop-blur">
+      <div className="flex items-center gap-2 text-champagne">
+        <Icon className="h-4 w-4 text-gold" />
+        <h3 className="text-sm font-bold tracking-wide">{title}</h3>
+      </div>
+      <p className="mt-1 text-xs text-zinc-400">{hint}</p>
+      <div className="mt-4 h-64 w-full">{children}</div>
+    </div>
+  );
+}
+
+function AlertCard({
+  icon: Icon,
+  tone,
+  title,
+  metric,
+  description
+}: {
+  icon: LucideIcon;
+  tone: Tone;
+  title: string;
+  metric: string;
+  description: string;
+}) {
+  return (
+    <div className="flex gap-3 rounded-lg border border-gold/25 bg-black/45 p-4 shadow-[0_14px_36px_rgba(0,0,0,0.3)] backdrop-blur">
+      <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg border ${toneChip[tone]}`}>
+        <Icon className="h-5 w-5" strokeWidth={1.8} />
+      </div>
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2">
+          <h3 className="text-sm font-semibold text-white">{title}</h3>
+          <span className="text-lg font-light text-champagne">{metric}</span>
+        </div>
+        <p className="mt-1 text-xs leading-snug text-zinc-400">{description}</p>
+      </div>
+    </div>
   );
 }
