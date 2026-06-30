@@ -3,13 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2, PlayCircle, Video, X } from "lucide-react";
+import { Loader2, PlayCircle, UploadCloud, Video, X } from "lucide-react";
 import {
   PROCEDURE_CATEGORY_NAMES,
   PROCEDURE_LEVELS,
   PROCEDURE_STATUSES
 } from "@/constants/procedure-categories";
 import { getVideoProvider, videoProviderLabel } from "@/utils/video-embed";
+import { PROCEDURE_VIDEO_MAX_MB, uploadProcedureVideo, validateProcedureVideoFile } from "@/utils/upload-procedure-video";
 import type { ProcedureDetail } from "@/types/procedures";
 
 type ProcedureFormProps = {
@@ -91,9 +92,14 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
   const [videoDescription, setVideoDescription] = useState("");
   const [existingVideoId, setExistingVideoId] = useState<string | null>(null);
   const [videoLoading, setVideoLoading] = useState(false);
-  // true quando a videoaula atual é um ARQUIVO enviado (não link): o modal não edita,
-  // direciona para a aba Videoaula (a URL é assinada/temporária, não serve de link).
-  const [videoLocked, setVideoLocked] = useState(false);
+  // true quando a videoaula atual é um ARQUIVO enviado (não link): o link não é
+  // pré-preenchido (URL é assinada/temporária), mas dá para substituir por outro
+  // arquivo ou por um link novo.
+  const [videoIsUploaded, setVideoIsUploaded] = useState(false);
+  // Arquivo MP4 selecionado para enviar ao salvar (tem prioridade sobre o link).
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoDragOver, setVideoDragOver] = useState(false);
+  const videoFileInputRef = useRef<HTMLInputElement>(null);
   const originalVideo = useRef({ url: "", title: "", description: "" });
 
   useEffect(() => {
@@ -107,7 +113,8 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
     setVideoTitle("");
     setVideoDescription("");
     setExistingVideoId(null);
-    setVideoLocked(false);
+    setVideoIsUploaded(false);
+    setVideoFile(null);
     originalVideo.current = { url: "", title: "", description: "" };
     if (!initial) return;
 
@@ -119,16 +126,17 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
         if (ignore || !data?.ok) return;
         const video = (data.attachments ?? []).find((item) => item.kind === "video");
         if (!video) return;
-        // Vídeo enviado por arquivo: não é editável por link aqui (URL temporária).
+        setExistingVideoId(video.id);
+        // Vídeo enviado por arquivo: não pré-preenche o link (URL é temporária),
+        // mas mantém o id para permitir substituição por arquivo/link.
         if (!video.isExternal) {
-          setVideoLocked(true);
+          setVideoIsUploaded(true);
           return;
         }
         const title = video.fileName && video.fileName !== video.url ? video.fileName : "";
         setVideoUrl(video.url);
         setVideoTitle(title);
         setVideoDescription(video.description ?? "");
-        setExistingVideoId(video.id);
         originalVideo.current = { url: video.url, title, description: video.description ?? "" };
       })
       .catch(() => {})
@@ -150,14 +158,30 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
    * Retorna true se houve um problema apenas com o vídeo (procedimento já foi salvo).
    */
   async function syncVideo(idOrSlug: string): Promise<boolean> {
-    // Videoaula por arquivo é gerenciada na aba Videoaula — o modal não a altera.
-    if (videoLocked) return false;
-    const newUrl = videoUrl.trim();
     const orig = originalVideo.current;
     const hadVideo = Boolean(existingVideoId);
     const base = `/api/procedures/${encodeURIComponent(idOrSlug)}/attachments`;
+    const deleteCurrent = async () => {
+      if (hadVideo) await fetch(`${base}/${existingVideoId}`, { method: "DELETE" }).catch(() => {});
+    };
 
-    // Link em branco → remove a videoaula existente.
+    // 1) Arquivo selecionado → upload direto (tem prioridade sobre o link).
+    if (videoFile) {
+      const result = await uploadProcedureVideo(idOrSlug, videoFile, { title: videoTitle, description: videoDescription });
+      if (!result.ok) {
+        toast.error(result.message ?? "Não foi possível enviar o vídeo.");
+        return true;
+      }
+      await deleteCurrent(); // substituição
+      return false;
+    }
+
+    const newUrl = videoUrl.trim();
+
+    // 2) Videoaula atual é um ARQUIVO enviado e nenhum link novo foi digitado → mantém.
+    if (videoIsUploaded && !newUrl) return false;
+
+    // 3) Link em branco (videoaula atual é link) → remove.
     if (!newUrl) {
       if (!hadVideo) return false;
       const res = await fetch(`${base}/${existingVideoId}`, { method: "DELETE" }).catch(() => null);
@@ -188,11 +212,18 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
     }).catch(() => null);
     if (!res || !res.ok) return true;
 
-    // Substituição: remove o vídeo anterior só depois do novo entrar.
-    if (hadVideo) {
-      await fetch(`${base}/${existingVideoId}`, { method: "DELETE" }).catch(() => {});
-    }
+    await deleteCurrent(); // substituição
     return false;
+  }
+
+  function handleVideoFile(file: File | undefined | null) {
+    if (!file) return;
+    const invalid = validateProcedureVideoFile(file);
+    if (invalid) {
+      toast.error(invalid);
+      return;
+    }
+    setVideoFile(file);
   }
 
   function update<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
@@ -341,7 +372,7 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
             </label>
           </div>
 
-          {/* Videoaula do procedimento — salva como anexo de vídeo (sem campo no model) */}
+          {/* Videoaula do procedimento — salva como anexo de vídeo (arquivo ou link) */}
           <div className="space-y-3 rounded-xl border border-[#C6A24A]/25 bg-[#11100C]/50 p-4">
             <div className="flex items-center gap-2">
               <PlayCircle className="h-4 w-4 text-[#D6AA3A]" />
@@ -349,22 +380,71 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
               {videoLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[#8F846F]" /> : null}
             </div>
 
-            {videoLocked ? (
+            {videoIsUploaded ? (
               <p className="rounded-lg border border-[#C6A24A]/20 bg-black/25 px-3 py-2 text-[12px] leading-relaxed text-[#D7CDBA]">
-                Este procedimento já tem uma videoaula <strong>enviada por arquivo</strong>. Para substituí-la, removê-la ou enviar outra,
-                use a aba <strong>“Videoaula”</strong> na página do procedimento.
+                A videoaula atual é um <strong>arquivo enviado</strong>. Envie outro arquivo ou cole um link para substituí-la.
               </p>
-            ) : (
-              <>
-                <Field label="Link do vídeo">
-                  <input
-                    className={inputClass}
-                    value={videoUrl}
-                    onChange={(e) => setVideoUrl(e.target.value)}
-                    placeholder="Cole o link do YouTube, Google Drive ou vídeo interno..."
-                  />
-                </Field>
+            ) : null}
 
+            {/* Enviar arquivo (arrastar ou clicar) */}
+            {videoFile ? (
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-[#D6AA3A]/40 bg-[#D6AA3A]/10 px-3 py-2.5">
+                <span className="flex min-w-0 items-center gap-2 text-[12px] text-[#F8F3E7]">
+                  <Video className="h-4 w-4 shrink-0 text-[#D6AA3A]" />
+                  <span className="truncate" title={videoFile.name}>{videoFile.name}</span>
+                  <span className="shrink-0 text-[#8F846F]">({(videoFile.size / (1024 * 1024)).toFixed(1)} MB)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVideoFile(null);
+                    if (videoFileInputRef.current) videoFileInputRef.current.value = "";
+                  }}
+                  className="shrink-0 text-[#B8AD9A] transition hover:text-white"
+                  aria-label="Remover arquivo selecionado"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setVideoDragOver(true);
+                }}
+                onDragLeave={() => setVideoDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setVideoDragOver(false);
+                  handleVideoFile(e.dataTransfer.files?.[0]);
+                }}
+                onClick={() => videoFileInputRef.current?.click()}
+                role="button"
+                tabIndex={0}
+                aria-label="Enviar arquivo de vídeo"
+                className={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-6 text-center transition ${
+                  videoDragOver ? "border-[#D6AA3A] bg-[#D6AA3A]/10" : "border-[#C6A24A]/30 bg-black/30 hover:border-[#D6AA3A]/55"
+                }`}
+              >
+                <UploadCloud className="h-6 w-6 text-[#D6AA3A]" />
+                <p className="text-[13px] font-semibold text-[#F8F3E7]">Arraste o vídeo aqui ou clique para enviar</p>
+                <p className="text-[11px] text-[#8F846F]">Formato MP4, até {PROCEDURE_VIDEO_MAX_MB} MB. Hospedado no portal.</p>
+              </div>
+            )}
+            <input ref={videoFileInputRef} type="file" accept="video/mp4" onChange={(e) => handleVideoFile(e.target.files?.[0])} className="hidden" />
+
+            {/* Link externo — apenas quando nenhum arquivo foi selecionado */}
+            {!videoFile ? (
+              <>
+                <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wide text-[#8F846F]">
+                  <span className="h-px flex-1 bg-[#C6A24A]/20" /> ou cole um link <span className="h-px flex-1 bg-[#C6A24A]/20" />
+                </div>
+                <input
+                  className={inputClass}
+                  value={videoUrl}
+                  onChange={(e) => setVideoUrl(e.target.value)}
+                  placeholder="Cole o link do YouTube, Google Drive ou vídeo interno..."
+                />
                 {videoUrl.trim() ? (
                   <span
                     className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
@@ -374,21 +454,21 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
                     <Video className="h-3.5 w-3.5" /> Tipo de vídeo: {videoProviderLabel(videoProvider)}
                   </span>
                 ) : null}
-
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Field label="Título da videoaula">
-                    <input className={inputClass} value={videoTitle} onChange={(e) => setVideoTitle(e.target.value)} placeholder="Ex.: Como apontar horas no SAP" />
-                  </Field>
-                  <Field label="Descrição curta">
-                    <input className={inputClass} value={videoDescription} onChange={(e) => setVideoDescription(e.target.value)} placeholder="Opcional" />
-                  </Field>
-                </div>
-
-                <p className="text-[11px] leading-relaxed text-[#8F846F]">
-                  Aceita YouTube, Google Drive, Vimeo ou link direto <code>.mp4</code>. Para enviar um <strong>arquivo de vídeo</strong>, use a aba “Videoaula”. Deixe o link em branco para remover a videoaula.
-                </p>
               </>
-            )}
+            ) : null}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Título da videoaula">
+                <input className={inputClass} value={videoTitle} onChange={(e) => setVideoTitle(e.target.value)} placeholder="Ex.: Como apontar horas no SAP" />
+              </Field>
+              <Field label="Descrição curta">
+                <input className={inputClass} value={videoDescription} onChange={(e) => setVideoDescription(e.target.value)} placeholder="Opcional" />
+              </Field>
+            </div>
+
+            <p className="text-[11px] leading-relaxed text-[#8F846F]">
+              Envie um arquivo MP4 ou cole um link (YouTube, Google Drive, Vimeo, <code>.mp4</code>). {videoIsUploaded ? null : "Deixe ambos em branco para remover a videoaula."}
+            </p>
           </div>
 
           <div className="flex justify-end gap-2 border-t border-[#C6A24A]/25 pt-4">
@@ -397,7 +477,7 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
             </button>
             <button type="submit" disabled={saving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#D6AA3A]/60 bg-[#D6AA3A]/15 px-4 text-sm font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25 disabled:opacity-60">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {isEditing ? "Salvar alterações" : "Criar procedimento"}
+              {saving && videoFile ? "Enviando vídeo…" : isEditing ? "Salvar alterações" : "Criar procedimento"}
             </button>
           </div>
         </form>

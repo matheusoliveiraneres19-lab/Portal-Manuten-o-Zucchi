@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Link2, Loader2, Plus, RefreshCw, Trash2, UploadCloud, Video, X } from "lucide-react";
 import { getVideoProvider, videoProviderLabel } from "@/utils/video-embed";
+import { PROCEDURE_VIDEO_MAX_MB, uploadProcedureVideo, validateProcedureVideoFile } from "@/utils/upload-procedure-video";
 
 type ProcedureVideoManagerProps = {
   slug: string;
@@ -12,8 +13,7 @@ type ProcedureVideoManagerProps = {
   current: { id: string; title: string; url: string; description: string | null; isExternal: boolean } | null;
 };
 
-const MAX_VIDEO_MB = 100;
-const MAX_VIDEO_BYTES = MAX_VIDEO_MB * 1024 * 1024;
+const MAX_VIDEO_MB = PROCEDURE_VIDEO_MAX_MB;
 
 /**
  * Gestão da videoaula (ADMIN/Gestão). Duas formas de cadastrar, ambas dentro do portal:
@@ -68,50 +68,19 @@ export function ProcedureVideoManager({ slug, current }: ProcedureVideoManagerPr
   // ---- Upload direto de arquivo MP4 ----
   async function handleFile(file: File | undefined | null) {
     if (!file) return;
-    if (file.type !== "video/mp4") {
-      toast.error("Envie um vídeo no formato MP4 (ou cole um link do YouTube/Drive).");
-      return;
-    }
-    if (file.size > MAX_VIDEO_BYTES) {
-      toast.error(`Vídeo excede ${MAX_VIDEO_MB} MB. Compacte o arquivo ou use um link.`);
+    const invalid = validateProcedureVideoFile(file);
+    if (invalid) {
+      toast.error(invalid);
       return;
     }
     setUploading(true);
     try {
-      // 1) pede a URL assinada de upload
-      const signRes = await fetch(`/api/procedures/${encodeURIComponent(slug)}/attachments/upload-url`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: file.name, contentType: file.type, fileSize: file.size })
-      });
-      const signData = (await signRes.json().catch(() => null)) as
-        | { ok?: boolean; uploadUrl?: string; storagePath?: string; message?: string }
-        | null;
-      if (!signRes.ok || !signData?.ok || !signData.uploadUrl || !signData.storagePath) {
-        toast.error(signData?.message ?? "Não foi possível iniciar o upload.");
+      const result = await uploadProcedureVideo(slug, file, { title, description });
+      if (!result.ok) {
+        toast.error(result.message ?? "Não foi possível enviar o vídeo.");
         return;
       }
-
-      // 2) envia o arquivo DIRETO ao Storage (multipart, no formato do supabase-js)
-      const form = new FormData();
-      form.append("cacheControl", "3600");
-      form.append("", file);
-      const putRes = await fetch(signData.uploadUrl, { method: "PUT", headers: { "x-upsert": "false" }, body: form });
-      if (!putRes.ok) {
-        toast.error(`Falha no envio do vídeo ao servidor (HTTP ${putRes.status}).`);
-        return;
-      }
-
-      // 3) registra o anexo
-      const ok = await registerVideo({
-        storagePath: signData.storagePath,
-        fileName: title.trim() || file.name,
-        description: description.trim() || undefined,
-        fileSize: file.size
-      });
-      if (!ok) return;
-
-      // 4) substituição: remove o vídeo anterior
+      // substituição: remove o vídeo anterior só depois do novo entrar
       await deleteCurrent();
       toast.success(current ? "Videoaula atualizada." : "Videoaula adicionada.");
       setOpen(false);
