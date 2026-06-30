@@ -35,6 +35,18 @@ export const PROCEDURE_UPLOAD_CONTENT_TYPES: Record<string, string> = {
   "video/mp4": ".mp4"
 };
 
+/**
+ * Limite de upload DIRETO de videoaula (navegador → Supabase, sem passar pela API).
+ * 100 MB — acompanha o file_size_limit do bucket `procedure-attachments`. Vídeos maiores
+ * devem ser compactados ou entrar como link externo (YouTube/Drive).
+ */
+export const MAX_PROCEDURE_VIDEO_BYTES = 100 * 1024 * 1024;
+
+/** Content-types de vídeo aceitos no upload direto da videoaula. */
+export const PROCEDURE_VIDEO_CONTENT_TYPES: Record<string, string> = {
+  "video/mp4": ".mp4"
+};
+
 export class StorageNotConfiguredError extends Error {
   constructor() {
     super("Supabase Storage não configurado. Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.");
@@ -72,6 +84,35 @@ export async function uploadAttachment(
 ): Promise<void> {
   const { error } = await getClient().storage.from(bucket).upload(path, body, { contentType, upsert: false });
   if (error) throw error;
+}
+
+/**
+ * Cria uma URL ASSINADA DE UPLOAD para o navegador enviar o arquivo DIRETO ao bucket
+ * privado, sem passar pela função serverless (contorna o limite de corpo da Vercel).
+ * A URL é construída no formato REST documentado e autorizada pelo token — o browser
+ * faz `PUT <uploadUrl>` com o binário. Expira em ~2h.
+ */
+export async function createSignedUploadUrl(
+  path: string,
+  bucket: string = ATTACHMENTS_BUCKET
+): Promise<{ uploadUrl: string; token: string; path: string }> {
+  const { data, error } = await getClient().storage.from(bucket).createSignedUploadUrl(path);
+  if (error || !data?.token) {
+    throw error ?? new Error("Falha ao gerar URL de upload assinada.");
+  }
+  const base = process.env.SUPABASE_URL!.replace(/\/+$/, "");
+  const uploadUrl = `${base}/storage/v1/object/upload/sign/${bucket}/${path}?token=${encodeURIComponent(data.token)}`;
+  return { uploadUrl, token: data.token, path: data.path ?? path };
+}
+
+/** Verifica se um objeto existe no bucket (best-effort, via geração de URL assinada). */
+export async function objectExists(path: string, bucket: string = ATTACHMENTS_BUCKET): Promise<boolean> {
+  try {
+    await createSignedUrl(path, 60, bucket);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Gera uma URL assinada de curta duração para download (default 60s). */

@@ -48,7 +48,17 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
   const videoManager = canManage ? (
     <ProcedureVideoManager
       slug={detail.slug}
-      current={mainVideo ? { id: mainVideo.id, title: videoTitle ?? "", url: mainVideo.url, description: mainVideo.description } : null}
+      current={
+        mainVideo
+          ? {
+              id: mainVideo.id,
+              title: videoTitle ?? "",
+              url: mainVideo.url,
+              description: mainVideo.description,
+              isExternal: mainVideo.isExternal
+            }
+          : null
+      }
     />
   ) : null;
 

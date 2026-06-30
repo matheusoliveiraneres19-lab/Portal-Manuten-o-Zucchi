@@ -91,6 +91,9 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
   const [videoDescription, setVideoDescription] = useState("");
   const [existingVideoId, setExistingVideoId] = useState<string | null>(null);
   const [videoLoading, setVideoLoading] = useState(false);
+  // true quando a videoaula atual é um ARQUIVO enviado (não link): o modal não edita,
+  // direciona para a aba Videoaula (a URL é assinada/temporária, não serve de link).
+  const [videoLocked, setVideoLocked] = useState(false);
   const originalVideo = useRef({ url: "", title: "", description: "" });
 
   useEffect(() => {
@@ -104,6 +107,7 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
     setVideoTitle("");
     setVideoDescription("");
     setExistingVideoId(null);
+    setVideoLocked(false);
     originalVideo.current = { url: "", title: "", description: "" };
     if (!initial) return;
 
@@ -111,10 +115,15 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
     setVideoLoading(true);
     fetch(`/api/procedures/${initial.id}/attachments`)
       .then((response) => response.json().catch(() => null))
-      .then((data: { ok?: boolean; attachments?: Array<{ id: string; kind: string; url: string; fileName: string; description: string | null }> } | null) => {
+      .then((data: { ok?: boolean; attachments?: Array<{ id: string; kind: string; url: string; fileName: string; description: string | null; isExternal: boolean }> } | null) => {
         if (ignore || !data?.ok) return;
         const video = (data.attachments ?? []).find((item) => item.kind === "video");
         if (!video) return;
+        // Vídeo enviado por arquivo: não é editável por link aqui (URL temporária).
+        if (!video.isExternal) {
+          setVideoLocked(true);
+          return;
+        }
         const title = video.fileName && video.fileName !== video.url ? video.fileName : "";
         setVideoUrl(video.url);
         setVideoTitle(title);
@@ -141,6 +150,8 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
    * Retorna true se houve um problema apenas com o vídeo (procedimento já foi salvo).
    */
   async function syncVideo(idOrSlug: string): Promise<boolean> {
+    // Videoaula por arquivo é gerenciada na aba Videoaula — o modal não a altera.
+    if (videoLocked) return false;
     const newUrl = videoUrl.trim();
     const orig = originalVideo.current;
     const hadVideo = Boolean(existingVideoId);
@@ -338,37 +349,46 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
               {videoLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[#8F846F]" /> : null}
             </div>
 
-            <Field label="Link do vídeo">
-              <input
-                className={inputClass}
-                value={videoUrl}
-                onChange={(e) => setVideoUrl(e.target.value)}
-                placeholder="Cole o link do YouTube, Google Drive ou vídeo interno..."
-              />
-            </Field>
+            {videoLocked ? (
+              <p className="rounded-lg border border-[#C6A24A]/20 bg-black/25 px-3 py-2 text-[12px] leading-relaxed text-[#D7CDBA]">
+                Este procedimento já tem uma videoaula <strong>enviada por arquivo</strong>. Para substituí-la, removê-la ou enviar outra,
+                use a aba <strong>“Videoaula”</strong> na página do procedimento.
+              </p>
+            ) : (
+              <>
+                <Field label="Link do vídeo">
+                  <input
+                    className={inputClass}
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                    placeholder="Cole o link do YouTube, Google Drive ou vídeo interno..."
+                  />
+                </Field>
 
-            {videoUrl.trim() ? (
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
-                  videoKnown ? "border-[#D6AA3A]/30 bg-[#D6AA3A]/10 text-[#F6D98B]" : "border-danger/40 bg-danger/10 text-danger"
-                }`}
-              >
-                <Video className="h-3.5 w-3.5" /> Tipo de vídeo: {videoProviderLabel(videoProvider)}
-              </span>
-            ) : null}
+                {videoUrl.trim() ? (
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
+                      videoKnown ? "border-[#D6AA3A]/30 bg-[#D6AA3A]/10 text-[#F6D98B]" : "border-danger/40 bg-danger/10 text-danger"
+                    }`}
+                  >
+                    <Video className="h-3.5 w-3.5" /> Tipo de vídeo: {videoProviderLabel(videoProvider)}
+                  </span>
+                ) : null}
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Título da videoaula">
-                <input className={inputClass} value={videoTitle} onChange={(e) => setVideoTitle(e.target.value)} placeholder="Ex.: Como apontar horas no SAP" />
-              </Field>
-              <Field label="Descrição curta">
-                <input className={inputClass} value={videoDescription} onChange={(e) => setVideoDescription(e.target.value)} placeholder="Opcional" />
-              </Field>
-            </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label="Título da videoaula">
+                    <input className={inputClass} value={videoTitle} onChange={(e) => setVideoTitle(e.target.value)} placeholder="Ex.: Como apontar horas no SAP" />
+                  </Field>
+                  <Field label="Descrição curta">
+                    <input className={inputClass} value={videoDescription} onChange={(e) => setVideoDescription(e.target.value)} placeholder="Opcional" />
+                  </Field>
+                </div>
 
-            <p className="text-[11px] leading-relaxed text-[#8F846F]">
-              Aceita YouTube, Google Drive, Vimeo ou link direto <code>.mp4</code>. O vídeo aparece na aba “Videoaula” do procedimento. Deixe o link em branco para remover a videoaula.
-            </p>
+                <p className="text-[11px] leading-relaxed text-[#8F846F]">
+                  Aceita YouTube, Google Drive, Vimeo ou link direto <code>.mp4</code>. Para enviar um <strong>arquivo de vídeo</strong>, use a aba “Videoaula”. Deixe o link em branco para remover a videoaula.
+                </p>
+              </>
+            )}
           </div>
 
           <div className="flex justify-end gap-2 border-t border-[#C6A24A]/25 pt-4">

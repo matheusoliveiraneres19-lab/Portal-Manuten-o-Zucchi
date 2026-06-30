@@ -12,6 +12,7 @@ import {
   MAX_PROCEDURE_ATTACHMENT_BYTES,
   PROCEDURE_ATTACHMENTS_BUCKET,
   PROCEDURE_UPLOAD_CONTENT_TYPES,
+  objectExists,
   removeObject,
   storageConfigured,
   uploadAttachment
@@ -46,9 +47,31 @@ export async function POST(request: NextRequest, { params }: Params) {
   const contentType = request.headers.get("content-type") ?? "";
 
   try {
-    // ---- Link externo (vídeo/documento) ----
     if (contentType.includes("application/json")) {
       const body = (await request.json().catch(() => null)) ?? {};
+
+      // ---- Registro de vídeo já enviado direto ao Storage (videoaula > 4 MB) ----
+      if (body.storagePath) {
+        const storagePath = String(body.storagePath);
+        // Trava: o objeto precisa pertencer a ESTE procedimento (prefixo = procedureId).
+        if (!storagePath.startsWith(`${procedureId}/`)) {
+          return NextResponse.json({ ok: false, message: "Caminho de vídeo inválido." }, { status: 400 });
+        }
+        if (!(await objectExists(storagePath, PROCEDURE_ATTACHMENTS_BUCKET))) {
+          return NextResponse.json({ ok: false, message: "Upload do vídeo não encontrado." }, { status: 400 });
+        }
+        const attachment = await createAttachmentRecord({
+          procedureId,
+          fileName: String(body.fileName ?? "videoaula.mp4"),
+          fileType: "video/mp4",
+          fileUrl: storagePath,
+          fileSize: typeof body.fileSize === "number" ? body.fileSize : null,
+          description: body.description ?? null
+        });
+        return NextResponse.json({ ok: true, attachment }, { status: 201 });
+      }
+
+      // ---- Link externo (vídeo/documento) ----
       const attachment = await createLinkAttachment({
         procedureId,
         url: String(body.url ?? ""),
