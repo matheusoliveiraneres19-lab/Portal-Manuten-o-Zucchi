@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Clock, Eye, Gauge, RefreshCw, Tag, UserCog, Users } from "lucide-react";
+import { AlertTriangle, Clock, Eye, Gauge, RefreshCw, Tag, UserCog, Users } from "lucide-react";
 import { ProcedureDetailActions } from "@/components/procedures/ProcedureDetailActions";
 import { ProcedureAttachments } from "@/components/procedures/ProcedureAttachments";
 import { categoryIcon, levelStyle } from "@/components/procedures/shared";
@@ -81,7 +81,7 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
           )}
         </section>
 
-        {detail.commonMistakes ? <Block title="Erros comuns" tone="danger">{detail.commonMistakes}</Block> : null}
+        {detail.commonMistakes ? <CommonErrors text={detail.commonMistakes} /> : null}
 
         <ProcedureAttachments slug={detail.slug} attachments={detail.attachments} canManage={canManage} />
 
@@ -109,15 +109,50 @@ function Meta({ icon, text }: { icon: React.ReactNode; text: string }) {
   );
 }
 
-function Block({ title, children, tone = "default" }: { title: string; children: React.ReactNode; tone?: "default" | "danger" }) {
+function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section
-      className={`rounded-2xl border p-5 shadow-[0_16px_40px_rgba(0,0,0,0.35)] ${
-        tone === "danger" ? "border-danger/30 bg-danger/10" : "border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0E0D0A]"
-      }`}
-    >
-      <h2 className={`mb-2 font-serif text-lg font-semibold ${tone === "danger" ? "text-danger" : "text-[#F8F3E7]"}`}>{title}</h2>
+    <section className="rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0E0D0A] p-5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
+      <h2 className="mb-2 font-serif text-lg font-semibold text-[#F8F3E7]">{title}</h2>
       <div className="whitespace-pre-line text-sm leading-relaxed text-[#D7CDBA]">{children}</div>
+    </section>
+  );
+}
+
+function CommonErrors({ text }: { text: string }) {
+  const errorsList = text
+    .split(/\n|;/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return (
+    <section className="rounded-2xl border border-red-500/35 bg-gradient-to-br from-[#2A0F0F] via-[#1A0B0B] to-[#0D0707] p-6 shadow-[0_18px_45px_rgba(0,0,0,0.35)]">
+      <div className="mb-4 flex items-center gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-red-400/40 bg-red-500/15 text-red-300">
+          <AlertTriangle className="h-5 w-5" />
+        </div>
+        <div>
+          <h2 className="font-serif text-xl font-semibold text-red-200">Erros comuns</h2>
+          <p className="text-sm text-red-100/75">Pontos de atenção para evitar falhas no preenchimento ou execução.</p>
+        </div>
+      </div>
+
+      {errorsList.length > 0 ? (
+        <ul className="space-y-3">
+          {errorsList.map((error, index) => (
+            <li
+              key={index}
+              className="flex gap-3 rounded-xl border border-red-400/15 bg-black/25 px-4 py-3 text-sm leading-relaxed text-[#F8E7E7]"
+            >
+              <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-red-300" />
+              <span>{error}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="rounded-xl border border-red-400/15 bg-black/25 px-4 py-3 text-sm leading-relaxed text-[#F8E7E7]/70">
+          Nenhum erro comum cadastrado para este procedimento.
+        </p>
+      )}
     </section>
   );
 }
