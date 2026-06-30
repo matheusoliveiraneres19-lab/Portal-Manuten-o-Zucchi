@@ -54,8 +54,9 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: false, message: "Arquivo de vídeo inválido." }, { status: 400 });
   }
   if (fileSize > MAX_PROCEDURE_VIDEO_BYTES) {
+    const maxMb = Math.round(MAX_PROCEDURE_VIDEO_BYTES / (1024 * 1024));
     return NextResponse.json(
-      { ok: false, message: "Vídeo excede 100 MB. Compacte o arquivo ou use um link (YouTube/Drive)." },
+      { ok: false, message: `Vídeo excede ${maxMb} MB. Compacte o arquivo ou use um link (YouTube/Drive).` },
       { status: 400 }
     );
   }

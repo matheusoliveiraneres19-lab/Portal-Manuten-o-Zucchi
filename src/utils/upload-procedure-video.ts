@@ -9,7 +9,7 @@
  *
  * Não dispara toasts nem refresh — quem chama trata o retorno (e remove o vídeo anterior).
  */
-export const PROCEDURE_VIDEO_MAX_MB = 100;
+export const PROCEDURE_VIDEO_MAX_MB = 50;
 const MAX_VIDEO_BYTES = PROCEDURE_VIDEO_MAX_MB * 1024 * 1024;
 
 /** Valida tipo/tamanho do arquivo de videoaula. Retorna mensagem de erro ou null. */
@@ -68,7 +68,10 @@ export async function uploadProcedureVideo(
     .from(signData.bucket)
     .uploadToSignedUrl(signData.storagePath, signData.token, file, { contentType: file.type, upsert: false });
   if (uploadError) {
-    return { ok: false, message: `Falha no envio do vídeo ao servidor (${uploadError.message}).` };
+    return {
+      ok: false,
+      message: `Falha no envio do vídeo (${uploadError.message}). Verifique o tamanho (máx. ${PROCEDURE_VIDEO_MAX_MB} MB) ou use um link.`
+    };
   }
 
   // 3) registra o anexo

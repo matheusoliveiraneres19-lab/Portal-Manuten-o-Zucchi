@@ -37,10 +37,12 @@ export const PROCEDURE_UPLOAD_CONTENT_TYPES: Record<string, string> = {
 
 /**
  * Limite de upload DIRETO de videoaula (navegador → Supabase, sem passar pela API).
- * 100 MB — acompanha o file_size_limit do bucket `procedure-attachments`. Vídeos maiores
- * devem ser compactados ou entrar como link externo (YouTube/Drive).
+ * 50 MB — teto do plano free do Supabase (o limite GLOBAL do projeto prevalece sobre o
+ * file_size_limit do bucket). Vídeos maiores devem ser compactados ou entrar como link
+ * externo (YouTube/Drive). Para subir o teto, é preciso plano pago + aumentar o limite
+ * global em Project Settings → Storage no painel do Supabase.
  */
-export const MAX_PROCEDURE_VIDEO_BYTES = 100 * 1024 * 1024;
+export const MAX_PROCEDURE_VIDEO_BYTES = 50 * 1024 * 1024;
 
 /** Content-types de vídeo aceitos no upload direto da videoaula. */
 export const PROCEDURE_VIDEO_CONTENT_TYPES: Record<string, string> = {
