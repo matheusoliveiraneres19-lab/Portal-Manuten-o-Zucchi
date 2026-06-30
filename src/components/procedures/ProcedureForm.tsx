@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2, X } from "lucide-react";
+import { Loader2, PlayCircle, Video, X } from "lucide-react";
 import {
   PROCEDURE_CATEGORY_NAMES,
   PROCEDURE_LEVELS,
   PROCEDURE_STATUSES
 } from "@/constants/procedure-categories";
+import { getVideoProvider, videoProviderLabel } from "@/utils/video-embed";
 import type { ProcedureDetail } from "@/types/procedures";
 
 type ProcedureFormProps = {
@@ -84,11 +85,104 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
   const [form, setForm] = useState<FormState>(emptyState);
   const [saving, setSaving] = useState(false);
 
+  // Videoaula (anexo do tipo vídeo — reaproveita a API /attachments, sem campo no model).
+  const [videoUrl, setVideoUrl] = useState("");
+  const [videoTitle, setVideoTitle] = useState("");
+  const [videoDescription, setVideoDescription] = useState("");
+  const [existingVideoId, setExistingVideoId] = useState<string | null>(null);
+  const [videoLoading, setVideoLoading] = useState(false);
+  const originalVideo = useRef({ url: "", title: "", description: "" });
+
   useEffect(() => {
     if (open) setForm(initial ? fromDetail(initial) : emptyState());
   }, [open, initial]);
 
+  // Ao abrir em edição, carrega a videoaula atual (1º anexo de vídeo) para o formulário.
+  useEffect(() => {
+    if (!open) return;
+    setVideoUrl("");
+    setVideoTitle("");
+    setVideoDescription("");
+    setExistingVideoId(null);
+    originalVideo.current = { url: "", title: "", description: "" };
+    if (!initial) return;
+
+    let ignore = false;
+    setVideoLoading(true);
+    fetch(`/api/procedures/${initial.id}/attachments`)
+      .then((response) => response.json().catch(() => null))
+      .then((data: { ok?: boolean; attachments?: Array<{ id: string; kind: string; url: string; fileName: string; description: string | null }> } | null) => {
+        if (ignore || !data?.ok) return;
+        const video = (data.attachments ?? []).find((item) => item.kind === "video");
+        if (!video) return;
+        const title = video.fileName && video.fileName !== video.url ? video.fileName : "";
+        setVideoUrl(video.url);
+        setVideoTitle(title);
+        setVideoDescription(video.description ?? "");
+        setExistingVideoId(video.id);
+        originalVideo.current = { url: video.url, title, description: video.description ?? "" };
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!ignore) setVideoLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [open, initial]);
+
   if (!open) return null;
+
+  const videoProvider = videoUrl.trim() ? getVideoProvider(videoUrl) : "unknown";
+  const videoKnown = videoProvider !== "unknown";
+
+  /**
+   * Aplica a videoaula via API de anexos após salvar o procedimento.
+   * Retorna true se houve um problema apenas com o vídeo (procedimento já foi salvo).
+   */
+  async function syncVideo(idOrSlug: string): Promise<boolean> {
+    const newUrl = videoUrl.trim();
+    const orig = originalVideo.current;
+    const hadVideo = Boolean(existingVideoId);
+    const base = `/api/procedures/${encodeURIComponent(idOrSlug)}/attachments`;
+
+    // Link em branco → remove a videoaula existente.
+    if (!newUrl) {
+      if (!hadVideo) return false;
+      const res = await fetch(`${base}/${existingVideoId}`, { method: "DELETE" }).catch(() => null);
+      return !res || !res.ok;
+    }
+
+    if (!/^https?:\/\//i.test(newUrl)) {
+      toast.error("Videoaula: informe uma URL válida (http/https).");
+      return true;
+    }
+    if (getVideoProvider(newUrl) === "unknown") {
+      toast.error("Videoaula: link não reconhecido. Use YouTube, Google Drive, Vimeo ou .mp4.");
+      return true;
+    }
+
+    const changed =
+      newUrl !== orig.url || videoTitle.trim() !== orig.title || videoDescription.trim() !== orig.description;
+    if (!changed) return false;
+
+    const res = await fetch(base, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: newUrl,
+        fileName: videoTitle.trim() || undefined,
+        description: videoDescription.trim() || undefined
+      })
+    }).catch(() => null);
+    if (!res || !res.ok) return true;
+
+    // Substituição: remove o vídeo anterior só depois do novo entrar.
+    if (hadVideo) {
+      await fetch(`${base}/${existingVideoId}`, { method: "DELETE" }).catch(() => {});
+    }
+    return false;
+  }
 
   function update<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -134,7 +228,12 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
         return;
       }
 
+      // Sincroniza a videoaula (criar/substituir/remover) com o procedimento salvo.
+      const savedIdOrSlug = isEditing ? initial!.id : data.procedure?.slug ?? null;
+      const videoFailed = savedIdOrSlug ? await syncVideo(savedIdOrSlug) : false;
+
       toast.success(isEditing ? "Procedimento atualizado com sucesso." : "Procedimento criado com sucesso.");
+      if (videoFailed) toast.warning("O procedimento foi salvo, mas a videoaula não pôde ser atualizada.");
       onClose();
       router.refresh();
       if (data.procedure?.slug) onSaved?.(data.procedure.slug);
@@ -229,6 +328,47 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
               <input type="checkbox" checked={form.isOnboarding} onChange={(e) => update("isOnboarding", e.target.checked)} className="h-4 w-4 accent-[#D6AA3A]" />
               Marcar como “Funcionário Novo”
             </label>
+          </div>
+
+          {/* Videoaula do procedimento — salva como anexo de vídeo (sem campo no model) */}
+          <div className="space-y-3 rounded-xl border border-[#C6A24A]/25 bg-[#11100C]/50 p-4">
+            <div className="flex items-center gap-2">
+              <PlayCircle className="h-4 w-4 text-[#D6AA3A]" />
+              <span className="text-[11px] font-bold uppercase tracking-wide text-[#D6AA3A]">Videoaula do procedimento</span>
+              {videoLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[#8F846F]" /> : null}
+            </div>
+
+            <Field label="Link do vídeo">
+              <input
+                className={inputClass}
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+                placeholder="Cole o link do YouTube, Google Drive ou vídeo interno..."
+              />
+            </Field>
+
+            {videoUrl.trim() ? (
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
+                  videoKnown ? "border-[#D6AA3A]/30 bg-[#D6AA3A]/10 text-[#F6D98B]" : "border-danger/40 bg-danger/10 text-danger"
+                }`}
+              >
+                <Video className="h-3.5 w-3.5" /> Tipo de vídeo: {videoProviderLabel(videoProvider)}
+              </span>
+            ) : null}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Título da videoaula">
+                <input className={inputClass} value={videoTitle} onChange={(e) => setVideoTitle(e.target.value)} placeholder="Ex.: Como apontar horas no SAP" />
+              </Field>
+              <Field label="Descrição curta">
+                <input className={inputClass} value={videoDescription} onChange={(e) => setVideoDescription(e.target.value)} placeholder="Opcional" />
+              </Field>
+            </div>
+
+            <p className="text-[11px] leading-relaxed text-[#8F846F]">
+              Aceita YouTube, Google Drive, Vimeo ou link direto <code>.mp4</code>. O vídeo aparece na aba “Videoaula” do procedimento. Deixe o link em branco para remover a videoaula.
+            </p>
           </div>
 
           <div className="flex justify-end gap-2 border-t border-[#C6A24A]/25 pt-4">
