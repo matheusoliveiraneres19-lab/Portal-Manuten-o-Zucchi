@@ -7,6 +7,7 @@ import {
   isProcedureStatus
 } from "@/constants/procedure-categories";
 import { PROCEDURE_ATTACHMENTS_BUCKET, createSignedUrl, removeObject } from "@/lib/supabase-storage";
+import { getEmbeddableVideoUrl, isVideoUrl } from "@/utils/video-embed";
 import type {
   OnboardingProgress,
   ProcedureAttachmentItem,
@@ -302,22 +303,12 @@ export async function resolveProcedureId(idOrSlug: string): Promise<string | nul
   return record?.id ?? null;
 }
 
-const YOUTUBE_RE = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})/;
-const VIMEO_RE = /vimeo\.com\/(?:video\/)?(\d+)/;
-
-function embedUrlFor(url: string): string | null {
-  const yt = url.match(YOUTUBE_RE);
-  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
-  const vimeo = url.match(VIMEO_RE);
-  if (vimeo) return `https://player.vimeo.com/video/${vimeo[1]}`;
-  return null;
-}
-
 function attachmentKind(fileType: string, url: string): ProcedureAttachmentKind {
   if (fileType.startsWith("image/")) return "image";
   if (fileType === "application/pdf") return "pdf";
   if (fileType.startsWith("video/")) return "video";
-  if (fileType === "link") return embedUrlFor(url) ? "video" : "link";
+  // Links externos reconhecidos como vídeo (YouTube/Drive/Vimeo/.mp4) viram "video".
+  if (fileType === "link") return isVideoUrl(url) ? "video" : "link";
   return "link";
 }
 
@@ -351,7 +342,7 @@ async function toAttachmentItem(record: AttachmentRecord): Promise<ProcedureAtta
     kind: attachmentKind(record.fileType, record.fileUrl),
     isExternal,
     url,
-    embedUrl: isExternal ? embedUrlFor(record.fileUrl) : null,
+    embedUrl: isExternal ? getEmbeddableVideoUrl(record.fileUrl) : null,
     createdAt: record.createdAt.toISOString()
   };
 }

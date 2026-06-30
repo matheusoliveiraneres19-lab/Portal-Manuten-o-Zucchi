@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 import { AlertTriangle, Clock, Eye, Gauge, RefreshCw, Tag, UserCog, Users } from "lucide-react";
 import { ProcedureDetailActions } from "@/components/procedures/ProcedureDetailActions";
 import { ProcedureAttachments } from "@/components/procedures/ProcedureAttachments";
+import { ProcedureTabs } from "@/components/procedures/ProcedureTabs";
+import { ProcedureVideoLesson } from "@/components/procedures/ProcedureVideoLesson";
+import { ProcedureVideoManager } from "@/components/procedures/ProcedureVideoManager";
 import { categoryIcon, levelStyle } from "@/components/procedures/shared";
 import { getProcedureBySlug, getProcedureDetailForUser, incrementProcedureView } from "@/services/procedures.service";
 import { getSession } from "@/lib/auth-guard";
@@ -33,6 +36,21 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
   await incrementProcedureView(detail.id);
 
   const Icon = categoryIcon(detail.categoryName);
+
+  // Separa anexos: vídeos vão para a aba Videoaula; o restante (PDF/imagem/doc)
+  // para Materiais de apoio. O vídeo principal é o primeiro anexo de vídeo.
+  const videoAttachments = detail.attachments.filter((item) => item.kind === "video");
+  const materialAttachments = detail.attachments.filter((item) => item.kind !== "video");
+  const mainVideo = videoAttachments[0] ?? null;
+  const extraVideos = videoAttachments.slice(1);
+  const videoTitle = mainVideo && mainVideo.fileName !== mainVideo.url ? mainVideo.fileName : undefined;
+
+  const videoManager = canManage ? (
+    <ProcedureVideoManager
+      slug={detail.slug}
+      current={mainVideo ? { id: mainVideo.id, title: videoTitle ?? "", url: mainVideo.url, description: mainVideo.description } : null}
+    />
+  ) : null;
 
   return (
     <article className="mx-auto max-w-4xl space-y-5 text-[#F8F3E7]">
@@ -65,37 +83,66 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
         </div>
       </header>
 
-      {/* Corpo */}
-      <div className="space-y-4">
-        {detail.objective ? <Block title="Objetivo">{detail.objective}</Block> : null}
-        {detail.whenToUse ? <Block title="Quando usar">{detail.whenToUse}</Block> : null}
+      {/* Corpo — navegação por abas (aba padrão: Passo a passo) */}
+      <ProcedureTabs
+        videoCount={videoAttachments.length}
+        materiaisCount={materialAttachments.length}
+        passoAPasso={
+          <>
+            {detail.objective ? <Block title="Objetivo">{detail.objective}</Block> : null}
+            {detail.whenToUse ? <Block title="Quando usar">{detail.whenToUse}</Block> : null}
 
-        <section className="rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0E0D0A] p-5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
-          <h2 className="mb-3 flex items-center gap-2 font-serif text-lg font-semibold text-[#F8F3E7]">
-            <Gauge className="h-4 w-4 text-[#D6AA3A]" /> Passo a passo
-          </h2>
-          {detail.content ? (
-            <div className="whitespace-pre-line text-sm leading-relaxed text-[#D7CDBA]">{detail.content}</div>
-          ) : (
-            <p className="text-sm text-[#B8AD9A]">Conteúdo não informado.</p>
-          )}
-        </section>
+            <section className="rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0E0D0A] p-5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
+              <h2 className="mb-3 flex items-center gap-2 font-serif text-lg font-semibold text-[#F8F3E7]">
+                <Gauge className="h-4 w-4 text-[#D6AA3A]" /> Passo a passo
+              </h2>
+              {detail.content ? (
+                <div className="whitespace-pre-line text-sm leading-relaxed text-[#D7CDBA]">{detail.content}</div>
+              ) : (
+                <p className="text-sm text-[#B8AD9A]">Conteúdo não informado.</p>
+              )}
+            </section>
 
-        {detail.commonMistakes ? <CommonErrors text={detail.commonMistakes} /> : null}
+            {detail.commonMistakes ? <CommonErrors text={detail.commonMistakes} /> : null}
 
-        <ProcedureAttachments slug={detail.slug} attachments={detail.attachments} canManage={canManage} />
-
-        {detail.tags.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <Tag className="h-4 w-4 text-[#D6AA3A]" />
-            {detail.tags.map((tag) => (
-              <span key={tag} className="rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 px-2.5 py-0.5 text-[11px] font-semibold text-[#F6D98B]">
-                {tag}
-              </span>
-            ))}
-          </div>
-        ) : null}
-      </div>
+            {detail.tags.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Tag className="h-4 w-4 text-[#D6AA3A]" />
+                {detail.tags.map((tag) => (
+                  <span key={tag} className="rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 px-2.5 py-0.5 text-[11px] font-semibold text-[#F6D98B]">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </>
+        }
+        videoaula={
+          <>
+            <ProcedureVideoLesson
+              title={videoTitle}
+              videoUrl={mainVideo?.url}
+              description={mainVideo?.description ?? undefined}
+              footer={videoManager}
+            />
+            {extraVideos.length > 0 ? (
+              <div className="space-y-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-[#D6AA3A]">Vídeos complementares</p>
+                {extraVideos.map((video) => (
+                  <ProcedureVideoLesson
+                    key={video.id}
+                    showHeader={false}
+                    title={video.fileName !== video.url ? video.fileName : undefined}
+                    videoUrl={video.url}
+                    description={video.description ?? undefined}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </>
+        }
+        materiais={<ProcedureAttachments slug={detail.slug} attachments={materialAttachments} canManage={canManage} />}
+      />
     </article>
   );
 }
