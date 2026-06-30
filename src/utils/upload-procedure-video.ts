@@ -2,8 +2,9 @@
  * Upload de videoaula (MP4) DIRETO do navegador ao Supabase Storage — client-side.
  *
  * Fluxo (contorna o limite ~4,5 MB da função serverless da Vercel):
- *  1) pede URL assinada (`/attachments/upload-url`);
- *  2) faz `PUT` multipart no formato do supabase-js (FormData: cacheControl + arquivo no campo "");
+ *  1) pede URL assinada + token + chave pública (`/attachments/upload-url`);
+ *  2) envia o arquivo com o SDK oficial `uploadToSignedUrl` (monta apikey/headers/multipart
+ *     exatamente como o Supabase espera — o token autoriza o upload);
  *  3) registra o anexo (`POST /attachments` com `storagePath`).
  *
  * Não dispara toasts nem refresh — quem chama trata o retorno (e remove o vídeo anterior).
@@ -28,25 +29,47 @@ export async function uploadProcedureVideo(
 
   const base = `/api/procedures/${encodeURIComponent(idOrSlug)}/attachments`;
 
-  // 1) URL assinada de upload
+  // 1) URL assinada de upload (+ token, bucket, url e chave pública)
   const signRes = await fetch(`${base}/upload-url`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ fileName: file.name, contentType: file.type, fileSize: file.size })
   });
   const signData = (await signRes.json().catch(() => null)) as
-    | { ok?: boolean; uploadUrl?: string; storagePath?: string; message?: string }
+    | {
+        ok?: boolean;
+        storagePath?: string;
+        token?: string;
+        bucket?: string;
+        supabaseUrl?: string;
+        apiKey?: string;
+        message?: string;
+      }
     | null;
-  if (!signRes.ok || !signData?.ok || !signData.uploadUrl || !signData.storagePath) {
+  if (
+    !signRes.ok ||
+    !signData?.ok ||
+    !signData.storagePath ||
+    !signData.token ||
+    !signData.bucket ||
+    !signData.supabaseUrl ||
+    !signData.apiKey
+  ) {
     return { ok: false, message: signData?.message ?? "Não foi possível iniciar o upload." };
   }
 
-  // 2) envia o arquivo DIRETO ao Storage (multipart, no formato do supabase-js)
-  const form = new FormData();
-  form.append("cacheControl", "3600");
-  form.append("", file);
-  const putRes = await fetch(signData.uploadUrl, { method: "PUT", headers: { "x-upsert": "false" }, body: form });
-  if (!putRes.ok) return { ok: false, message: `Falha no envio do vídeo ao servidor (HTTP ${putRes.status}).` };
+  // 2) envia o arquivo DIRETO ao Storage via SDK oficial (token autoriza)
+  // Import dinâmico: mantém o supabase-js fora do bundle inicial das telas.
+  const { createClient } = await import("@supabase/supabase-js");
+  const supabase = createClient(signData.supabaseUrl, signData.apiKey, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+  const { error: uploadError } = await supabase.storage
+    .from(signData.bucket)
+    .uploadToSignedUrl(signData.storagePath, signData.token, file, { contentType: file.type, upsert: false });
+  if (uploadError) {
+    return { ok: false, message: `Falha no envio do vídeo ao servidor (${uploadError.message}).` };
+  }
 
   // 3) registra o anexo
   const regRes = await fetch(base, {

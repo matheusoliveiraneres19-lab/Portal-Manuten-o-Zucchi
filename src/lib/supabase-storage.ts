@@ -61,6 +61,19 @@ export function storageConfigured(): boolean {
   return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
+/**
+ * Chave PÚBLICA (anon/publishable) usada APENAS pelo navegador para enviar a videoaula
+ * à URL assinada (o gateway do Supabase exige `apikey`; o token na URL é quem autoriza
+ * de fato). É pública por design (protegida por RLS) — pode ir ao cliente. Pode ser
+ * sobrescrita por env. NUNCA confundir com a SERVICE ROLE KEY (essa é secreta).
+ */
+const PUBLISHABLE_KEY_FALLBACK =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxcWpzcGFkenpzd2Fvb3ZwY3lvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MzQwOTMsImV4cCI6MjA5NjUxMDA5M30.viyVgCJwVsHEFRPVezD1VEQ_0_1-WBq7pfzWvJoUjqg";
+
+export function getStoragePublicApiKey(): string {
+  return process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || PUBLISHABLE_KEY_FALLBACK;
+}
+
 function getClient(): SupabaseClient {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;

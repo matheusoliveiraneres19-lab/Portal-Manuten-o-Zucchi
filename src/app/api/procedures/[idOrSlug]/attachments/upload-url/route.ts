@@ -7,6 +7,7 @@ import {
   PROCEDURE_ATTACHMENTS_BUCKET,
   PROCEDURE_VIDEO_CONTENT_TYPES,
   createSignedUploadUrl,
+  getStoragePublicApiKey,
   storageConfigured
 } from "@/lib/supabase-storage";
 import { PROCEDURE_WRITE_ROLES } from "@/constants/procedure-categories";
@@ -62,8 +63,20 @@ export async function POST(request: NextRequest, { params }: Params) {
   const storagePath = `${procedureId}/${randomUUID()}${ext}`;
 
   try {
-    const { uploadUrl } = await createSignedUploadUrl(storagePath, PROCEDURE_ATTACHMENTS_BUCKET);
-    return NextResponse.json({ ok: true, uploadUrl, storagePath, contentType }, { status: 201 });
+    const { uploadUrl, token } = await createSignedUploadUrl(storagePath, PROCEDURE_ATTACHMENTS_BUCKET);
+    return NextResponse.json(
+      {
+        ok: true,
+        uploadUrl,
+        token,
+        storagePath,
+        contentType,
+        bucket: PROCEDURE_ATTACHMENTS_BUCKET,
+        supabaseUrl: process.env.SUPABASE_URL,
+        apiKey: getStoragePublicApiKey()
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("[procedures/upload-url] Falha ao gerar URL.", error instanceof Error ? error.message : error);
     return NextResponse.json({ ok: false, message: "Não foi possível iniciar o upload do vídeo." }, { status: 500 });
