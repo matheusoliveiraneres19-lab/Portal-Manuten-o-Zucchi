@@ -2,6 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSession } from "@/lib/auth-guard";
 import { requireRole } from "@/lib/auth-guard";
 import { SettingValidationError, updateSetting } from "@/services/settings.service";
+import { createAuditLog } from "@/services/audit.service";
+import { getClientIp } from "@/lib/request-ip";
+import { AUDIT_ACTIONS, AUDIT_MODULES } from "@/types/audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +24,16 @@ export async function PUT(request: NextRequest, { params }: { params: { category
 
   try {
     const updated = await updateSetting(params.category, params.key, body.value, session?.sub);
+    await createAuditLog({
+      action: AUDIT_ACTIONS.ALTERAR_CONFIGURACAO,
+      module: AUDIT_MODULES.CONFIGURACOES,
+      userId: session?.sub ?? null,
+      userName: session?.name ?? null,
+      entityId: `${params.category}:${params.key}`,
+      entityName: updated.label,
+      ipAddress: getClientIp(request),
+      details: { category: params.category, key: params.key, value: updated.value }
+    });
     return NextResponse.json({ ok: true, data: updated });
   } catch (error) {
     if (error instanceof SettingValidationError) {

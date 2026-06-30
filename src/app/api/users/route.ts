@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireApiSession } from "@/lib/auth-guard";
 import { createUser, listUsers } from "@/services/users.service";
+import { createAuditLog } from "@/services/audit.service";
+import { getClientIp } from "@/lib/request-ip";
+import { AUDIT_ACTIONS, AUDIT_MODULES } from "@/types/audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +24,7 @@ export async function GET() {
 
 /** Cria um usuário com senha temporária (troca obrigatória no 1º acesso). Somente ADMIN. */
 export async function POST(request: NextRequest) {
-  const { error } = await requireApiSession(["ADMIN"]);
+  const { session, error } = await requireApiSession(["ADMIN"]);
   if (error) return error;
 
   try {
@@ -38,6 +41,16 @@ export async function POST(request: NextRequest) {
     if (!result.ok) {
       return NextResponse.json({ ok: false, message: result.message, field: result.field }, { status: result.status });
     }
+    await createAuditLog({
+      action: AUDIT_ACTIONS.CRIAR_USUARIO,
+      module: AUDIT_MODULES.USUARIOS,
+      userId: session.sub,
+      userName: session.name,
+      entityId: result.data?.id ?? null,
+      entityName: result.data?.name ?? String(body?.login ?? ""),
+      ipAddress: getClientIp(request),
+      details: { login: result.data?.login, role: result.data?.role }
+    });
     return NextResponse.json({ ok: true, user: result.data }, { status: 201 });
   } catch (err) {
     console.error("[users] Falha ao criar usuário.", err instanceof Error ? err.message : "erro");

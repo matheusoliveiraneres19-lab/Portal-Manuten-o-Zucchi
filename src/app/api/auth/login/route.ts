@@ -4,6 +4,9 @@ import { AUTH_COOKIE_NAME, FIRST_ACCESS_MAX_AGE_SECONDS, SESSION_MAX_AGE_SECONDS
 import { signSession } from "@/lib/session";
 import { hashPassword, isBcryptHash, verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
+import { createAuditLog } from "@/services/audit.service";
+import { getClientIp } from "@/lib/request-ip";
+import { AUDIT_ACTIONS, AUDIT_MODULES } from "@/types/audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -131,6 +134,16 @@ export async function POST(request: NextRequest) {
           } catch {
             /* ignora falha de escrita (lastAccess/rehash); não bloqueia o login */
           }
+          await createAuditLog({
+            action: AUDIT_ACTIONS.LOGIN,
+            module: AUDIT_MODULES.AUTENTICACAO,
+            userId: user.id,
+            userName: user.name,
+            entityId: user.id,
+            entityName: user.login,
+            ipAddress: getClientIp(request),
+            details: { role: user.role, mustChangePassword: mustChange }
+          });
           return await buildSessionResponse(
             secret,
             { login: user.login, name: user.name, role: user.role },

@@ -1,11 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireRole } from "@/lib/auth-guard";
+import { getSession, requireRole } from "@/lib/auth-guard";
 import {
   ProcedureConflictError,
   ProcedureValidationError,
   createProcedure,
   getProcedures
 } from "@/services/procedures.service";
+import { createAuditLog } from "@/services/audit.service";
+import { getClientIp } from "@/lib/request-ip";
+import { AUDIT_ACTIONS, AUDIT_MODULES } from "@/types/audit";
 import { PROCEDURE_WRITE_ROLES } from "@/constants/procedure-categories";
 import type { ProcedureSort } from "@/types/procedures";
 
@@ -36,6 +39,16 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json().catch(() => null)) ?? {};
     const procedure = await createProcedure(body);
+    const session = await getSession();
+    await createAuditLog({
+      action: AUDIT_ACTIONS.CRIAR_PROCEDIMENTO,
+      module: AUDIT_MODULES.PROCEDIMENTOS,
+      userId: session?.sub ?? null,
+      userName: session?.name ?? null,
+      entityId: procedure.id,
+      entityName: procedure.title,
+      ipAddress: getClientIp(request)
+    });
     return NextResponse.json({ ok: true, procedure }, { status: 201 });
   } catch (error) {
     if (error instanceof ProcedureValidationError) {

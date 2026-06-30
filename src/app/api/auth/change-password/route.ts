@@ -4,6 +4,9 @@ import { AUTH_COOKIE_NAME, SESSION_MAX_AGE_SECONDS, getAuthSecret } from "@/lib/
 import { signSession, verifySession } from "@/lib/session";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
+import { createAuditLog } from "@/services/audit.service";
+import { getClientIp } from "@/lib/request-ip";
+import { AUDIT_ACTIONS, AUDIT_MODULES } from "@/types/audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -94,6 +97,16 @@ export async function POST(request: NextRequest) {
         lastAccess: now,
         temporaryPasswordExpiresAt: null
       }
+    });
+
+    await createAuditLog({
+      action: AUDIT_ACTIONS.TROCA_SENHA,
+      module: AUDIT_MODULES.AUTENTICACAO,
+      userId: user.id,
+      userName: user.name,
+      entityId: user.id,
+      entityName: user.login,
+      ipAddress: getClientIp(request)
     });
 
     // Emite uma sessão NORMAL (sem mustChange) — o usuário entra no portal.

@@ -891,6 +891,29 @@ model ImportHistory {
   @@index([createdAt])
 }
 
+/// Trilha de auditoria administrativa do portal (fase 03). Registra ações sensíveis
+/// (login, troca de senha, CRUD de usuários/procedimentos, alteração de regras,
+/// importação de planilha). `action` e `module` são String (sem enums) de propósito,
+/// para evitar CREATE TYPE em migrations Supabase e permitir novas ações sem migração.
+/// NUNCA armazenar dados sensíveis em `details` (senha, hash, token, connection string).
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  userName    String?
+  action      String
+  module      String
+  entityId    String?
+  entityName  String?
+  details     Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  @@index([action])
+  @@index([module])
+  @@index([userId])
+  @@index([createdAt])
+}
+
 model SystemConfig {
   id          String   @id @default(cuid())
   key         String   @unique

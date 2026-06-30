@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { importPurchasesFromExcel } from "@/services/importacao/purchases-import.service";
-import { requireRole } from "@/lib/auth-guard";
+import { getSession, requireRole } from "@/lib/auth-guard";
+import { auditImport } from "@/lib/audit-import";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,6 +19,8 @@ export async function POST(request: NextRequest) {
   const denied = await requireRole(request, ["ADMIN", "GESTOR", "COMPRAS"]);
   if (denied) return denied;
 
+  const session = await getSession();
+  let fileName = "(desconhecido)";
   try {
     const contentType = request.headers.get("content-type") ?? "";
     if (!contentType.includes("multipart/form-data")) {
@@ -37,15 +40,18 @@ export async function POST(request: NextRequest) {
     if (!/\.xlsx?$/i.test(file.name)) {
       return errorResponse("Envie um arquivo Excel (.xlsx).", `arquivo inválido: ${file.name}`, 400);
     }
+    fileName = file.name;
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const result = await importPurchasesFromExcel(buffer, { fileName: file.name, importedBy: "portal-web" });
 
+    await auditImport({ request, session, module: "Compras", fileName, result });
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Erro desconhecido ao importar a planilha.";
     // Log apenas no servidor (sem stack para o cliente em produção).
     console.error("[purchases/import] Falha na importação:", details);
+    await auditImport({ request, session, module: "Compras", fileName, error: details });
 
     // Mensagens de leitura/validação já são amigáveis e seguras de exibir.
     const isValidation = /aba|coluna|colunas|Excel|\.xlsx|multipart/i.test(details);

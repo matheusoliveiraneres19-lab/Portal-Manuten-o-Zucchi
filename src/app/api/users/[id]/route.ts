@@ -3,6 +3,9 @@ import { UserStatus } from "@prisma/client";
 import { requireApiSession } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
 import { resetUserPassword, updateUser } from "@/services/users.service";
+import { createAuditLog } from "@/services/audit.service";
+import { getClientIp } from "@/lib/request-ip";
+import { AUDIT_ACTIONS, AUDIT_MODULES } from "@/types/audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +31,16 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       if (!result.ok) {
         return NextResponse.json({ ok: false, message: result.message, field: result.field }, { status: result.status });
       }
+      await createAuditLog({
+        action: AUDIT_ACTIONS.EDITAR_USUARIO,
+        module: AUDIT_MODULES.USUARIOS,
+        userId: session.sub,
+        userName: session.name,
+        entityId: result.data.id,
+        entityName: result.data.name,
+        ipAddress: getClientIp(request),
+        details: { change: "reset_senha" }
+      });
       return NextResponse.json({ ok: true, user: result.data });
     }
 
@@ -59,6 +72,16 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     if (!result.ok) {
       return NextResponse.json({ ok: false, message: result.message, field: result.field }, { status: result.status });
     }
+    await createAuditLog({
+      action: AUDIT_ACTIONS.EDITAR_USUARIO,
+      module: AUDIT_MODULES.USUARIOS,
+      userId: session.sub,
+      userName: session.name,
+      entityId: result.data.id,
+      entityName: result.data.name,
+      ipAddress: getClientIp(request),
+      details: { role: result.data.role, status: result.data.status }
+    });
     return NextResponse.json({ ok: true, user: result.data });
   } catch (err) {
     console.error("[users] Falha ao atualizar usuário.", err instanceof Error ? err.message : "erro");

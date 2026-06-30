@@ -29,7 +29,9 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { PortalSettingDTO } from "@/types/settings";
+import type { AuditLogDTO, ImportHistoryDTO, SystemTechnicalStatus } from "@/types/audit";
 import { SettingsForm } from "@/components/configuracoes/SettingsForm";
+import { AdminPanels } from "@/components/configuracoes/AdminPanels";
 
 type StatusTone = "green" | "gold" | "blue" | "champagne";
 
@@ -43,8 +45,12 @@ const statusTone: Record<StatusTone, string> = {
 type ConfiguracoesPageProps = {
   settingsByCategory: Record<string, PortalSettingDTO[]>;
   canEdit: boolean;
+  canAudit: boolean;
   usersCount: number | null;
   activeAlerts: number | null;
+  importHistory: ImportHistoryDTO[];
+  auditLogs: AuditLogDTO[];
+  systemStatus: SystemTechnicalStatus | null;
 };
 
 type SettingsSection = {
@@ -83,14 +89,36 @@ const CRITICAL_RULES: Array<{ label: string; value: string }> = [
   { label: "Bloqueados", value: "Fora dos KPIs principais" }
 ];
 
-export function ConfiguracoesPage({ settingsByCategory, canEdit, usersCount, activeAlerts }: ConfiguracoesPageProps) {
+export function ConfiguracoesPage({
+  settingsByCategory,
+  canEdit,
+  canAudit,
+  usersCount,
+  activeAlerts,
+  importHistory,
+  auditLogs,
+  systemStatus
+}: ConfiguracoesPageProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection | null>(null);
 
+  // Última importação = registro mais recente entre os módulos monitorados.
+  const lastImport = (systemStatus?.lastImports ?? [])
+    .filter((i) => i.at)
+    .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))[0];
+  const lastImportValue = lastImport?.at
+    ? new Date(lastImport.at).toLocaleDateString("pt-BR")
+    : "—";
+  const lastImportDescription = lastImport
+    ? `${lastImport.moduleLabel}${lastImport.fileName ? ` · ${lastImport.fileName}` : ""}`
+    : "Último arquivo processado pelo portal.";
+
+  const dbConnected = systemStatus ? systemStatus.database === "conectado" : true;
+
   const statusCards: Array<{ title: string; value: string; description: string; icon: LucideIcon; tone: StatusTone; live?: boolean }> = [
-    { title: "Banco de Dados", value: "Conectado", description: "Status da conexão principal do portal.", icon: Database, tone: "green", live: true },
+    { title: "Banco de Dados", value: dbConnected ? "Conectado" : "Desconectado", description: "Status da conexão principal do portal.", icon: Database, tone: dbConnected ? "green" : "gold", live: dbConnected },
     { title: "Versão do Portal", value: "V.01", description: "Versão atual do sistema.", icon: Tag, tone: "gold" },
-    { title: "Ambiente", value: "Produção", description: "Deploy ativo na Vercel.", icon: Cloud, tone: "blue" },
-    { title: "Última Importação", value: "—", description: "Último arquivo processado pelo portal.", icon: FileUp, tone: "champagne" },
+    { title: "Ambiente", value: systemStatus?.deploy ?? "Produção", description: "Deploy ativo na Vercel.", icon: Cloud, tone: "blue" },
+    { title: "Última Importação", value: lastImportValue, description: lastImportDescription, icon: FileUp, tone: "champagne" },
     { title: "Usuários Ativos", value: usersCount === null ? "—" : String(usersCount), description: "Total de usuários cadastrados.", icon: UsersRound, tone: "champagne" },
     { title: "Alertas Ativos", value: activeAlerts === null ? "—" : String(activeAlerts), description: "Regras de alertas habilitadas.", icon: BellRing, tone: "champagne" }
   ];
@@ -208,6 +236,11 @@ export function ConfiguracoesPage({ settingsByCategory, canEdit, usersCount, act
             ))}
           </div>
         </div>
+
+        {/* Painéis administrativos: histórico de importações, auditoria e status técnico. */}
+        {canAudit ? (
+          <AdminPanels importHistory={importHistory} auditLogs={auditLogs} systemStatus={systemStatus} />
+        ) : null}
       </div>
 
       <SectionPanel
