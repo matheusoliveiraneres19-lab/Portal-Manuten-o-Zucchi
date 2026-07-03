@@ -11,12 +11,18 @@ type PurchaseTableProps = {
   onPageChange: (page: number) => void;
 };
 
-/** Rótulo do "Tipo" do item (REGRA 11/12). */
+/** Rótulo do "Tipo" do item (por natureza). */
 function kindLabel(row: PurchaseRow): string {
-  if (row.isBlocked) return "Bloqueado";
-  if (row.isService) return "Serviço";
-  if (row.isRegularization) return "Regularização";
-  return "Material";
+  switch (row.purchaseNature) {
+    case "Y0008_SERVICO":
+      return "Serviço";
+    case "Y04_REGULARIZACAO":
+      return "Regularização";
+    case "IGNORADO":
+      return "Ignorado";
+    default:
+      return "Material";
+  }
 }
 
 export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProps) {
@@ -43,7 +49,7 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
       ) : (
         <>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] border-collapse text-left text-xs">
+            <table className="w-full min-w-[1320px] border-collapse text-left text-xs">
               <thead>
                 <tr className="border-b border-zinc-200 text-[10px] uppercase tracking-wide text-zinc-500">
                   <th className="px-2 py-2 font-bold">Status</th>
@@ -67,6 +73,8 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
                   <th className="px-2 py-2 font-bold">Requisitante</th>
                   <th className="px-2 py-2 font-bold">Grupo Comp</th>
                   <th className="px-2 py-2 font-bold">Grupo Merc</th>
+                  <th className="px-2 py-2 text-center font-bold">Recbconcl</th>
+                  <th className="px-2 py-2 font-bold">CódElim</th>
                   <th className="px-2 py-2 font-bold">Tipo</th>
                 </tr>
               </thead>
@@ -108,10 +116,10 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
 }
 
 function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
-  const showDelay = isPending ? row.operationalStatus === "EM_ATRASO" : row.operationalStatus === "RECEBIDO_COM_ATRASO";
+  const showDelay = isPending ? row.operationalStatus === "ATRASADO" : row.operationalStatus === "ENTREGUE";
   return (
     <tr className="border-b border-zinc-100 text-zinc-700 transition hover:bg-gold/5">
-      <td className="px-2 py-2">
+      <td className="px-2 py-2" title={row.classificationReason}>
         <PurchaseStatusBadge status={row.operationalStatus} />
       </td>
       <td className="px-2 py-2 font-medium text-zinc-900">{row.requisitionNumber ?? "—"}</td>
@@ -152,6 +160,10 @@ function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
       <td className="px-2 py-2 max-w-[140px] truncate" title={row.goodsGroupDescription ?? undefined}>
         {row.goodsGroupDescription ?? row.goodsGroupCode ?? "—"}
       </td>
+      <td className="px-2 py-2 text-center">
+        {row.isReceiptConfirmed ? <span className="font-semibold text-emerald-600">X</span> : "—"}
+      </td>
+      <td className="px-2 py-2">{row.deletionCode ?? "—"}</td>
       <td className="px-2 py-2">{kindLabel(row)}</td>
     </tr>
   );

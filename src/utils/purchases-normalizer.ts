@@ -27,6 +27,30 @@ export function optionalText(value: unknown): string | null {
   return text || null;
 }
 
+/* ------------------------------------------------------------------ */
+/* Helpers de normalização (TAREFA 2)                                 */
+/* ------------------------------------------------------------------ */
+
+/** Texto sem acento, minúsculo, espaços colapsados — base das comparações. */
+export function normalizeText(value: unknown): string {
+  return normalizeLoose(value).replace(/\s+/g, " ").trim();
+}
+
+/** Há conteúdo real (não vazio, não só espaços). */
+export function hasValue(value: unknown): boolean {
+  return normalizeText(value).length > 0;
+}
+
+/** Marcado com "X" (aceita "X", "x", " X "). */
+export function isMarkedX(value: unknown): boolean {
+  return normalizeText(value) === "x";
+}
+
+/** Alias semântico do conversor de datas (serial Excel, dd/mm/aaaa, ISO). */
+export function parseDate(value: unknown): Date | null {
+  return converterDataExcel(value);
+}
+
 /**
  * Documento SAP "válido": texto não vazio, com ao menos um dígito e que não seja
  * apenas zeros. Cobre "Pedido de Compra", "MIGO" e "MIRO" — quando vazio, "0",
@@ -44,9 +68,9 @@ export function isValidSapDocument(value: unknown): boolean {
   return Number(digits) > 0;
 }
 
-/** Marca de recebimento concluído ("X"). */
+/** Marca de recebimento concluído (Recbconcl = "X"). */
 export function isReceiptFlagSet(value: unknown): boolean {
-  return limparTexto(value).toUpperCase() === "X";
+  return isMarkedX(value);
 }
 
 /* ------------------------------------------------------------------ */
@@ -63,6 +87,70 @@ export function classifyPurchaseType(purchasingGroup: unknown): PurchaseType {
     return PurchaseType.NORMAL;
   }
   return PurchaseType.OUTROS;
+}
+
+/**
+ * Serviço = Grupo de Mercadorias (Grupo Merc / goodsGroupCode) contém Y0008
+ * (TAREFA 8). Também confere a descrição do grupo por segurança.
+ */
+export function isServiceByGoodsGroup(goodsGroupCode: unknown, goodsGroupDescription?: unknown): boolean {
+  return (
+    normalizeText(goodsGroupCode).includes("y0008") ||
+    normalizeText(goodsGroupDescription).includes("y0008")
+  );
+}
+
+/** Y04 = Regularização, no Grupo Comp (purchasingGroup). */
+export function isRegularizationByGroup(purchasingGroup: unknown): boolean {
+  return normalizeText(purchasingGroup).includes("y04");
+}
+
+/**
+ * Fornecedores eliminados (TAREFA 6): não entram nos relatórios de compras.
+ * Match PARCIAL, case/acento-insensível (cobre "Auren Energia", "Equatorial
+ * Energia", etc.).
+ */
+export const ELIMINATED_SUPPLIERS = [
+  "auren",
+  "newcom",
+  "smart",
+  "comerc",
+  "trivela",
+  "emprafil",
+  "equatorial",
+  "esfera"
+] as const;
+
+export function isEliminatedSupplierName(...fields: unknown[]): boolean {
+  const haystack = fields.map((field) => normalizeText(field)).filter(Boolean).join(" | ");
+  if (!haystack) {
+    return false;
+  }
+  return ELIMINATED_SUPPLIERS.some((term) => haystack.includes(term));
+}
+
+/** Termos que retiram o item do relatório (TAREFA 5): bloqueado e derivações + frete. */
+export const IGNORED_DESCRIPTION_TERMS = ["bloq", "frete"] as const;
+
+/** Descrição indica bloqueado/frete — fora do relatório. Retorna o termo ou null. */
+export function detectIgnoredDescriptionTerm(...fields: unknown[]): string | null {
+  const haystack = fields.map((field) => normalizeText(field)).filter(Boolean).join(" | ");
+  for (const term of IGNORED_DESCRIPTION_TERMS) {
+    if (haystack.includes(term)) {
+      return term;
+    }
+  }
+  return null;
+}
+
+/** Frete: descrição/grupo contém "frete" — fora do relatório. */
+export function isFreightItem(itemDescription: unknown, goodsGroupDescription?: unknown): boolean {
+  return normalizeText(itemDescription).includes("frete") || normalizeText(goodsGroupDescription).includes("frete");
+}
+
+/** CódElim = "L": pedido/requisição marcado para eliminação — fora do relatório. */
+export function isDeletionExcludedCode(deletionCode: unknown): boolean {
+  return normalizeText(deletionCode) === "l";
 }
 
 const SERVICE_KEYWORDS = [
@@ -142,6 +230,8 @@ export type PurchaseStatusFlags = {
   hasMigo: boolean;
   hasMiro: boolean;
   isReceiptCompleted: boolean;
+  /** Recbconcl = "X" (recebimento concluído no SAP). Base do "entregue". */
+  isReceiptConfirmed: boolean;
   isLateOpen: boolean;
   isLateReceived: boolean;
   delayDays: number | null;
@@ -153,6 +243,7 @@ export function computeStatusFlags(input: PurchaseStatusInput, now: Date): Purch
   const hasMigo = isValidSapDocument(input.migoNumber) || input.migoDate !== null;
   const hasMiro = isValidSapDocument(input.miroNumber) || input.miroDate !== null;
 
+  const isReceiptConfirmed = isReceiptFlagSet(input.receiptFlag);
   const isReceiptCompleted =
     isReceiptFlagSet(input.receiptFlag) || input.receiptDate !== null || hasMigo;
 
@@ -177,7 +268,7 @@ export function computeStatusFlags(input: PurchaseStatusInput, now: Date): Purch
     }
   }
 
-  return { hasPurchaseOrder, hasMigo, hasMiro, isReceiptCompleted, isLateOpen, isLateReceived, delayDays };
+  return { hasPurchaseOrder, hasMigo, hasMiro, isReceiptCompleted, isReceiptConfirmed, isLateOpen, isLateReceived, delayDays };
 }
 
 /* ------------------------------------------------------------------ */

@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { AlarmClock, Ban, BadgeCheck, ClipboardCheck, Repeat2, ShoppingCart, Upload, Wallet, Wrench } from "lucide-react";
+import { AlarmClock, Ban, ClipboardCheck, Repeat2, ShoppingCart, Upload, Wallet, Wrench } from "lucide-react";
 import { ChartSkeleton } from "@/components/ChartSkeleton";
 import { PurchaseKpiCards, type PurchaseKpiCard } from "@/components/purchases/PurchaseKpiCards";
 import { PurchaseFilters } from "@/components/purchases/PurchaseFilters";
@@ -93,13 +93,13 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
 
   const kpis = data.kpis;
   const cards: PurchaseKpiCard[] = [
-    { title: "Total recebido", value: int(kpis.received), description: "Itens Y01 com data de recebimento", icon: ClipboardCheck, tone: "green" },
-    { title: "Recebidos no prazo", value: int(kpis.receivedOnTime), description: "Recebimento ≤ previsão", icon: BadgeCheck, tone: "green" },
-    { title: "Recebidos com atraso", value: int(kpis.receivedLate), description: "Recebimento > previsão", icon: AlarmClock, tone: "red" },
-    { title: "Regularizações Y04 recebidas", value: int(kpis.regularizationsY04Received), description: `de ${int(kpis.regularizationsY04)} Y04 no total`, icon: Repeat2, tone: "red" },
-    { title: "Serviços recebidos", value: int(kpis.servicesReceived), description: `de ${int(kpis.services)} serviços no total`, icon: Wrench, tone: "gold" },
-    { title: "Bloqueados / ignorados", value: int(kpis.blocked), description: "Auditoria — fora dos KPIs", icon: Ban, tone: "blue" },
-    { title: "Valor recebido", value: formatCurrency(kpis.receivedValue), description: "Total recebido no período", icon: Wallet, tone: "gold" }
+    { title: "Materiais Comprados", value: int(kpis.purchased), description: "Y01 com pedido de compra", icon: ShoppingCart, tone: "gold" },
+    { title: "Materiais Entregues", value: int(kpis.delivered), description: "Recebimento lançado + Recbconcl “X”", icon: ClipboardCheck, tone: "green" },
+    { title: "Entregues com atraso", value: int(kpis.deliveredLate), description: "Recebimento após a previsão", icon: AlarmClock, tone: "red" },
+    { title: "Regularizações Y04", value: int(kpis.regularizations), description: `${int(kpis.regularizationsDelivered)} já recebidas`, icon: Repeat2, tone: "red" },
+    { title: "Serviços (Y0008)", value: int(kpis.services), description: `${int(kpis.servicesDelivered)} já recebidos`, icon: Wrench, tone: "gold" },
+    { title: "Ignorados", value: int(kpis.ignored), description: "Bloqueado, frete, fornecedor eliminado, CódElim “L”", icon: Ban, tone: "blue" },
+    { title: "Valor comprado", value: formatCurrency(kpis.purchasedValue), description: "Total com pedido no período", icon: Wallet, tone: "gold" }
   ];
 
   const isEmpty = data.source === "empty";
@@ -118,8 +118,9 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
           </div>
           <h1 className="font-serif text-3xl leading-tight text-white sm:text-4xl">Compras Realizadas</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300 sm:text-base">
-            Recebimentos no prazo e com atraso, por mês, fornecedor e grupo de mercadoria, com
-            Regularizações Y04 e serviços recebidos separados.
+            Itens Y01 com pedido de compra (comprados): entregues, atrasados e em trânsito, por mês,
+            fornecedor e grupo de mercadoria. Regularizações Y04, serviços e itens fora do relatório
+            ficam separados.
           </p>
         </div>
       </header>

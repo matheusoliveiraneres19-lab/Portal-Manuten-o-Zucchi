@@ -1,14 +1,11 @@
 import * as XLSX from "xlsx";
-import { ImportStatus, ImportType, PurchaseRecordSource } from "@prisma/client";
+import { ImportStatus, ImportType, ItemNature, PurchaseRecordSource } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { limparTexto, normalizarNomeColuna } from "@/utils/importacao";
 import {
   buildPurchaseTechnicalKey,
-  classifyItemNature,
-  classifyPurchaseType,
   computeProcessTimes,
   computeStatusFlags,
-  detectBlockedReason,
   getPurchaseRecordReferenceDate,
   optionalText,
   parsePurchaseDate,
@@ -48,6 +45,10 @@ const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   qtd_pendente: "pendingQuantity",
   recebimto_concluido: "receiptCompletedFlag",
   recebimento_concluido: "receiptCompletedFlag",
+  recbconcl: "receiptCompletedFlag",
+  recb_concl: "receiptCompletedFlag",
+  recebconcl: "receiptCompletedFlag",
+  recb_concluido: "receiptCompletedFlag",
   codigo_de_eliminacao: "deletionCode",
   cod_eliminacao: "deletionCode",
   unid_med: "unit",
@@ -163,6 +164,8 @@ function emptyResult(totalRows: number): PurchaseImportResult {
     totalMaterials: 0,
     totalValue: 0,
     totalBlocked: 0,
+    totalExcluded: 0,
+    totalPurchased: 0,
     totalReceived: 0,
     totalReceivedLate: 0,
     totalPendingPurchase: 0,
@@ -343,10 +346,12 @@ export async function importPurchasesFromExcel(
 
 /** Soma os indicadores do resumo (REGRA 16) a partir de um registro parseado. */
 function accumulate(result: PurchaseImportResult, parsed: ParsedPurchaseRecord): void {
-  // Bloqueados contam só como auditoria; fora dos demais indicadores.
-  if (parsed.isBlocked) {
+  // Excluídos do relatório (bloqueado/frete/fornecedor eliminado/CódElim "L") contam
+  // só como auditoria; ficam fora de TODOS os demais indicadores.
+  if (parsed.ignored) {
     result.ignoredRows += 1;
-    result.totalBlocked += 1;
+    if (parsed.isBlocked) result.totalBlocked += 1;
+    result.totalExcluded += 1;
     return;
   }
 
@@ -373,23 +378,25 @@ function accumulate(result: PurchaseImportResult, parsed: ParsedPurchaseRecord):
     result.totalMaterials += 1;
   }
 
-  // Contagens canônicas por status operacional.
+  // Comprado = base Y01 material (não serviço, não Y04) com pedido de compra.
+  if (!parsed.isService && parsed.purchaseType !== "REGULARIZACAO" && parsed.hasPurchaseOrder) {
+    result.totalPurchased += 1;
+  }
+
+  // Contagens canônicas por status operacional (novo vocabulário).
   switch (parsed.operationalStatus) {
-    case "RECEBIDO":
+    case "ENTREGUE":
       result.totalReceived += 1;
+      if (parsed.isLateReceived) result.totalReceivedLate += 1;
       break;
-    case "RECEBIDO_COM_ATRASO":
-      result.totalReceived += 1;
-      result.totalReceivedLate += 1;
-      break;
-    case "EM_ATRASO":
+    case "ATRASADO":
       result.totalLateOpen += 1;
+      break;
+    case "COMPRADO":
+      result.totalNotDelivered += 1;
       break;
     case "PENDENTE_COMPRA":
       result.totalPendingPurchase += 1;
-      break;
-    case "NAO_ENTREGUE":
-      result.totalNotDelivered += 1;
       break;
     default:
       break;
@@ -427,6 +434,8 @@ function parseRow(row: PurchaseExcelRow, line: number, now: Date): ParsedPurchas
   const pendingQuantity = parsePurchaseNumber(row.pendingQuantity);
 
   const supplierName = optionalText(row.supplierName);
+  const supplierCode = optionalText(row.supplierCode);
+  const goodsGroupCode = optionalText(row.goodsGroupCode);
   const goodsGroupDescription = optionalText(row.goodsGroupDescription);
   const deletionCode = optionalText(row.deletionCode);
 
@@ -446,24 +455,20 @@ function parseRow(row: PurchaseExcelRow, line: number, now: Date): ParsedPurchas
 
   const times = computeProcessTimes({ requisitionDate, purchaseOrderDate, receiptDate, migoDate, miroDate });
 
-  const blockedReason = detectBlockedReason({
-    itemDescription: description,
-    materialCode,
-    supplierName,
-    goodsGroupDescription,
-    deletionCode
-  });
-
-  // REGRA CENTRAL: status canônico (mesma função usada por services e UI).
+  // REGRA CENTRAL: classificação canônica (mesma função usada por services e UI).
   const classification = classifyPurchaseRecord(
     {
       purchasingGroup: row.purchasingGroup,
+      goodsGroupCode,
       goodsGroupDescription,
       itemDescription: description,
+      materialDescription: row.itemDescription,
       materialCode,
+      supplierCode,
       supplierName,
       deletionCode,
       purchaseOrderNumber,
+      receiptFlag: row.receiptCompletedFlag,
       receiptDate,
       expectedDeliveryDate
     },
@@ -503,29 +508,33 @@ function parseRow(row: PurchaseExcelRow, line: number, now: Date): ParsedPurchas
     netPrice: parsePurchaseNumber(row.netPrice),
     grossTotal,
     netTotal,
-    goodsGroupCode: optionalText(row.goodsGroupCode),
+    goodsGroupCode,
     goodsGroupDescription,
     requester: optionalText(row.requester),
     purchasingGroup: optionalText(row.purchasingGroup),
     deletionCode,
-    purchaseType: classifyPurchaseType(row.purchasingGroup),
-    itemNature: classifyItemNature(goodsGroupDescription, description),
+    purchaseType: classification.purchaseType,
+    itemNature: classification.isService ? ItemNature.SERVICO : ItemNature.MATERIAL,
     operationalStatus: classification.operationalStatus,
     isService: classification.isService,
     isBlocked: classification.isBlocked,
-    hasPurchaseOrder: flags.hasPurchaseOrder,
+    isFreight: classification.isFreight,
+    isEliminatedSupplier: classification.isEliminatedSupplier,
+    isDeletionExcluded: classification.isDeletionExcluded,
+    hasPurchaseOrder: classification.hasPurchaseOrder,
     hasMigo: flags.hasMigo,
     hasMiro: flags.hasMiro,
     isReceiptCompleted: flags.isReceiptCompleted,
+    isReceiptConfirmed: classification.isReceiptConfirmed,
     isLateOpen: flags.isLateOpen,
-    isLateReceived: flags.isLateReceived,
+    isLateReceived: classification.isLateReceived,
     delayDays: flags.delayDays,
     requisitionToOrderDays: times.requisitionToOrderDays,
     orderToReceiptDays: times.orderToReceiptDays,
     migoToMiroDays: times.migoToMiroDays,
     totalProcessDays: times.totalProcessDays,
-    ignored: blockedReason !== null,
-    ignoredReason: blockedReason,
+    ignored: classification.isIgnored,
+    ignoredReason: classification.ignoreReason,
     technicalKey
   };
 }

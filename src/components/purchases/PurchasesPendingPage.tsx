@@ -93,14 +93,13 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
 
   const kpis = data.kpis;
   const cards: PurchaseKpiCard[] = [
-    { title: "Total pendente", value: int(kpis.totalPending), description: "Compras Y01 ainda não recebidas", icon: ShoppingCart, tone: "gold" },
-    { title: "Em atraso", value: int(kpis.lateOpen), description: "Previsão vencida, sem recebimento", icon: AlarmClock, tone: "red" },
-    { title: "Pendente de compra", value: int(kpis.pendingPurchase), description: "Sem pedido e sem recebimento", icon: FileX2, tone: "gold" },
-    { title: "Não entregue / no prazo", value: int(kpis.notDelivered), description: "Pedido criado, dentro do prazo", icon: Truck, tone: "blue" },
-    { title: "Regularizações Y04", value: int(kpis.regularizationsY04), description: "Fora dos KPIs principais Y01", icon: Repeat2, tone: "red" },
-    { title: "Serviços", value: int(kpis.services), description: "Separados dos materiais Y01", icon: Wrench, tone: "gold" },
-    { title: "Bloqueados / ignorados", value: int(kpis.blocked), description: "Auditoria — fora dos KPIs", icon: Ban, tone: "blue" },
-    { title: "Valor pendente", value: formatCurrency(kpis.pendingValue), description: "Total das pendências Y01", icon: Wallet, tone: "gold" }
+    { title: "Pendentes de Compra", value: int(kpis.pendingPurchase), description: "Requisição Y01 sem pedido de compra", icon: FileX2, tone: "gold" },
+    { title: "Comprados não entregues", value: int(kpis.purchasedNotDelivered), description: "Com pedido, sem recebimento concluído", icon: Truck, tone: "blue" },
+    { title: "Atrasados", value: int(kpis.late), description: "Previsão vencida, sem recebimento concluído", icon: AlarmClock, tone: "red" },
+    { title: "Regularizações Y04", value: int(kpis.regularizations), description: "Separadas dos KPIs principais Y01", icon: Repeat2, tone: "red" },
+    { title: "Serviços (Y0008)", value: int(kpis.services), description: "Separados dos materiais Y01", icon: Wrench, tone: "gold" },
+    { title: "Ignorados", value: int(kpis.ignored), description: "Bloqueado, frete, fornecedor eliminado, CódElim “L”", icon: Ban, tone: "blue" },
+    { title: "Valor pendente", value: formatCurrency(kpis.pendingValue), description: "Total sem pedido de compra", icon: Wallet, tone: "gold" }
   ];
 
   const isEmpty = data.source === "empty";
@@ -119,8 +118,8 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
           </div>
           <h1 className="font-serif text-3xl leading-tight text-white sm:text-4xl">Compras Pendentes</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300 sm:text-base">
-            Em atraso, pendente de compra e não entregues (Y01), com Regularizações Y04, serviços e
-            bloqueados separados dos indicadores principais.
+            Requisições Y01 sem pedido de compra (pendente de compra), com atrasos, serviços,
+            Regularizações Y04 e itens fora do relatório separados dos indicadores principais.
           </p>
         </div>
       </header>

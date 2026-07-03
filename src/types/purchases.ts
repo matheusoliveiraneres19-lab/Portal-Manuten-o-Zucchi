@@ -1,7 +1,7 @@
 import type { ItemNature, PurchaseOperationalStatus, PurchaseType } from "@prisma/client";
-import type { PurchaseKind } from "@/utils/purchase-classification";
+import type { PurchaseKind, PurchaseNature, PurchaseReportGroup } from "@/utils/purchase-classification";
 
-export type { ItemNature, PurchaseOperationalStatus, PurchaseType, PurchaseKind };
+export type { ItemNature, PurchaseOperationalStatus, PurchaseType, PurchaseKind, PurchaseNature, PurchaseReportGroup };
 
 /* ------------------------------------------------------------------ */
 /* Importação                                                         */
@@ -76,10 +76,14 @@ export type ParsedPurchaseRecord = {
   operationalStatus: PurchaseOperationalStatus;
   isService: boolean;
   isBlocked: boolean;
+  isFreight: boolean;
+  isEliminatedSupplier: boolean;
+  isDeletionExcluded: boolean;
   hasPurchaseOrder: boolean;
   hasMigo: boolean;
   hasMiro: boolean;
   isReceiptCompleted: boolean;
+  isReceiptConfirmed: boolean;
   isLateOpen: boolean;
   isLateReceived: boolean;
   delayDays: number | null;
@@ -127,6 +131,10 @@ export type PurchaseImportResult = {
   totalValue: number;
   /** Contagens canônicas por status operacional (REGRA 16). */
   totalBlocked: number;
+  /** Fora do relatório: bloqueado + frete + fornecedor eliminado + CódElim "L". */
+  totalExcluded: number;
+  /** Comprados (base Y01 material com pedido de compra). */
+  totalPurchased: number;
   totalReceived: number;
   totalReceivedLate: number;
   totalPendingPurchase: number;
@@ -154,10 +162,10 @@ export type PurchaseDateField =
   | "receiptDate";
 
 /**
- * Filtro de "Tipo" da compra (REGRA 14): material físico, serviço,
- * regularização (Y04) ou item bloqueado.
+ * Filtro de "Tipo" da compra: material Y01, serviço (Y0008),
+ * regularização (Y04) ou ignorado.
  */
-export type PurchaseKindFilter = "material" | "servico" | "regularizacao" | "bloqueado";
+export type PurchaseKindFilter = "material" | "servico" | "regularizacao" | "ignorado";
 
 /**
  * Parâmetros de consulta/filtro. Multi-seleção em arrays: dentro de um mesmo
@@ -192,38 +200,38 @@ export type PurchaseQueryParams = {
  * totais Y01; aparecem só em `blocked`.
  */
 export type PurchaseKpis = {
-  /** Total de registros do recorte (sem bloqueados). */
+  /** Total de registros do recorte (Y01 + serviços + Y04 + ignorados). */
   totalRecords: number;
-  /** Base de análise Y01 (não serviço, não Y04, não bloqueado). */
+  /** Base de análise Y01 material (não ignorado, não serviço, não Y04). */
   baseY01: number;
-  /** Recebidos (RECEBIDO + RECEBIDO_COM_ATRASO) na base Y01. */
-  received: number;
-  /** Recebidos no prazo (RECEBIDO). */
-  receivedOnTime: number;
-  /** Recebidos com atraso (RECEBIDO_COM_ATRASO). */
-  receivedLate: number;
-  /** Pendente de compra (sem pedido e sem recebimento). */
+  /** Comprados = base Y01 com pedido de compra (COMPRADO + ATRASADO + ENTREGUE). */
+  purchased: number;
+  purchasedValue: number;
+  /** Comprados ainda não entregues (com pedido, sem recebimento concluído). */
+  purchasedNotDelivered: number;
+  /** Pendente de compra (Y01 sem pedido de compra). */
   pendingPurchase: number;
-  /** Em atraso (previsão vencida, sem recebimento). */
-  lateOpen: number;
-  /** Não entregue / dentro do prazo. */
-  notDelivered: number;
-  /** Total pendente Y01 = pendingPurchase + lateOpen + notDelivered. */
-  totalPending: number;
-  /** Regularizações Y04 (separadas dos KPIs Y01). */
-  regularizationsY04: number;
-  /** Regularizações Y04 recebidas. */
-  regularizationsY04Received: number;
-  /** Serviços (separados dos KPIs Y01). */
-  services: number;
-  /** Serviços recebidos. */
-  servicesReceived: number;
-  /** Itens bloqueados/ignorados (auditoria). */
-  blocked: number;
-  /** Valores (R$). */
-  totalValue: number;
   pendingValue: number;
-  receivedValue: number;
+  /** Comprado em trânsito (com pedido, sem receb., dentro do prazo). */
+  inTransit: number;
+  /** Atrasados (previsão vencida, sem recebimento concluído). */
+  late: number;
+  lateValue: number;
+  /** Entregues (recebimento lançado + Recbconcl "X"). */
+  delivered: number;
+  deliveredValue: number;
+  /** Entregues com atraso (recebimento após a previsão). */
+  deliveredLate: number;
+  /** Regularizações Y04 (separadas dos KPIs Y01). */
+  regularizations: number;
+  regularizationsDelivered: number;
+  /** Serviços Y0008 (separados dos KPIs Y01). */
+  services: number;
+  servicesDelivered: number;
+  /** Ignorados (CódElim L, bloqueado, frete, fornecedor eliminado). */
+  ignored: number;
+  /** Valor total do relatório (R$, sem ignorados). */
+  totalValue: number;
 };
 
 export type PurchaseRow = {
@@ -244,13 +252,25 @@ export type PurchaseRow = {
   /** Status operacional canônico + rótulo legível (badge). */
   operationalStatus: PurchaseOperationalStatus;
   statusLabel: string;
+  /** Natureza: Y01/Y04/Y0008/Ignorado (coluna "Tipo"). */
+  purchaseNature: PurchaseNature;
+  /** Grupo de relatório (qual página lista o registro). */
+  reportGroup: PurchaseReportGroup;
+  /** Frase de auditoria (por que entrou/saiu do KPI). */
+  classificationReason: string;
   isService: boolean;
   isBlocked: boolean;
   isRegularization: boolean;
+  isIgnored: boolean;
+  ignoreReason: string | null;
   purchaseKind: PurchaseKind;
   /** Dias em atraso (em aberto) ou de atraso no recebimento. */
   delayDays: number | null;
   hasPurchaseOrder: boolean;
+  /** Recbconcl = "X". */
+  isReceiptConfirmed: boolean;
+  /** CódElim. */
+  deletionCode: string | null;
   purchasingGroup: string | null;
   purchaseType: PurchaseType;
   goodsGroupCode: string | null;

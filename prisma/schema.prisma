@@ -101,15 +101,13 @@ enum ItemNature {
 /// derivada por classifyPurchaseRecord() na importação. Precedência:
 /// BLOQUEADO > SERVICO > REGULARIZACAO(Y04) > baldes Y01.
 enum PurchaseOperationalStatus {
-  RECEBIDO
-  RECEBIDO_COM_ATRASO
   PENDENTE_COMPRA
-  EM_ATRASO
-  NAO_ENTREGUE
-  SERVICO
+  COMPRADO
+  ATRASADO
+  ENTREGUE
   REGULARIZACAO
-  BLOQUEADO
-  INDEFINIDO
+  SERVICO
+  IGNORADO
 }
 
 /// Origem do registro de compra importado.
@@ -379,16 +377,24 @@ model PurchaseRecord {
   /// Classificações derivadas.
   purchaseType           PurchaseType         @default(OUTROS)
   itemNature             ItemNature           @default(MATERIAL)
-  /// Status operacional canônico (regras do HTML), derivado por classifyPurchaseRecord.
-  operationalStatus      PurchaseOperationalStatus @default(INDEFINIDO)
-  /// Serviço (Descr grupo Merc / texto do material) — separado dos KPIs Y01.
+  /// Status operacional canônico, derivado por classifyPurchaseRecord.
+  operationalStatus      PurchaseOperationalStatus @default(IGNORADO)
+  /// Serviço (Grupo Comp contém Y0008) — separado dos KPIs Y01.
   isService              Boolean              @default(false)
   /// Item bloqueado (termo "bloq") — auditoria; fora dos KPIs principais.
   isBlocked              Boolean              @default(false)
+  /// Frete ("frete" na descrição/grupo) — fora do relatório.
+  isFreight              Boolean              @default(false)
+  /// Fornecedor eliminado (Auren, Newcom, ...) — fora do relatório.
+  isEliminatedSupplier   Boolean              @default(false)
+  /// CódElim = "L" (marcado para eliminação) — fora do relatório.
+  isDeletionExcluded     Boolean              @default(false)
   hasPurchaseOrder       Boolean              @default(false)
   hasMigo                Boolean              @default(false)
   hasMiro                Boolean              @default(false)
   isReceiptCompleted     Boolean              @default(false)
+  /// Recbconcl = "X" (recebimento concluído). Base do "entregue".
+  isReceiptConfirmed     Boolean              @default(false)
   /// Atraso em aberto (previsão vencida, ainda sem recebimento/MIGO).
   isLateOpen             Boolean              @default(false)
   /// Recebido com atraso (recebimento/MIGO após a previsão).
@@ -419,6 +425,10 @@ model PurchaseRecord {
   @@index([operationalStatus])
   @@index([isService])
   @@index([isBlocked])
+  @@index([isFreight])
+  @@index([isEliminatedSupplier])
+  @@index([isDeletionExcluded])
+  @@index([isReceiptConfirmed])
   @@index([purchaseOrderDate])
   @@index([requisitionDate])
   @@index([expectedDeliveryDate])

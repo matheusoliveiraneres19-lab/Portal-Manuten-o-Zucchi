@@ -17,6 +17,8 @@ import { getPurchaseRecordReferenceDate, resolvePurchaseValue } from "@/utils/pu
 import {
   PURCHASE_OPERATIONAL_STATUS_COLORS,
   PURCHASE_OPERATIONAL_STATUS_LABELS,
+  classificationReasonFor,
+  reportGroupFor,
   resolveOperationalStatusFromFlags,
   type PurchaseKind
 } from "@/utils/purchase-classification";
@@ -43,7 +45,10 @@ import type {
 const DEFAULT_PAGE_SIZE = 50;
 const OS = PurchaseOperationalStatus;
 
-const PENDING_Y01_STATUSES: PurchaseOperationalStatus[] = [OS.PENDENTE_COMPRA, OS.EM_ATRASO, OS.NAO_ENTREGUE];
+/** Status que compõem a página de Compras Pendentes (tabela). */
+const PENDING_TABLE_STATUSES: PurchaseOperationalStatus[] = [OS.PENDENTE_COMPRA, OS.ATRASADO];
+/** Status que compõem a página de Compras Realizadas (tabela). */
+const COMPLETED_TABLE_STATUSES: PurchaseOperationalStatus[] = [OS.COMPRADO, OS.ENTREGUE];
 
 /** Início do dia atual em UTC — referência da comparação de atraso (dia-calendário). */
 function startOfTodayUtc(today: Date): Date {
@@ -54,41 +59,59 @@ function startOfTodayUtc(today: Date): Date {
 /* Predicados de status (dinâmicos por data)                          */
 /* ------------------------------------------------------------------ */
 
-/** Base de análise Y01: não bloqueado, não serviço, não Y04. */
+/** Base Y01 material: fora do relatório (ignored), serviço (Y0008) e Y04 excluídos. */
 const Y01_BASE: Prisma.PurchaseRecordWhereInput = {
-  isBlocked: false,
+  ignored: false,
   isService: false,
-  NOT: { purchaseType: PurchaseType.REGULARIZACAO }
+  purchaseType: { not: PurchaseType.REGULARIZACAO }
 };
 
-/** Cláusula Prisma para um status operacional, com a data atual. */
+/** Entregue = recebimento lançado + Recbconcl "X". */
+const DELIVERED: Prisma.PurchaseRecordWhereInput = { isReceiptConfirmed: true, receiptDate: { not: null } };
+/** Ainda não entregue (nega o "entregue"). */
+const NOT_DELIVERED: Prisma.PurchaseRecordWhereInput = { NOT: { isReceiptConfirmed: true, receiptDate: { not: null } } };
+
+/** Cláusula Prisma para cada status operacional (mutuamente exclusivo), com a data atual. */
 function statusWhere(status: PurchaseOperationalStatus, today: Date): Prisma.PurchaseRecordWhereInput {
   const startToday = startOfTodayUtc(today);
   switch (status) {
-    case OS.BLOQUEADO:
-      return { isBlocked: true };
+    case OS.IGNORADO:
+      return { ignored: true };
     case OS.SERVICO:
-      return { isService: true, isBlocked: false };
+      return { ignored: false, isService: true };
     case OS.REGULARIZACAO:
-      return { isBlocked: false, isService: false, purchaseType: PurchaseType.REGULARIZACAO };
-    case OS.RECEBIDO:
-      return { ...Y01_BASE, receiptDate: { not: null }, isLateReceived: false };
-    case OS.RECEBIDO_COM_ATRASO:
-      return { ...Y01_BASE, receiptDate: { not: null }, isLateReceived: true };
-    case OS.PENDENTE_COMPRA:
-      return { ...Y01_BASE, receiptDate: null, hasPurchaseOrder: false };
-    case OS.EM_ATRASO:
-      return { ...Y01_BASE, receiptDate: null, hasPurchaseOrder: true, expectedDeliveryDate: { lt: startToday } };
-    case OS.NAO_ENTREGUE:
+      return { ignored: false, isService: false, purchaseType: PurchaseType.REGULARIZACAO };
+    case OS.ENTREGUE:
+      return { ...Y01_BASE, ...DELIVERED };
+    case OS.ATRASADO:
+      return { ...Y01_BASE, ...NOT_DELIVERED, hasPurchaseOrder: true, expectedDeliveryDate: { lt: startToday } };
+    case OS.COMPRADO:
       return {
         ...Y01_BASE,
-        receiptDate: null,
+        ...NOT_DELIVERED,
         hasPurchaseOrder: true,
         OR: [{ expectedDeliveryDate: null }, { expectedDeliveryDate: { gte: startToday } }]
       };
+    case OS.PENDENTE_COMPRA:
+      return { ...Y01_BASE, ...NOT_DELIVERED, hasPurchaseOrder: false };
     default:
       return {};
   }
+}
+
+/** Comprados = base Y01 material com pedido de compra (COMPRADO + ATRASADO + ENTREGUE). */
+function purchasedWhere(): Prisma.PurchaseRecordWhereInput {
+  return { ...Y01_BASE, hasPurchaseOrder: true };
+}
+
+/** Comprados ainda não entregues = com pedido, sem recebimento concluído (COMPRADO + ATRASADO). */
+function purchasedNotDeliveredWhere(): Prisma.PurchaseRecordWhereInput {
+  return { ...Y01_BASE, ...NOT_DELIVERED, hasPurchaseOrder: true };
+}
+
+/** Pendente de compra = base Y01 material sem pedido de compra. */
+function pendingPurchaseWhere(): Prisma.PurchaseRecordWhereInput {
+  return { ...Y01_BASE, ...NOT_DELIVERED, hasPurchaseOrder: false };
 }
 
 /* ------------------------------------------------------------------ */
@@ -160,47 +183,46 @@ function buildFilterWhere(params: PurchaseQueryParams = {}, today: Date): Prisma
   return and.length ? { AND: and } : {};
 }
 
-/** Escopo do filtro "Tipo" para a página de pendentes. */
-function kindScopePending(kinds?: PurchaseKindFilter[]): Prisma.PurchaseRecordWhereInput {
-  if (!kinds?.length) {
-    return { isService: false, isBlocked: false }; // Y01 + Y04 pendentes
-  }
-  return { OR: kinds.map(mapKind) };
-}
-
-/** Escopo do filtro "Tipo" para a página de realizadas. */
-function kindScopeCompleted(kinds?: PurchaseKindFilter[]): Prisma.PurchaseRecordWhereInput {
-  if (!kinds?.length) {
-    return { isBlocked: false };
-  }
-  return { OR: kinds.map(mapKind) };
-}
-
-function mapKind(kind: PurchaseKindFilter): Prisma.PurchaseRecordWhereInput {
-  switch (kind) {
-    case "material":
-      return { isService: false, isBlocked: false, NOT: { purchaseType: PurchaseType.REGULARIZACAO } };
-    case "servico":
-      return { isService: true, isBlocked: false };
-    case "regularizacao":
-      return { purchaseType: PurchaseType.REGULARIZACAO, isService: false, isBlocked: false };
-    case "bloqueado":
-      return { isBlocked: true };
-    default:
-      return {};
-  }
-}
-
 function mergeWhere(...clauses: Prisma.PurchaseRecordWhereInput[]): Prisma.PurchaseRecordWhereInput {
   return { AND: clauses };
 }
 
-function pendingWhere(params: PurchaseQueryParams, today: Date): Prisma.PurchaseRecordWhereInput {
-  return mergeWhere(buildFilterWhere(params, today), { receiptDate: null }, kindScopePending(params.kinds));
+/** Status de um "Tipo" (filtro). "material" = os status default da página. */
+function kindStatuses(kind: PurchaseKindFilter, pageDefault: PurchaseOperationalStatus[]): PurchaseOperationalStatus[] {
+  switch (kind) {
+    case "material":
+      return pageDefault;
+    case "servico":
+      return [OS.SERVICO];
+    case "regularizacao":
+      return [OS.REGULARIZACAO];
+    case "ignorado":
+      return [OS.IGNORADO];
+    default:
+      return [];
+  }
 }
 
+/** Escopo da tabela por status (default da página) + filtro "Tipo". */
+function scopeByKind(
+  kinds: PurchaseKindFilter[] | undefined,
+  pageDefault: PurchaseOperationalStatus[],
+  today: Date
+): Prisma.PurchaseRecordWhereInput {
+  const statuses = kinds?.length
+    ? Array.from(new Set(kinds.flatMap((kind) => kindStatuses(kind, pageDefault))))
+    : pageDefault;
+  return { OR: statuses.map((status) => statusWhere(status, today)) };
+}
+
+/** Página Pendentes: PENDENTE_COMPRA + ATRASADO (respeita o filtro "Tipo"). */
+function pendingWhere(params: PurchaseQueryParams, today: Date): Prisma.PurchaseRecordWhereInput {
+  return mergeWhere(buildFilterWhere(params, today), scopeByKind(params.kinds, PENDING_TABLE_STATUSES, today));
+}
+
+/** Página Realizadas: COMPRADO + ENTREGUE (respeita o filtro "Tipo"). */
 function completedWhere(params: PurchaseQueryParams, today: Date): Prisma.PurchaseRecordWhereInput {
-  return mergeWhere(buildFilterWhere(params, today), { receiptDate: { not: null } }, kindScopeCompleted(params.kinds));
+  return mergeWhere(buildFilterWhere(params, today), scopeByKind(params.kinds, COMPLETED_TABLE_STATUSES, today));
 }
 
 /* ------------------------------------------------------------------ */
@@ -232,57 +254,65 @@ export const getPurchaseSummary = cache(async (params: PurchaseQueryParams = {})
   const count = (where: Prisma.PurchaseRecordWhereInput) => prisma.purchaseRecord.count({ where });
 
   const [
-    received,
-    receivedLate,
-    openPending,
+    baseY01,
+    purchased,
+    purchasedNotDelivered,
     pendingPurchase,
-    lateOpen,
-    regularizationsY04,
-    regReceived,
+    inTransit,
+    late,
+    delivered,
+    deliveredLate,
+    regularizations,
+    regularizationsDelivered,
     services,
-    svcReceived,
-    blocked,
+    servicesDelivered,
+    ignored,
     totalValue,
     pendingValue,
-    receivedValue
+    deliveredValue,
+    purchasedValue,
+    lateValue
   ] = await Promise.all([
-    count(mergeWhere(y01, { receiptDate: { not: null } })),
-    count(mergeWhere(y01, { receiptDate: { not: null }, isLateReceived: true })),
-    count(mergeWhere(y01, { receiptDate: null })),
-    count(mergeWhere(base, statusWhere(OS.PENDENTE_COMPRA, today))),
-    count(mergeWhere(base, statusWhere(OS.EM_ATRASO, today))),
+    count(y01),
+    count(mergeWhere(base, purchasedWhere())),
+    count(mergeWhere(base, purchasedNotDeliveredWhere())),
+    count(mergeWhere(base, pendingPurchaseWhere())),
+    count(mergeWhere(base, statusWhere(OS.COMPRADO, today))),
+    count(mergeWhere(base, statusWhere(OS.ATRASADO, today))),
+    count(mergeWhere(base, statusWhere(OS.ENTREGUE, today))),
+    count(mergeWhere(base, statusWhere(OS.ENTREGUE, today), { isLateReceived: true })),
     count(mergeWhere(base, statusWhere(OS.REGULARIZACAO, today))),
-    count(mergeWhere(base, statusWhere(OS.REGULARIZACAO, today), { receiptDate: { not: null } })),
+    count(mergeWhere(base, statusWhere(OS.REGULARIZACAO, today), DELIVERED)),
     count(mergeWhere(base, statusWhere(OS.SERVICO, today))),
-    count(mergeWhere(base, statusWhere(OS.SERVICO, today), { receiptDate: { not: null } })),
-    count(mergeWhere(base, { isBlocked: true })),
-    sumPurchaseValue(mergeWhere(base, { isBlocked: false })),
-    sumPurchaseValue(mergeWhere(y01, { receiptDate: null })),
-    sumPurchaseValue(mergeWhere(base, { receiptDate: { not: null }, isBlocked: false }))
+    count(mergeWhere(base, statusWhere(OS.SERVICO, today), DELIVERED)),
+    count(mergeWhere(base, { ignored: true })),
+    sumPurchaseValue(mergeWhere(base, { ignored: false })),
+    sumPurchaseValue(mergeWhere(base, pendingPurchaseWhere())),
+    sumPurchaseValue(mergeWhere(base, statusWhere(OS.ENTREGUE, today))),
+    sumPurchaseValue(mergeWhere(base, purchasedWhere())),
+    sumPurchaseValue(mergeWhere(base, statusWhere(OS.ATRASADO, today)))
   ]);
 
-  const receivedOnTime = received - receivedLate;
-  const notDelivered = Math.max(0, openPending - pendingPurchase - lateOpen);
-  const baseY01 = received + openPending;
-
   return {
-    totalRecords: baseY01 + services + regularizationsY04,
+    totalRecords: baseY01 + services + regularizations + ignored,
     baseY01,
-    received,
-    receivedOnTime,
-    receivedLate,
+    purchased,
+    purchasedValue,
+    purchasedNotDelivered,
     pendingPurchase,
-    lateOpen,
-    notDelivered,
-    totalPending: pendingPurchase + lateOpen + notDelivered,
-    regularizationsY04,
-    regularizationsY04Received: regReceived,
-    services,
-    servicesReceived: svcReceived,
-    blocked,
-    totalValue,
     pendingValue,
-    receivedValue
+    inTransit,
+    late,
+    lateValue,
+    delivered,
+    deliveredValue,
+    deliveredLate,
+    regularizations,
+    regularizationsDelivered,
+    services,
+    servicesDelivered,
+    ignored,
+    totalValue
   };
 });
 
@@ -308,8 +338,12 @@ const rowSelect = {
   receiptDate: true,
   isService: true,
   isBlocked: true,
+  ignored: true,
+  ignoredReason: true,
+  isReceiptConfirmed: true,
   isLateReceived: true,
   hasPurchaseOrder: true,
+  deletionCode: true,
   delayDays: true,
   purchasingGroup: true,
   purchaseType: true,
@@ -328,15 +362,16 @@ function purchaseKindFromType(type: PurchaseType): PurchaseKind {
 }
 
 function toRow(record: RowRecord, today: Date): PurchaseRow {
+  const isRegularization = record.purchaseType === PurchaseType.REGULARIZACAO;
   const operationalStatus = resolveOperationalStatusFromFlags(
     {
-      isBlocked: record.isBlocked,
+      isIgnored: record.ignored,
       isService: record.isService,
-      purchaseType: record.purchaseType,
+      isRegularization,
       hasPurchaseOrder: record.hasPurchaseOrder,
+      isReceiptConfirmed: record.isReceiptConfirmed,
       receiptDate: record.receiptDate,
-      expectedDeliveryDate: record.expectedDeliveryDate,
-      isLateReceived: record.isLateReceived
+      expectedDeliveryDate: record.expectedDeliveryDate
     },
     today
   );
@@ -357,12 +392,26 @@ function toRow(record: RowRecord, today: Date): PurchaseRow {
     receiptDate: toIso(record.receiptDate),
     operationalStatus,
     statusLabel: PURCHASE_OPERATIONAL_STATUS_LABELS[operationalStatus],
+    purchaseNature:
+      operationalStatus === OS.IGNORADO
+        ? "IGNORADO"
+        : operationalStatus === OS.SERVICO
+          ? "Y0008_SERVICO"
+          : operationalStatus === OS.REGULARIZACAO
+            ? "Y04_REGULARIZACAO"
+            : "Y01_COMPRA_NORMAL",
+    reportGroup: reportGroupFor(operationalStatus),
+    classificationReason: classificationReasonFor(operationalStatus, record.ignoredReason),
     isService: record.isService,
     isBlocked: record.isBlocked,
-    isRegularization: record.purchaseType === PurchaseType.REGULARIZACAO,
+    isRegularization,
+    isIgnored: record.ignored,
+    ignoreReason: record.ignoredReason,
     purchaseKind: purchaseKindFromType(record.purchaseType),
     delayDays: record.delayDays,
     hasPurchaseOrder: record.hasPurchaseOrder,
+    isReceiptConfirmed: record.isReceiptConfirmed,
+    deletionCode: record.deletionCode,
     purchasingGroup: record.purchasingGroup,
     purchaseType: record.purchaseType,
     goodsGroupCode: record.goodsGroupCode,
@@ -420,6 +469,8 @@ const analysisSelect = {
   grossTotal: true,
   isService: true,
   isBlocked: true,
+  ignored: true,
+  isReceiptConfirmed: true,
   hasPurchaseOrder: true,
   isLateReceived: true,
   purchaseType: true
@@ -428,29 +479,42 @@ const analysisSelect = {
 type AnalysisRow = Prisma.PurchaseRecordGetPayload<{ select: typeof analysisSelect }>;
 
 type StatusFlags = {
-  isBlocked: boolean;
+  ignored: boolean;
   isService: boolean;
   purchaseType: PurchaseType;
   hasPurchaseOrder: boolean;
+  isReceiptConfirmed: boolean;
   receiptDate: Date | null;
   expectedDeliveryDate: Date | null;
-  isLateReceived: boolean;
 };
 
 function effStatus(row: StatusFlags, today: Date): PurchaseOperationalStatus {
-  return resolveOperationalStatusFromFlags(row, today);
+  return resolveOperationalStatusFromFlags(
+    {
+      isIgnored: row.ignored,
+      isService: row.isService,
+      isRegularization: row.purchaseType === PurchaseType.REGULARIZACAO,
+      hasPurchaseOrder: row.hasPurchaseOrder,
+      isReceiptConfirmed: row.isReceiptConfirmed,
+      receiptDate: row.receiptDate,
+      expectedDeliveryDate: row.expectedDeliveryDate
+    },
+    today
+  );
 }
 
+/** Todos os registros do relatório (não excluídos) — os gráficos filtram por status. */
 const loadPendingAnalysisRows = cache(async (params: PurchaseQueryParams = {}): Promise<AnalysisRow[]> =>
   prisma.purchaseRecord.findMany({
-    where: mergeWhere(buildFilterWhere(params, getTodayDate()), { receiptDate: null, isBlocked: false }),
+    where: mergeWhere(buildFilterWhere(params, getTodayDate()), { ignored: false }),
     select: analysisSelect
   })
 );
 
+/** Entregues (recebimento lançado + Recbconcl "X") — gráficos de recebimento. */
 const loadCompletedAnalysisRows = cache(async (params: PurchaseQueryParams = {}): Promise<AnalysisRow[]> =>
   prisma.purchaseRecord.findMany({
-    where: mergeWhere(buildFilterWhere(params, getTodayDate()), { receiptDate: { not: null }, isBlocked: false }),
+    where: mergeWhere(buildFilterWhere(params, getTodayDate()), { ignored: false, ...DELIVERED }),
     select: analysisSelect
   })
 );
@@ -459,7 +523,7 @@ const loadCompletedAnalysisRows = cache(async (params: PurchaseQueryParams = {})
 const loadRegularizationRows = cache(async (params: PurchaseQueryParams = {}): Promise<AnalysisRow[]> =>
   prisma.purchaseRecord.findMany({
     where: mergeWhere(buildFilterWhere(params, getTodayDate()), {
-      isBlocked: false,
+      ignored: false,
       isService: false,
       purchaseType: PurchaseType.REGULARIZACAO
     }),
@@ -561,7 +625,7 @@ function statusDistribution(records: AnalysisRow[], today: Date, statuses: Purch
 /* ------------------------------------------------------------------ */
 
 export async function getPurchaseProcessTimes(params: PurchaseQueryParams = {}): Promise<PurchaseProcessTimes> {
-  const base = mergeWhere(buildFilterWhere(params, getTodayDate()), { isBlocked: false });
+  const base = mergeWhere(buildFilterWhere(params, getTodayDate()), { ignored: false });
   const [averages, slowestReqToOrder, slowestTotal] = await Promise.all([
     prisma.purchaseRecord.aggregate({
       where: base,
@@ -630,14 +694,13 @@ export async function getPurchaseFilterOptions(): Promise<PurchaseFilterOptions>
     purchasingGroups: purchasingGroups.map((item) => item.purchasingGroup!).filter(Boolean).map((group) => ({ value: group, label: group })),
     requesters: requesters.map((item) => item.requester!).filter(Boolean),
     statuses: [
-      OS.EM_ATRASO,
       OS.PENDENTE_COMPRA,
-      OS.NAO_ENTREGUE,
-      OS.RECEBIDO,
-      OS.RECEBIDO_COM_ATRASO,
+      OS.COMPRADO,
+      OS.ATRASADO,
+      OS.ENTREGUE,
       OS.REGULARIZACAO,
       OS.SERVICO,
-      OS.BLOQUEADO
+      OS.IGNORADO
     ],
     years
   };
@@ -651,7 +714,7 @@ export async function getPurchaseFilterOptions(): Promise<PurchaseFilterOptions>
 export async function getPendingPurchasesCount(): Promise<number> {
   const today = getTodayDate();
   return prisma.purchaseRecord.count({
-    where: { OR: PENDING_Y01_STATUSES.map((status) => statusWhere(status, today)) }
+    where: { OR: PENDING_TABLE_STATUSES.map((status) => statusWhere(status, today)) }
   });
 }
 
@@ -659,8 +722,8 @@ export async function getPendingPurchasesCount(): Promise<number> {
 export async function getPendingPurchases(limit = 5): Promise<PendingPurchaseData[]> {
   const today = getTodayDate();
   const records = await prisma.purchaseRecord.findMany({
-    where: { OR: PENDING_Y01_STATUSES.map((status) => statusWhere(status, today)) },
-    select: { itemDescription: true, supplierName: true, expectedDeliveryDate: true, netTotal: true, grossTotal: true, hasPurchaseOrder: true, receiptDate: true, isService: true, isBlocked: true, isLateReceived: true, purchaseType: true },
+    where: { OR: PENDING_TABLE_STATUSES.map((status) => statusWhere(status, today)) },
+    select: { itemDescription: true, supplierName: true, expectedDeliveryDate: true, netTotal: true, grossTotal: true, hasPurchaseOrder: true, receiptDate: true, isService: true, ignored: true, isReceiptConfirmed: true, purchaseType: true },
     orderBy: [{ expectedDeliveryDate: "asc" }, { requisitionDate: "desc" }],
     take: limit
   });
@@ -670,7 +733,7 @@ export async function getPendingPurchases(limit = 5): Promise<PendingPurchaseDat
     supplier: record.supplierName,
     expectedDate: record.expectedDeliveryDate,
     totalValue: resolvePurchaseValue(record.netTotal, record.grossTotal),
-    status: effStatus(record, today) === OS.EM_ATRASO ? PurchaseStatus.ATRASADA : PurchaseStatus.SOLICITADA
+    status: effStatus(record, today) === OS.ATRASADO ? PurchaseStatus.ATRASADA : PurchaseStatus.SOLICITADA
   }));
 }
 
@@ -680,7 +743,7 @@ export async function getPurchasesByMonth(year: number): Promise<PurchasesByMont
   const end = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
   const records = await prisma.purchaseRecord.findMany({
     where: mergeWhere(
-      { isBlocked: false },
+      { ignored: false },
       {
         OR: [
           { purchaseOrderDate: { gte: start, lte: end } },
@@ -732,12 +795,12 @@ export async function getPendingPurchasesPageData(params: PurchaseQueryParams = 
     getPurchaseFilterOptions()
   ]);
 
-  const lateRows = analysisRows.filter((row) => effStatus(row, today) === OS.EM_ATRASO);
+  const lateRows = analysisRows.filter((row) => effStatus(row, today) === OS.ATRASADO);
   const pendingForGroups = analysisRows.filter((row) => {
     const status = effStatus(row, today);
-    return PENDING_Y01_STATUSES.includes(status) || status === OS.REGULARIZACAO;
+    return PENDING_TABLE_STATUSES.includes(status) || status === OS.REGULARIZACAO;
   });
-  const pendingY01Rows = analysisRows.filter((row) => PENDING_Y01_STATUSES.includes(effStatus(row, today)));
+  const pendingY01Rows = analysisRows.filter((row) => PENDING_TABLE_STATUSES.includes(effStatus(row, today)));
 
   return {
     period,
@@ -745,7 +808,7 @@ export async function getPendingPurchasesPageData(params: PurchaseQueryParams = 
     lateByMonth: bucketByMonth(lateRows, "expectedDeliveryDate"),
     topLateSuppliers: topSuppliersByCount(lateRows),
     pendingByGoodsGroup: groupCountByGoodsGroup(pendingForGroups),
-    statusDistribution: statusDistribution(analysisRows, today, PENDING_Y01_STATUSES),
+    statusDistribution: statusDistribution(analysisRows, today, PENDING_TABLE_STATUSES),
     topRequesters: topRequesters(pendingY01Rows),
     purchases,
     filterOptions,
@@ -782,7 +845,7 @@ export async function getCompletedPurchasesPageData(params: PurchaseQueryParams 
     getPurchaseFilterOptions()
   ]);
 
-  const lateReceived = receivedRows.filter((row) => effStatus(row, today) === OS.RECEBIDO_COM_ATRASO);
+  const lateReceived = receivedRows.filter((row) => row.isLateReceived);
 
   return {
     period,
@@ -840,21 +903,23 @@ function emptyKpis(): PurchaseKpis {
   return {
     totalRecords: 0,
     baseY01: 0,
-    received: 0,
-    receivedOnTime: 0,
-    receivedLate: 0,
+    purchased: 0,
+    purchasedValue: 0,
+    purchasedNotDelivered: 0,
     pendingPurchase: 0,
-    lateOpen: 0,
-    notDelivered: 0,
-    totalPending: 0,
-    regularizationsY04: 0,
-    regularizationsY04Received: 0,
-    services: 0,
-    servicesReceived: 0,
-    blocked: 0,
-    totalValue: 0,
     pendingValue: 0,
-    receivedValue: 0
+    inTransit: 0,
+    late: 0,
+    lateValue: 0,
+    delivered: 0,
+    deliveredValue: 0,
+    deliveredLate: 0,
+    regularizations: 0,
+    regularizationsDelivered: 0,
+    services: 0,
+    servicesDelivered: 0,
+    ignored: 0,
+    totalValue: 0
   };
 }
 

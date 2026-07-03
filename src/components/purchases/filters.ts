@@ -11,7 +11,7 @@ export type AppliedPurchaseFilters = {
   suppliers: string[];
   categories: string[];
   purchasingGroups: string[];
-  /** Tipo: material / servico / regularizacao / bloqueado. */
+  /** Tipo: material / servico / regularizacao / ignorado. */
   kinds: string[];
   /** Status operacional canônico (enum). */
   statuses: string[];
@@ -46,17 +46,15 @@ export const MULTI_FILTER_KEYS = [
 ] as const;
 
 const DATE_FIELDS = ["requisitionDate", "purchaseOrderDate", "expectedDeliveryDate", "receiptDate"];
-export const PURCHASE_KIND_VALUES = ["material", "servico", "regularizacao", "bloqueado"];
+export const PURCHASE_KIND_VALUES = ["material", "servico", "regularizacao", "ignorado"];
 export const PURCHASE_STATUS_VALUES = [
-  "EM_ATRASO",
   "PENDENTE_COMPRA",
-  "NAO_ENTREGUE",
-  "RECEBIDO",
-  "RECEBIDO_COM_ATRASO",
+  "COMPRADO",
+  "ATRASADO",
+  "ENTREGUE",
   "REGULARIZACAO",
   "SERVICO",
-  "BLOQUEADO",
-  "INDEFINIDO"
+  "IGNORADO"
 ];
 
 /** Conta quantos grupos/filtros estão ativos. */

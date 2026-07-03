@@ -65,7 +65,7 @@ export function PurchaseFilters({ draft, options, isPending, onChange, onApply, 
           options={KIND_OPTIONS}
           selectedValues={draft.kinds}
           onChange={(values) => onChange("kinds", values)}
-          placeholder="Material, serviço, Y04, bloqueado"
+          placeholder="Material, serviço, Y04, ignorado"
         />
         <MultiSelectFilter
           label="Status"
