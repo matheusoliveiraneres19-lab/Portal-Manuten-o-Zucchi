@@ -3,6 +3,7 @@ import { Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSettingValue } from "@/services/settings.service";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
+import { getProgrammedOrderType } from "@/utils/service-order-classification";
 import {
   PREVENTIVE_TARGETS,
   type PreventiveAlerts,
@@ -33,11 +34,13 @@ export const EXECUTION_THRESHOLD_HOURS = 0.1;
 /** Quantidade máxima de linhas enviadas à tabela (o payload do client é limitado). */
 const TABLE_ROW_CAP = 600;
 
-/** Detecta o tipo preventivo pelo título: "PL -", "PL-", "PV -", "PV-" (case-insensitive). */
+/**
+ * Detecta o tipo preventivo pelo título: "PL -", "PL-", "PV -", "PV-" (case-insensitive).
+ * Reaproveita a regra central compartilhada com Equipamentos Críticos
+ * (fonte única em `service-order-classification`) — as abas são complementares.
+ */
 export function detectPreventiveType(title: string | null | undefined): PreventiveType | null {
-  if (!title) return null;
-  const match = title.match(/^\s*(PL|PV)\s*-/i);
-  return match ? (match[1].toUpperCase() as PreventiveType) : null;
+  return getProgrammedOrderType({ title });
 }
 
 const PREVENTIVE_FALLBACK = { plPrefix: "PL -", pvPrefix: "PV -", threshold: EXECUTION_THRESHOLD_HOURS };

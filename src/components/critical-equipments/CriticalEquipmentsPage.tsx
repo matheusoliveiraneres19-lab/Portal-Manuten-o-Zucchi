@@ -213,6 +213,20 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300 sm:text-base">
             Identifique os ativos com maior volume de ordens, maior esforço de manutenção e maior risco operacional.
           </p>
+          <p className="mt-2 max-w-3xl text-[11px] leading-relaxed text-zinc-400">
+            Regras aplicadas: ordens preventivas <strong className="font-semibold text-champagne">PL/PV</strong> são
+            ignoradas nesta análise e acompanhadas na aba Preventivas Programadas
+            {data.summary.ignoredPreventiveOrders > 0 ? (
+              <>
+                {" "}(
+                <strong className="font-semibold text-champagne">
+                  {data.summary.ignoredPreventiveOrders.toLocaleString("pt-BR")}
+                </strong>{" "}
+                ignorada{data.summary.ignoredPreventiveOrders === 1 ? "" : "s"} no período)
+              </>
+            ) : null}
+            .
+          </p>
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-400">
             <span>
               Criticidade operacional calculada com base no volume de ordens, horas apontadas e ordens abertas no

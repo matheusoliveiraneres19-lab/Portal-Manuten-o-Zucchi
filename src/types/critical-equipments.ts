@@ -54,6 +54,8 @@ export type CriticalEquipmentSummary = {
   totalCriticalEquipments: number;
   /** Nº de ordens sem local de instalação estruturado (agrupadas só por nome). */
   ordersWithoutTechnicalCode: number;
+  /** Nº de OS preventivas programadas (PL/PV) ignoradas nesta análise. */
+  ignoredPreventiveOrders: number;
 };
 
 export type CriticalEquipmentTrendPoint = {

@@ -2,6 +2,7 @@ import { MaintenanceArea, MaintenanceType, Prisma, ServiceOrderStatus } from "@p
 import { prisma } from "@/lib/prisma";
 import { getServiceOrderFilterOptions } from "@/services/service-orders.service";
 import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
+import { isProgrammedPreventiveOrder } from "@/utils/service-order-classification";
 import {
   ATTENTION_SCORE_THRESHOLD,
   CRITICALITY_SCORE_THRESHOLD,
@@ -359,7 +360,17 @@ export async function getCriticalEquipmentsPageData(
   };
 
   try {
-    const [rows, filterOptions] = await Promise.all([fetchRows(effective), loadFilterOptions()]);
+    const [rawRows, filterOptions] = await Promise.all([fetchRowsRaw(effective), loadFilterOptions()]);
+
+    // Passo 2 (TAREFA 8): após período + filtros de tela, excluir PL/PV da criticidade.
+    const rows = rawRows.filter((row) => !isProgrammedPreventiveOrder(row));
+    const ignoredPreventiveOrders = rawRows.length - rows.length;
+
+    // Auditoria (TAREFA 11): totais devem bater com Ordens de Manutenção no mesmo período.
+    console.info(
+      `[equipamentos-criticos] período ${period.startDate}→${period.endDate} | OS no período (pós-filtros): ${rawRows.length} | PL/PV ignoradas: ${ignoredPreventiveOrders} | OS consideradas na criticidade: ${rows.length}`
+    );
+
     const items = analyzeEquipments(rows, effective);
     const limit = normalizeLimit(params.limit);
     const ranking = items.slice(0, limit);
@@ -377,7 +388,7 @@ export async function getCriticalEquipmentsPageData(
 
     return {
       period,
-      summary: buildSummary(items, rows.length),
+      summary: buildSummary(items, rows.length, ignoredPreventiveOrders),
       ranking,
       hours,
       statusDistribution: buildStatusDistribution(rows),
@@ -522,9 +533,16 @@ function analyzeEquipments(
   return items;
 }
 
-function buildSummary(items: CriticalEquipmentItem[], totalOrders: number): CriticalEquipmentSummary {
+function buildSummary(
+  items: CriticalEquipmentItem[],
+  totalOrders: number,
+  ignoredPreventiveOrders = 0
+): CriticalEquipmentSummary {
   const totalEquipmentsAnalyzed = items.length;
-  const top = items[0];
+  // "Equipamento com mais ordens": prioriza o ativo IDENTIFICADO (com código/local
+  // de instalação), evitando exibir o bucket genérico "EQUIPAMENTO NÃO INFORMADO"
+  // como líder. Se não houver nenhum identificado, cai no topo geral.
+  const top = items.find((item) => !item.dataQualityIssue) ?? items[0];
   const totalWorkedHours = items.reduce((sum, item) => sum + item.totalWorkedHours, 0);
   const totalOpenOrders = items.reduce((sum, item) => sum + item.backlogOrders, 0);
 
@@ -541,7 +559,8 @@ function buildSummary(items: CriticalEquipmentItem[], totalOrders: number): Crit
     totalCriticalEquipments: items.filter((item) => item.criticalityScore >= CRITICALITY_SCORE_THRESHOLD).length,
     ordersWithoutTechnicalCode: items
       .filter((item) => item.dataQualityIssue)
-      .reduce((sum, item) => sum + item.totalOrders, 0)
+      .reduce((sum, item) => sum + item.totalOrders, 0),
+    ignoredPreventiveOrders
   };
 }
 
@@ -587,7 +606,12 @@ function buildTrend(
 /* Acesso ao banco e helpers                                          */
 /* ------------------------------------------------------------------ */
 
-async function fetchRows(params: Partial<CriticalEquipmentFilters>): Promise<ServiceOrderRow[]> {
+/**
+ * Consulta bruta (período + filtros de tela) SEM excluir PL/PV. Usada apenas
+ * internamente para permitir contar quantas preventivas programadas foram
+ * ignoradas na análise (auditoria) numa única leitura do banco.
+ */
+async function fetchRowsRaw(params: Partial<CriticalEquipmentFilters>): Promise<ServiceOrderRow[]> {
   const where = buildWhere(params);
 
   return prisma.serviceOrder.findMany({
@@ -610,11 +634,21 @@ async function fetchRows(params: Partial<CriticalEquipmentFilters>): Promise<Ser
   });
 }
 
+/**
+ * Ordens de Manutenção VÁLIDAS para criticidade: exclui as preventivas
+ * programadas (PL/PV), que pertencem à aba Preventivas Programadas. Fonte única
+ * da regra em `service-order-classification` para as duas abas serem complementares.
+ */
+async function fetchRows(params: Partial<CriticalEquipmentFilters>): Promise<ServiceOrderRow[]> {
+  const rows = await fetchRowsRaw(params);
+  return rows.filter((row) => !isProgrammedPreventiveOrder(row));
+}
+
 /** Versão com todos os campos exibíveis no detalhe (usada sob demanda no drill-down). */
 async function fetchRowsFull(params: Partial<CriticalEquipmentFilters>): Promise<ServiceOrderFullRow[]> {
   const where = buildWhere(params);
 
-  return prisma.serviceOrder.findMany({
+  const rows = (await prisma.serviceOrder.findMany({
     where,
     select: {
       id: true,
@@ -638,7 +672,10 @@ async function fetchRowsFull(params: Partial<CriticalEquipmentFilters>): Promise
       source: true,
       importBatch: true
     }
-  }) as Promise<ServiceOrderFullRow[]>;
+  })) as ServiceOrderFullRow[];
+
+  // Drill-down também não lista PL/PV (essas ficam em Preventivas Programadas).
+  return rows.filter((row) => !isProgrammedPreventiveOrder(row));
 }
 
 function buildWhere(params: Partial<CriticalEquipmentFilters>): Prisma.ServiceOrderWhereInput {
@@ -751,7 +788,8 @@ function emptyPageData(period: { startDate: string; endDate: string }): Critical
       averageOrdersPerEquipment: 0,
       totalOpenOrders: 0,
       totalCriticalEquipments: 0,
-      ordersWithoutTechnicalCode: 0
+      ordersWithoutTechnicalCode: 0,
+      ignoredPreventiveOrders: 0
     },
     ranking: [],
     hours: [],
