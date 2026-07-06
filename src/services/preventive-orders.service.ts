@@ -3,7 +3,7 @@ import { Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSettingValue } from "@/services/settings.service";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
-import { getProgrammedOrderType } from "@/utils/service-order-classification";
+import { excludeInvalidTestEquipmentWhere, getProgrammedOrderType } from "@/utils/service-order-classification";
 import {
   PREVENTIVE_TARGETS,
   type PreventiveAlerts,
@@ -181,6 +181,8 @@ const loadClassifiedOrders = cache(async (periodKey: string): Promise<Preventive
   const config = await loadPreventiveConfig();
   const [startDate, endDate] = periodKey.split("|");
   const and: Prisma.ServiceOrderWhereInput[] = [
+    // Exclui registros de teste sem equipamento (defensivo; PL/PV reais têm equipamento).
+    excludeInvalidTestEquipmentWhere(),
     {
       OR: [
         { title: { startsWith: prefixLetters(config.plPrefix), mode: "insensitive" } },

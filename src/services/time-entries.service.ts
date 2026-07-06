@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizeNameKey } from "@/lib/name-normalizer";
 import { withinPeriod, type DateRange } from "@/utils/date-range";
 import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
+import { excludeInvalidTestEquipmentWhere } from "@/utils/service-order-classification";
 import type { HoursByCollaboratorData } from "@/types/dashboard";
 
 const NO_RESPONSIBLE_LABEL = "SEM RESPONSÁVEL";
@@ -83,7 +84,8 @@ async function getHoursFromServiceOrders(period: DateRange): Promise<HoursByColl
     where: {
       openedAt: withinPeriod(period),
       workedHours: { gt: 0 },
-      ...excludeLubricationOrderWhere()
+      // Dois fragmentos com `NOT` no topo — combinar via AND (spread sobrescreveria).
+      AND: [excludeLubricationOrderWhere(), excludeInvalidTestEquipmentWhere()]
     },
     select: { responsibleName: true, workedHours: true }
   });
@@ -113,7 +115,8 @@ async function getOrderCountByCollaborator(period: DateRange): Promise<Map<strin
   const orders = await prisma.serviceOrder.findMany({
     where: {
       openedAt: withinPeriod(period),
-      ...excludeLubricationOrderWhere()
+      // Dois fragmentos com `NOT` no topo — combinar via AND (spread sobrescreveria).
+      AND: [excludeLubricationOrderWhere(), excludeInvalidTestEquipmentWhere()]
     },
     select: { responsibleName: true }
   });

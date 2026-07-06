@@ -12,8 +12,14 @@
  * A verificação é feita SOMENTE no título para garantir que as duas abas sejam
  * exatamente complementares (a OS excluída aqui é a mesma que aparece em Preventivas).
  *
- * Puro: sem Prisma client e sem React — pode ser importado em qualquer camada.
+ * Também concentra a regra de EXCLUSÃO de registros de teste sem equipamento
+ * (rotulados na UI como "Equipamento não informado"). Ver `isInvalidTestEquipmentOrder`
+ * (memória) e `excludeInvalidTestEquipmentWhere` (fragmento Prisma p/ SQL).
+ *
+ * Importa apenas o namespace de tipos `Prisma` (sem runtime pesado), no mesmo
+ * padrão de `service-order-filters.ts`.
  */
+import { Prisma } from "@prisma/client";
 
 /** Tipo de plano preventivo programado. */
 export type ProgrammedOrderType = "PL" | "PV";
@@ -54,4 +60,87 @@ export function isProgrammedPreventiveOrder(order: ClassifiableServiceOrder): bo
  */
 export function isCriticalEquipmentEligibleOrder(order: ClassifiableServiceOrder): boolean {
   return !isProgrammedPreventiveOrder(order);
+}
+
+/* ------------------------------------------------------------------ */
+/* Exclusão de registros de teste sem equipamento                     */
+/* ------------------------------------------------------------------ */
+
+/** Texto (normalizado, sem acento, maiúsculo) que marca equipamento não informado. */
+const INVALID_EQUIPMENT_TEXT = "EQUIPAMENTO NAO INFORMADO";
+
+/** Subconjunto de campos da OS necessários para checar equipamento inválido/teste. */
+export type EquipmentCheckableOrder = {
+  equipmentName?: string | null;
+  equipmentCode?: string | null;
+  technicalObjectRaw?: string | null;
+  title?: string | null;
+  description?: string | null;
+};
+
+function stripAccentsUpper(value: string): string {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
+}
+
+/**
+ * Verdadeiro quando a OS é um registro INVÁLIDO/de teste quanto ao equipamento —
+ * deve ser IGNORADA em todos os indicadores do portal. Cobre dois casos:
+ *
+ *  (a) o texto literal "Equipamento não informado" aparece em qualquer campo de
+ *      equipamento/título (defensivo p/ importações futuras — tolerante a acento,
+ *      caixa e espaços);
+ *  (b) a OS não tem NENHUM identificador de equipamento/local de instalação
+ *      (equipmentName + equipmentCode + technicalObjectRaw todos vazios) — o caso
+ *      real dos registros de seed que a UI rotula como "Equipamento não informado".
+ */
+export function isInvalidTestEquipmentOrder(order: EquipmentCheckableOrder): boolean {
+  const joined = [order.equipmentName, order.equipmentCode, order.technicalObjectRaw, order.title, order.description]
+    .filter(Boolean)
+    .join(" ");
+  if (stripAccentsUpper(joined).includes(INVALID_EQUIPMENT_TEXT)) {
+    return true;
+  }
+
+  const hasIdentifier =
+    (order.equipmentName ?? "").trim() !== "" ||
+    (order.equipmentCode ?? "").trim() !== "" ||
+    (order.technicalObjectRaw ?? "").trim() !== "";
+  return !hasIdentifier;
+}
+
+/**
+ * Fragmento Prisma que SELECIONA (positivo) os registros de teste sem equipamento.
+ * Espelha `isInvalidTestEquipmentOrder`. Use no script de limpeza; para a exclusão
+ * nas análises, use `excludeInvalidTestEquipmentWhere`.
+ */
+export function matchInvalidTestEquipmentWhere(): Prisma.ServiceOrderWhereInput {
+  return {
+    OR: [
+      // (a) sem NENHUM identificador de equipamento/local de instalação
+      {
+        AND: [
+          { OR: [{ equipmentName: null }, { equipmentName: "" }] },
+          { OR: [{ equipmentCode: null }, { equipmentCode: "" }] },
+          { OR: [{ technicalObjectRaw: null }, { technicalObjectRaw: "" }] }
+        ]
+      },
+      // (b) texto literal em campos de equipamento (defensivo; hoje 0 registros)
+      { equipmentName: { contains: "equipamento não informado", mode: "insensitive" } },
+      { equipmentName: { contains: "equipamento nao informado", mode: "insensitive" } },
+      { technicalObjectRaw: { contains: "equipamento não informado", mode: "insensitive" } },
+      { technicalObjectRaw: { contains: "equipamento nao informado", mode: "insensitive" } }
+    ]
+  };
+}
+
+/**
+ * Fragmento Prisma para EXCLUIR registros de teste sem equipamento direto no banco
+ * (eficiente em count/groupBy/aggregate). Espelha `isInvalidTestEquipmentOrder`.
+ * Combine via spread OU empilhando em um array `AND` — atenção: usa `NOT` no topo,
+ * então quando houver outro fragmento com `NOT` (ex.: exclusão de lubrificação),
+ * combine ambos via `AND: [...]` em vez de dar spread nos dois.
+ *   `where: { status: ..., ...excludeInvalidTestEquipmentWhere() }`.
+ */
+export function excludeInvalidTestEquipmentWhere(): Prisma.ServiceOrderWhereInput {
+  return { NOT: matchInvalidTestEquipmentWhere() };
 }

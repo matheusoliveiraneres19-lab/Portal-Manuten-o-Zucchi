@@ -3,6 +3,7 @@ import { ImportType, MaintenanceArea, Prisma, ServiceOrderStatus } from "@prisma
 import { mockServiceOrders } from "@/data/service-orders";
 import { prisma } from "@/lib/prisma";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
+import { excludeInvalidTestEquipmentWhere } from "@/utils/service-order-classification";
 import type {
   ServiceOrderFilterOptions,
   ServiceOrderListItem,
@@ -119,6 +120,8 @@ export async function getServiceOrderFilterOptions(): Promise<ServiceOrderFilter
 }
 
 export async function getServiceOrdersSummary(): Promise<ServiceOrdersSummary> {
+  // Base compartilhada: exclui registros de teste sem equipamento de todas as contagens.
+  const base = excludeInvalidTestEquipmentWhere();
   try {
     const [
       total,
@@ -129,14 +132,15 @@ export async function getServiceOrdersSummary(): Promise<ServiceOrdersSummary> {
       fechadas,
       semResponsavel
     ] = await Promise.all([
-      prisma.serviceOrder.count(),
-      prisma.serviceOrder.count({ where: { status: ServiceOrderStatus.ABERTA } }),
-      prisma.serviceOrder.count({ where: { status: ServiceOrderStatus.LIBERADA } }),
-      prisma.serviceOrder.count({ where: { status: ServiceOrderStatus.EM_ANDAMENTO } }),
-      prisma.serviceOrder.count({ where: { status: ServiceOrderStatus.AGUARDANDO_MATERIAL } }),
-      prisma.serviceOrder.count({ where: { status: ServiceOrderStatus.FECHADA } }),
+      prisma.serviceOrder.count({ where: base }),
+      prisma.serviceOrder.count({ where: { ...base, status: ServiceOrderStatus.ABERTA } }),
+      prisma.serviceOrder.count({ where: { ...base, status: ServiceOrderStatus.LIBERADA } }),
+      prisma.serviceOrder.count({ where: { ...base, status: ServiceOrderStatus.EM_ANDAMENTO } }),
+      prisma.serviceOrder.count({ where: { ...base, status: ServiceOrderStatus.AGUARDANDO_MATERIAL } }),
+      prisma.serviceOrder.count({ where: { ...base, status: ServiceOrderStatus.FECHADA } }),
       prisma.serviceOrder.count({
         where: {
+          ...base,
           OR: [
             { responsibleName: null },
             { responsibleName: "" },
@@ -218,7 +222,9 @@ const serviceOrderSelect = {
  * - OR dentro de cada grupo (status ABERTA ou LIBERADA; responsável Cleiton ou Leonardo).
  */
 function buildServiceOrderWhere(params: ServiceOrdersQueryParams): Prisma.ServiceOrderWhereInput {
-  const and: Prisma.ServiceOrderWhereInput[] = [];
+  // Exclui registros de teste sem equipamento ("Equipamento não informado") de
+  // toda a visão principal e contagens da aba Ordens de Serviço.
+  const and: Prisma.ServiceOrderWhereInput[] = [excludeInvalidTestEquipmentWhere()];
 
   if (params.search) {
     const search = contains(params.search);

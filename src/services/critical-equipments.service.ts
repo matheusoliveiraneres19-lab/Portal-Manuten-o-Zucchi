@@ -2,7 +2,11 @@ import { MaintenanceArea, MaintenanceType, Prisma, ServiceOrderStatus } from "@p
 import { prisma } from "@/lib/prisma";
 import { getServiceOrderFilterOptions } from "@/services/service-orders.service";
 import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
-import { isProgrammedPreventiveOrder } from "@/utils/service-order-classification";
+import {
+  excludeInvalidTestEquipmentWhere,
+  isInvalidTestEquipmentOrder,
+  isProgrammedPreventiveOrder
+} from "@/utils/service-order-classification";
 import {
   ATTENTION_SCORE_THRESHOLD,
   CRITICALITY_SCORE_THRESHOLD,
@@ -362,13 +366,17 @@ export async function getCriticalEquipmentsPageData(
   try {
     const [rawRows, filterOptions] = await Promise.all([fetchRowsRaw(effective), loadFilterOptions()]);
 
-    // Passo 2 (TAREFA 8): após período + filtros de tela, excluir PL/PV da criticidade.
-    const rows = rawRows.filter((row) => !isProgrammedPreventiveOrder(row));
-    const ignoredPreventiveOrders = rawRows.length - rows.length;
+    // Passo 2: excluir registros de teste sem equipamento ("Equipamento não informado").
+    const validEquipmentRows = rawRows.filter((row) => !isInvalidTestEquipmentOrder(row));
+    const ignoredInvalidEquipment = rawRows.length - validEquipmentRows.length;
 
-    // Auditoria (TAREFA 11): totais devem bater com Ordens de Manutenção no mesmo período.
+    // Passo 3: após período + filtros de tela, excluir PL/PV da criticidade.
+    const rows = validEquipmentRows.filter((row) => !isProgrammedPreventiveOrder(row));
+    const ignoredPreventiveOrders = validEquipmentRows.length - rows.length;
+
+    // Auditoria: totais devem bater com Ordens de Manutenção no mesmo período.
     console.info(
-      `[equipamentos-criticos] período ${period.startDate}→${period.endDate} | OS no período (pós-filtros): ${rawRows.length} | PL/PV ignoradas: ${ignoredPreventiveOrders} | OS consideradas na criticidade: ${rows.length}`
+      `[equipamentos-criticos] período ${period.startDate}→${period.endDate} | OS no período (pós-filtros): ${rawRows.length} | equip. não informado ignorados: ${ignoredInvalidEquipment} | PL/PV ignoradas: ${ignoredPreventiveOrders} | OS consideradas na criticidade: ${rows.length}`
     );
 
     const items = analyzeEquipments(rows, effective);
@@ -641,7 +649,8 @@ async function fetchRowsRaw(params: Partial<CriticalEquipmentFilters>): Promise<
  */
 async function fetchRows(params: Partial<CriticalEquipmentFilters>): Promise<ServiceOrderRow[]> {
   const rows = await fetchRowsRaw(params);
-  return rows.filter((row) => !isProgrammedPreventiveOrder(row));
+  // Exclui registros de teste sem equipamento e, em seguida, PL/PV programadas.
+  return rows.filter((row) => !isInvalidTestEquipmentOrder(row) && !isProgrammedPreventiveOrder(row));
 }
 
 /** Versão com todos os campos exibíveis no detalhe (usada sob demanda no drill-down). */
@@ -674,8 +683,9 @@ async function fetchRowsFull(params: Partial<CriticalEquipmentFilters>): Promise
     }
   })) as ServiceOrderFullRow[];
 
-  // Drill-down também não lista PL/PV (essas ficam em Preventivas Programadas).
-  return rows.filter((row) => !isProgrammedPreventiveOrder(row));
+  // Drill-down também exclui registros de teste sem equipamento e PL/PV
+  // (essas ficam em Preventivas Programadas).
+  return rows.filter((row) => !isInvalidTestEquipmentOrder(row) && !isProgrammedPreventiveOrder(row));
 }
 
 function buildWhere(params: Partial<CriticalEquipmentFilters>): Prisma.ServiceOrderWhereInput {
@@ -756,6 +766,7 @@ async function resolvePeriod(
 
   try {
     const range = await prisma.serviceOrder.aggregate({
+      where: excludeInvalidTestEquipmentWhere(),
       _min: { openedAt: true },
       _max: { openedAt: true }
     });

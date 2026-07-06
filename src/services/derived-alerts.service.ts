@@ -16,6 +16,7 @@ import { resolvePurchaseValue } from "@/utils/purchases-normalizer";
 import { BREAKDOWN_MAINTENANCE_TYPES, OPEN_SERVICE_ORDER_STATUSES } from "@/services/shared/portal-rules";
 import { withinPeriod, type DateRange } from "@/utils/date-range";
 import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
+import { excludeInvalidTestEquipmentWhere } from "@/utils/service-order-classification";
 
 const CONFIG_KEYS = {
   limiteQuebrasMes: "limite_quebras_mes",
@@ -122,7 +123,8 @@ export async function detectOverdueServiceOrders(
   const orders = await prisma.serviceOrder.findMany({
     where: {
       status: { in: OPEN_SERVICE_ORDER_STATUSES },
-      openedAt: { lt: threshold }
+      openedAt: { lt: threshold },
+      ...excludeInvalidTestEquipmentWhere()
     },
     select: { id: true, osNumber: true, equipmentName: true, equipmentId: true, openedAt: true },
     orderBy: { openedAt: "asc" },

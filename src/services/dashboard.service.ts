@@ -64,6 +64,7 @@ import { formatCurrency, formatDate, formatMonthName, formatPercent, formatShort
 import { dayKey, isWithinPeriod, toEndOfDay, toStartOfDay, withinPeriod } from "@/utils/date-range";
 import { getDefaultPortalPeriod, getTodayDate } from "@/utils/date";
 import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
+import { excludeInvalidTestEquipmentWhere } from "@/utils/service-order-classification";
 import { calculatePeriodVariation, getPreviousPeriod, toInputDate, type PeriodVariation } from "@/utils/period";
 
 /**
@@ -108,7 +109,9 @@ export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promi
     activeProcedures,
     criticalAlerts
   ] = await Promise.all([
-    prisma.serviceOrder.count({ where: { status: { in: OPEN_SERVICE_ORDER_STATUSES } } }),
+    prisma.serviceOrder.count({
+      where: { status: { in: OPEN_SERVICE_ORDER_STATUSES }, ...excludeInvalidTestEquipmentWhere() }
+    }),
     getPendingPurchasesCount(),
     prisma.equipment.count({ where: { criticality: { in: CRITICAL_EQUIPMENT_CRITICALITIES } } }),
     prisma.lubricantMovement.aggregate({
@@ -169,7 +172,8 @@ export async function getOpenClosedServiceOrders(
   const period = parsePeriod(periodInput);
   const orders = await prisma.serviceOrder.findMany({
     where: {
-      OR: [{ openedAt: withinPeriod(period) }, { closedAt: withinPeriod(period) }]
+      OR: [{ openedAt: withinPeriod(period) }, { closedAt: withinPeriod(period) }],
+      ...excludeInvalidTestEquipmentWhere()
     },
     select: {
       openedAt: true,
@@ -200,7 +204,8 @@ export async function getCorrectivePreventiveChart(
     by: ["type"],
     where: {
       openedAt: withinPeriod(period),
-      type: { in: [MaintenanceType.CORRETIVA, MaintenanceType.PREVENTIVA] }
+      type: { in: [MaintenanceType.CORRETIVA, MaintenanceType.PREVENTIVA] },
+      ...excludeInvalidTestEquipmentWhere()
     },
     _count: { _all: true }
   });
@@ -431,6 +436,7 @@ export async function getDashboardData(periodInput?: DashboardPeriodInput): Prom
 export async function resolveDefaultDashboardPeriod(): Promise<DashboardPeriod> {
   try {
     const range = await prisma.serviceOrder.aggregate({
+      where: excludeInvalidTestEquipmentWhere(),
       _min: { openedAt: true },
       _max: { openedAt: true }
     });
