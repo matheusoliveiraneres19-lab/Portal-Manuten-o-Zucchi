@@ -24,42 +24,42 @@ export function CriticalEquipmentKpiCards({ summary }: CriticalEquipmentKpiCards
     {
       title: "Equipamentos analisados",
       value: formatInt(summary.totalEquipmentsAnalyzed),
-      description: "Ativos com ordens no período",
+      description: "Ativos raiz com ordens válidas",
       icon: Boxes,
       tone: "blue"
     },
     {
-      title: "Total de ordens no período",
+      title: "Total de OS corretivas",
       value: formatInt(summary.totalOrdersInPeriod),
-      description: "Ordens de manutenção consideradas",
+      description: "Sem PL/PV e sem equip. não informado",
       icon: ClipboardList,
       tone: "gold"
     },
     {
-      title: "Equipamento com mais ordens",
-      value: hasData ? summary.equipmentWithMostOrders : "—",
-      description: hasData ? `${formatInt(summary.highestOrderCount)} ordens` : "Sem registros no período",
-      icon: TrendingUp,
-      tone: "blue"
-    },
-    {
-      title: "Horas apontadas no período",
+      title: "Horas corretivas apontadas",
       value: formatHours(summary.totalWorkedHours),
       description: "Esforço total de manutenção",
       icon: Clock,
       tone: "gold"
     },
     {
-      title: "Média de OS por equipamento",
-      value: formatDecimal(summary.averageOrdersPerEquipment),
-      description: "Recorrência média por ativo",
-      icon: Activity,
-      tone: "blue"
+      title: "Equipamento mais crítico",
+      value: hasData ? summary.mostCriticalEquipment : "—",
+      description: hasData ? `Score ${formatInt(summary.highestCriticalityScore)}` : "Sem registros no período",
+      icon: TrendingUp,
+      tone: "red"
     },
     {
-      title: "Equipamentos críticos",
-      value: formatInt(summary.totalCriticalEquipments),
-      description: "Score crítico ≥ 70",
+      title: "OS abertas críticas",
+      value: formatInt(summary.openOrdersOnCriticalEquipments),
+      description: "Ordens abertas em equipamentos críticos",
+      icon: Activity,
+      tone: "red"
+    },
+    {
+      title: "Equipamentos em reincidência",
+      value: formatInt(summary.totalRecurrentEquipments),
+      description: "OS repetidas acima da regra",
       icon: AlertTriangle,
       tone: "red"
     }
@@ -102,10 +102,6 @@ export function CriticalEquipmentKpiCards({ summary }: CriticalEquipmentKpiCards
 
 function formatInt(value: number): string {
   return value.toLocaleString("pt-BR");
-}
-
-function formatDecimal(value: number): string {
-  return value.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 }
 
 function formatHours(value: number): string {

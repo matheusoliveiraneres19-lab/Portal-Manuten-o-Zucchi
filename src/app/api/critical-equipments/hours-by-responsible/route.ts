@@ -20,8 +20,13 @@ export async function GET(request: NextRequest) {
       responsibleNames: params.getAll("responsavel"),
       planningGroups: params.getAll("grupo"),
       areas: params.getAll("area"),
+      families: params.getAll("familia"),
+      costCenters: params.getAll("cc"),
+      sectors: params.getAll("setor"),
       onlyOpenOrders: params.get("abertas") === "1",
-      onlyWithWorkedHours: params.get("horas") === "1"
+      onlyWithWorkedHours: params.get("horas") === "1",
+      onlyRecurrent: params.get("reincidentes") === "1",
+      onlyCritical: params.get("criticos") === "1"
     });
 
     if (!data) {

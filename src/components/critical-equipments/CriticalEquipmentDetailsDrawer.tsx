@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, m } from "framer-motion";
-import { Clock, Layers, Loader2, Search, Users, Wrench, X } from "lucide-react";
+import { Boxes, Clock, Layers, Loader2, Repeat, Search, Wrench, X } from "lucide-react";
 import { CRITICALITY_COLORS } from "@/components/critical-equipments/criticality";
 import { EquipmentOrderDetailModal } from "@/components/critical-equipments/EquipmentOrderDetailModal";
 import type { CriticalEquipmentDetails, CriticalEquipmentServiceOrder } from "@/types/critical-equipments";
@@ -149,12 +149,19 @@ export function CriticalEquipmentDetailsDrawer({
                 <Metric icon={Wrench} label="Total de OS" value={int(item.totalOrders)} />
                 <Metric icon={Clock} label="Horas apontadas" value={hours(item.totalWorkedHours)} />
                 <Metric icon={Layers} label="OS em aberto" value={int(item.backlogOrders)} />
-                <Metric icon={Users} label="Última OS" value={date(item.lastOrderDate)} />
+                <Metric icon={Clock} label="Média h/OS" value={hours(item.averageHoursPerOrder)} />
+                <Metric icon={Boxes} label="Componentes" value={int(item.componentCount)} />
+                <Metric icon={Repeat} label="Reincidência" value={item.isRecurrent ? "Sim" : "Não"} />
               </div>
 
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-gold/10 bg-black/20 px-3 py-2 text-xs">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-lg border border-gold/10 bg-black/20 px-3 py-2.5 text-xs">
+                <InlineInfo label="Local de instalação raiz" value={display(item.equipmentCode)} />
+                <InlineInfo label="Família" value={text(item.familyLabel)} />
+                <InlineInfo label="Centro de custo" value={text(item.costCenter)} />
+                <InlineInfo label="Setor / Galpão" value={text(item.sector)} />
                 <InlineInfo label="Grupo principal" value={item.mainPlanningGroup} />
                 <InlineInfo label="Responsável principal" value={item.mainResponsible} />
+                <InlineInfo label="Última OS" value={date(item.lastOrderDate)} />
               </div>
 
               {/* Distribuição por status */}
@@ -187,6 +194,38 @@ export function CriticalEquipmentDetailsDrawer({
                   </div>
                 ) : (
                   <p className="text-xs text-zinc-500">Não informado.</p>
+                )}
+              </Section>
+
+              {/* Ramificações / componentes com mais OS */}
+              <Section title="Ramificações / componentes com mais OS">
+                {details.componentBreakdown.length ? (
+                  <div className="space-y-1.5">
+                    {details.componentBreakdown.map((component) => (
+                      <div
+                        key={component.tag}
+                        className="flex items-center justify-between gap-2 rounded-md border border-gold/10 bg-black/20 px-2.5 py-1.5 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-zinc-200" title={component.description}>
+                            {component.description}
+                          </p>
+                          <p className="truncate font-mono text-[10px] text-zinc-500" title={component.tag}>
+                            {component.tag} · {component.familyLabel}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right text-[11px] text-zinc-400">
+                          <span className="font-semibold text-champagne">{int(component.totalOrders)}</span> OS
+                          {component.openOrders > 0 ? (
+                            <span className="ml-1 text-gold">({int(component.openOrders)} abertas)</span>
+                          ) : null}
+                          <span className="ml-1">· {hours(component.totalWorkedHours)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-zinc-500">Sem ramificações identificadas para este ativo.</p>
                 )}
               </Section>
 

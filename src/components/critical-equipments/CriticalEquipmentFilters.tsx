@@ -99,6 +99,30 @@ export function CriticalEquipmentFilters({
           searchable={false}
         />
 
+        <MultiSelectFilter
+          label="Família"
+          options={options.families}
+          selected={draft.families}
+          onChange={(next) => onChange("families", next)}
+          placeholder="Todas as famílias"
+        />
+
+        <MultiSelectFilter
+          label="Centro de custo"
+          options={options.costCenters.map((value) => ({ value, label: value }))}
+          selected={draft.costCenters}
+          onChange={(next) => onChange("costCenters", next)}
+          placeholder="Todos os centros de custo"
+        />
+
+        <MultiSelectFilter
+          label="Setor / Galpão"
+          options={options.sectors.map((value) => ({ value, label: value }))}
+          selected={draft.sectors}
+          onChange={(next) => onChange("sectors", next)}
+          placeholder="Todos os setores"
+        />
+
         <label className="block">
           <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
             Top N equipamentos
@@ -126,6 +150,18 @@ export function CriticalEquipmentFilters({
           label="Somente com horas apontadas"
           checked={draft.onlyWithWorkedHours}
           onChange={(checked) => onChange("onlyWithWorkedHours", checked)}
+        />
+
+        <Toggle
+          label="Somente reincidentes"
+          checked={draft.onlyRecurrent}
+          onChange={(checked) => onChange("onlyRecurrent", checked)}
+        />
+
+        <Toggle
+          label="Somente críticos"
+          checked={draft.onlyCritical}
+          onChange={(checked) => onChange("onlyCritical", checked)}
         />
       </div>
 

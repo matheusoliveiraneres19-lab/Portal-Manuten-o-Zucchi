@@ -51,14 +51,31 @@ export const BREAKDOWN_MAINTENANCE_TYPES: MaintenanceType[] = [MaintenanceType.C
  * Limiares do score de criticidade calculado em critical-equipments.service.
  * score >= CRITICAL  -> "Crítico"
  * score >= ATTENTION -> "Atenção"
- * senão              -> "Monitorado"
+ * score >= MONITOR   -> "Monitorado"
+ * senão              -> "Normal"
  */
-export const CRITICALITY_SCORE_THRESHOLD = 70;
-export const ATTENTION_SCORE_THRESHOLD = 40;
+export const CRITICALITY_SCORE_THRESHOLD = 80;
+export const ATTENTION_SCORE_THRESHOLD = 60;
+export const MONITOR_SCORE_THRESHOLD = 40;
 
-/** Pesos do score de criticidade (ordens 60% / horas 30% / abertas 10%). */
+/**
+ * Pesos do score de criticidade gerencial (0–100), somando 1,0:
+ *  - 35% volume de ordens corretivas;
+ *  - 25% horas apontadas;
+ *  - 20% ordens em aberto;
+ *  - 10% reincidência (repetição de OS no mesmo equipamento);
+ *  - 10% tendência de piora (aumento de OS nos últimos meses).
+ */
 export const CRITICALITY_WEIGHTS = {
-  orders: 0.6,
-  hours: 0.3,
-  openOrders: 0.1
+  orders: 0.35,
+  hours: 0.25,
+  openOrders: 0.2,
+  recurrence: 0.1,
+  worseningTrend: 0.1
 } as const;
+
+/**
+ * Nº mínimo de OS no período para um equipamento ser considerado REINCIDENTE
+ * (repetição relevante de intervenções corretivas no mesmo ativo raiz).
+ */
+export const RECURRENCE_MIN_ORDERS = 3;

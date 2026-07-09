@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { AlertTriangle, CalendarRange, ShieldAlert } from "lucide-react";
 import { formatPeriodRange } from "@/utils/period";
+import { getFamilyLabel } from "@/utils/functional-location-hierarchy";
 import { CriticalEquipmentDetailsDrawer } from "@/components/critical-equipments/CriticalEquipmentDetailsDrawer";
 import { EquipmentHoursByResponsibleModal } from "@/components/critical-equipments/EquipmentHoursByResponsibleModal";
 import type { CriticalEquipmentDetails, EquipmentHoursByResponsible } from "@/types/critical-equipments";
@@ -35,6 +36,10 @@ const CriticalEquipmentTrendChart = dynamic(
   () => import("@/components/critical-equipments/CriticalEquipmentTrendChart").then((m) => m.CriticalEquipmentTrendChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-8" /> }
 );
+const CriticalEquipmentFamilyChart = dynamic(
+  () => import("@/components/critical-equipments/CriticalEquipmentFamilyChart").then((m) => m.CriticalEquipmentFamilyChart),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-12" /> }
+);
 import { CriticalEquipmentEmptyState } from "@/components/critical-equipments/CriticalEquipmentEmptyState";
 import type { CriticalEquipmentsPageData } from "@/types/critical-equipments";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
@@ -46,8 +51,13 @@ export type AppliedCriticalEquipmentFilters = {
   responsibleNames: string[];
   planningGroups: string[];
   areas: string[];
+  families: string[];
+  costCenters: string[];
+  sectors: string[];
   onlyOpenOrders: boolean;
   onlyWithWorkedHours: boolean;
+  onlyRecurrent: boolean;
+  onlyCritical: boolean;
   limit: number;
 };
 
@@ -227,6 +237,16 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
             ) : null}
             .
           </p>
+          {!isEmpty ? (
+            <p className="mt-1.5 max-w-3xl text-[11px] leading-relaxed text-zinc-500">
+              Auditoria do período: <strong className="text-zinc-300">{fmt(data.summary.rawOrdersInPeriod)}</strong> OS
+              brutas · <strong className="text-zinc-300">{fmt(data.summary.ignoredInvalidEquipment)}</strong> equip. não
+              informado ignoradas · <strong className="text-zinc-300">{fmt(data.summary.ignoredPreventiveOrders)}</strong>{" "}
+              PL/PV ignoradas · <strong className="text-zinc-300">{fmt(data.summary.totalOrdersInPeriod)}</strong>{" "}
+              consideradas · <strong className="text-zinc-300">{fmt(data.summary.ordersWithoutTechnicalCode)}</strong> sem
+              local raiz identificado.
+            </p>
+          ) : null}
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-400">
             <span>
               Criticidade operacional calculada com base no volume de ordens, horas apontadas e ordens abertas no
@@ -285,6 +305,7 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
             <CriticalEquipmentHoursChart items={data.hours} onSelect={openHoursByResponsible} />
             <CriticalEquipmentTrendChart points={data.trend} />
             <CriticalEquipmentStatusChart slices={data.statusDistribution} />
+            <CriticalEquipmentFamilyChart slices={data.familyDistribution} />
           </section>
 
           <CriticalEquipmentTable items={data.ranking} onSelect={openDetails} />
@@ -314,6 +335,10 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
 /* URL <-> filtros                                                    */
 /* ------------------------------------------------------------------ */
 
+function fmt(value: number): string {
+  return value.toLocaleString("pt-BR");
+}
+
 function filtersToParams(filters: AppliedCriticalEquipmentFilters): URLSearchParams {
   const params = new URLSearchParams();
 
@@ -323,8 +348,13 @@ function filtersToParams(filters: AppliedCriticalEquipmentFilters): URLSearchPar
   filters.planningGroups.forEach((group) => params.append("grupo", group));
   filters.responsibleNames.forEach((responsible) => params.append("responsavel", responsible));
   filters.areas.forEach((area) => params.append("area", area));
+  filters.families.forEach((family) => params.append("familia", family));
+  filters.costCenters.forEach((cc) => params.append("cc", cc));
+  filters.sectors.forEach((sector) => params.append("setor", sector));
   if (filters.onlyOpenOrders) params.set("abertas", "1");
   if (filters.onlyWithWorkedHours) params.set("horas", "1");
+  if (filters.onlyRecurrent) params.set("reincidentes", "1");
+  if (filters.onlyCritical) params.set("criticos", "1");
   if (filters.limit && filters.limit !== 10) params.set("top", String(filters.limit));
 
   return params;
@@ -382,6 +412,33 @@ function buildChips(
     });
   }
 
+  for (const family of filters.families) {
+    chips.push({
+      id: `familia:${family}`,
+      groupLabel: "Família",
+      valueLabel: getFamilyLabel(family),
+      onRemove: () => apply({ ...filters, families: filters.families.filter((value) => value !== family) })
+    });
+  }
+
+  for (const cc of filters.costCenters) {
+    chips.push({
+      id: `cc:${cc}`,
+      groupLabel: "Centro de custo",
+      valueLabel: cc,
+      onRemove: () => apply({ ...filters, costCenters: filters.costCenters.filter((value) => value !== cc) })
+    });
+  }
+
+  for (const sector of filters.sectors) {
+    chips.push({
+      id: `setor:${sector}`,
+      groupLabel: "Setor/Galpão",
+      valueLabel: sector,
+      onRemove: () => apply({ ...filters, sectors: filters.sectors.filter((value) => value !== sector) })
+    });
+  }
+
   if (filters.onlyOpenOrders) {
     chips.push({
       id: "abertas",
@@ -397,6 +454,24 @@ function buildChips(
       groupLabel: "Filtro",
       valueLabel: "Somente com horas apontadas",
       onRemove: () => apply({ ...filters, onlyWithWorkedHours: false })
+    });
+  }
+
+  if (filters.onlyRecurrent) {
+    chips.push({
+      id: "reincidentes",
+      groupLabel: "Filtro",
+      valueLabel: "Somente reincidentes",
+      onRemove: () => apply({ ...filters, onlyRecurrent: false })
+    });
+  }
+
+  if (filters.onlyCritical) {
+    chips.push({
+      id: "criticos",
+      groupLabel: "Filtro",
+      valueLabel: "Somente críticos",
+      onRemove: () => apply({ ...filters, onlyCritical: false })
     });
   }
 

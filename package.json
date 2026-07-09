@@ -16,6 +16,7 @@
     "import:lubricants": "tsx scripts/import-lubricants.ts",
     "import:purchases": "tsx scripts/import-purchases.ts",
     "import:pc-factory": "tsx scripts/import-pc-factory.ts",
+    "import:functional-locations": "tsx scripts/import-functional-locations.ts",
     "auth:hash-passwords": "tsx scripts/hash-passwords.ts",
     "auth:set-password": "tsx scripts/set-password.ts",
     "capture": "node scripts/capture-portal.mjs",

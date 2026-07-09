@@ -10,13 +10,21 @@ import {
 import {
   ATTENTION_SCORE_THRESHOLD,
   CRITICALITY_SCORE_THRESHOLD,
-  CRITICALITY_WEIGHTS
+  CRITICALITY_WEIGHTS,
+  MONITOR_SCORE_THRESHOLD,
+  RECURRENCE_MIN_ORDERS
 } from "@/services/shared/portal-rules";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
 import { toInputDate } from "@/utils/period";
-import { getEquipmentGroupingKey } from "@/utils/technical-object-normalizer";
+import {
+  getFamilyLabel,
+  getRootFunctionalLocation,
+  type FunctionalLocationLite
+} from "@/utils/functional-location-hierarchy";
 import type {
+  CriticalEquipmentComponent,
   CriticalEquipmentDetails,
+  CriticalEquipmentFamilySlice,
   CriticalEquipmentFilterOptions,
   CriticalEquipmentFilters,
   CriticalEquipmentHoursPoint,
@@ -28,7 +36,8 @@ import type {
   CriticalEquipmentsPageData,
   CriticalityLabel,
   CriticalityScoreInput,
-  EquipmentHoursByResponsible
+  EquipmentHoursByResponsible,
+  TrendDirection
 } from "@/types/critical-equipments";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
 
@@ -75,7 +84,6 @@ type ServiceOrderFullRow = ServiceOrderRow & {
   id: string;
   description: string | null;
   closedAt: Date | null;
-  technicalObjectRaw: string | null;
   failureCause: string | null;
   solution: string | null;
   source: string | null;
@@ -87,20 +95,31 @@ type ServiceOrderFullRow = ServiceOrderRow & {
 /* ------------------------------------------------------------------ */
 
 /**
- * Score crítico (0–100):
- *  - 60% volume de ordens (normalizado);
- *  - 30% horas apontadas (normalizado);
- *  - 10% ordens em aberto (normalizado).
+ * Score crítico gerencial (0–100):
+ *  - 35% volume de ordens (normalizado);
+ *  - 25% horas apontadas (normalizado);
+ *  - 20% ordens em aberto (normalizado);
+ *  - 10% reincidência (repetição de OS no ativo, normalizada);
+ *  - 10% tendência de piora (aumento de OS nos últimos meses, 0–1).
+ * Blindado contra divisão por zero (nunca gera NaN/Infinity).
  */
 export function calculateCriticalityScore(input: CriticalityScoreInput): number {
   const ordersScore = input.maxOrders > 0 ? (input.totalOrders / input.maxOrders) * 100 : 0;
   const hoursScore = input.maxWorkedHours > 0 ? (input.totalWorkedHours / input.maxWorkedHours) * 100 : 0;
   const openScore = input.maxOpenOrders > 0 ? (input.openOrders / input.maxOpenOrders) * 100 : 0;
+  const recurrenceScore = input.maxRecurrence > 0 ? (input.recurrence / input.maxRecurrence) * 100 : 0;
+  const trendScore = clamp01(input.worseningTrend) * 100;
 
   const score =
     ordersScore * CRITICALITY_WEIGHTS.orders +
     hoursScore * CRITICALITY_WEIGHTS.hours +
-    openScore * CRITICALITY_WEIGHTS.openOrders;
+    openScore * CRITICALITY_WEIGHTS.openOrders +
+    recurrenceScore * CRITICALITY_WEIGHTS.recurrence +
+    trendScore * CRITICALITY_WEIGHTS.worseningTrend;
+
+  if (!Number.isFinite(score)) {
+    return 0;
+  }
   return Math.min(100, Math.max(0, Math.round(score)));
 }
 
@@ -111,7 +130,10 @@ export function getCriticalityLabel(score: number): CriticalityLabel {
   if (score >= ATTENTION_SCORE_THRESHOLD) {
     return "Atenção";
   }
-  return "Monitorado";
+  if (score >= MONITOR_SCORE_THRESHOLD) {
+    return "Monitorado";
+  }
+  return "Normal";
 }
 
 /* ------------------------------------------------------------------ */
@@ -121,8 +143,8 @@ export function getCriticalityLabel(score: number): CriticalityLabel {
 export async function getCriticalEquipmentsByOrders(
   params: Partial<CriticalEquipmentFilters> = {}
 ): Promise<CriticalEquipmentItem[]> {
-  const rows = await fetchRows(params);
-  const items = analyzeEquipments(rows, params);
+  const [rows, lookup] = await Promise.all([fetchRows(params), loadFunctionalLocationLookup()]);
+  const items = analyzeEquipments(rows, params, lookup);
   return items.slice(0, normalizeLimit(params.limit));
 }
 
@@ -182,31 +204,31 @@ export async function getTopEquipmentsByBreakVolume(
 export async function getCriticalEquipmentsSummary(
   params: Partial<CriticalEquipmentFilters> = {}
 ): Promise<CriticalEquipmentSummary> {
-  const rows = await fetchRows(params);
-  const items = analyzeEquipments(rows, params);
-  return buildSummary(items, rows.length);
+  const [rows, lookup] = await Promise.all([fetchRows(params), loadFunctionalLocationLookup()]);
+  const items = analyzeEquipments(rows, params, lookup);
+  return buildSummary(items, rows.length, rows.length);
 }
 
 export async function getCriticalEquipmentsTrend(
   params: Partial<CriticalEquipmentFilters> = {}
 ): Promise<CriticalEquipmentTrendPoint[]> {
-  const rows = await fetchRows(params);
-  const items = analyzeEquipments(rows, params);
-  return buildTrend(rows, items, normalizeLimit(params.limit));
+  const [rows, lookup] = await Promise.all([fetchRows(params), loadFunctionalLocationLookup()]);
+  const items = analyzeEquipments(rows, params, lookup);
+  return buildTrend(rows, items, normalizeLimit(params.limit), lookup);
 }
 
 export async function getCriticalEquipmentDetails(
   equipmentId: string,
   params: Partial<CriticalEquipmentFilters> = {}
 ): Promise<CriticalEquipmentDetails | null> {
-  const rows = await fetchRowsFull(params);
-  const groupRows = rows.filter((row) => resolveCode(row) === equipmentId);
+  const [rows, lookup] = await Promise.all([fetchRowsFull(params), loadFunctionalLocationLookup()]);
+  const groupRows = rows.filter((row) => resolveRootKey(row, lookup) === equipmentId);
 
   if (!groupRows.length) {
     return null;
   }
 
-  const items = analyzeEquipments(rows, params);
+  const items = analyzeEquipments(rows, params, lookup);
   const item = items.find((current) => current.id === equipmentId);
 
   if (!item) {
@@ -241,21 +263,22 @@ export async function getCriticalEquipmentDetails(
     statusDistribution: buildStatusDistribution(groupRows),
     frequentResponsibles: buildResponsibleStats(groupRows),
     planningGroupBreakdown: topBreakdown(groupRows.map((row) => cleanName(row.planningGroup))),
+    componentBreakdown: buildComponentBreakdown(groupRows, lookup),
+    trend: buildTrendForRows(groupRows),
     serviceOrders
   };
 }
 
 /**
  * Ranking de horas apontadas por responsável para um equipamento.
- * Fonte: ServiceOrder.workedHours agregado por responsibleName (fallback confiável,
- * pois TimeEntry não está vinculada às ordens importadas do SAP/Fiori).
+ * Fonte: ServiceOrder.workedHours agregado por responsibleName.
  */
 export async function getEquipmentHoursByResponsible(
   equipmentId: string,
   params: Partial<CriticalEquipmentFilters> = {}
 ): Promise<EquipmentHoursByResponsible | null> {
-  const rows = await fetchRows(params);
-  const groupRows = rows.filter((row) => resolveCode(row) === equipmentId);
+  const [rows, lookup] = await Promise.all([fetchRows(params), loadFunctionalLocationLookup()]);
+  const groupRows = rows.filter((row) => resolveRootKey(row, lookup) === equipmentId);
 
   if (!groupRows.length) {
     return null;
@@ -283,10 +306,10 @@ export async function getEquipmentHoursByResponsible(
     }))
     .sort((a, b) => b.totalHours - a.totalHours || b.totalOrders - a.totalOrders);
 
-  const grouping = getEquipmentGroupingKey(groupRows[0]);
+  const root = getRootFunctionalLocation(groupRows[0], lookup);
   return {
-    equipmentName: grouping.name || cleanText(groupRows[0].equipmentName) || NO_NAME,
-    equipmentCode: grouping.code || NO_CODE,
+    equipmentName: root.rootDescription || NO_NAME,
+    equipmentCode: root.rootTag || NO_CODE,
     totalWorkedHours: Number(totalWorkedHours.toFixed(3)),
     responsibles
   };
@@ -364,7 +387,11 @@ export async function getCriticalEquipmentsPageData(
   };
 
   try {
-    const [rawRows, filterOptions] = await Promise.all([fetchRowsRaw(effective), loadFilterOptions()]);
+    const [rawRows, filterOptions, lookup] = await Promise.all([
+      fetchRowsRaw(effective),
+      loadFilterOptions(),
+      loadFunctionalLocationLookup()
+    ]);
 
     // Passo 2: excluir registros de teste sem equipamento ("Equipamento não informado").
     const validEquipmentRows = rawRows.filter((row) => !isInvalidTestEquipmentOrder(row));
@@ -376,10 +403,10 @@ export async function getCriticalEquipmentsPageData(
 
     // Auditoria: totais devem bater com Ordens de Manutenção no mesmo período.
     console.info(
-      `[equipamentos-criticos] período ${period.startDate}→${period.endDate} | OS no período (pós-filtros): ${rawRows.length} | equip. não informado ignorados: ${ignoredInvalidEquipment} | PL/PV ignoradas: ${ignoredPreventiveOrders} | OS consideradas na criticidade: ${rows.length}`
+      `[equipamentos-criticos] período ${period.startDate}→${period.endDate} | OS brutas: ${rawRows.length} | equip. não informado ignoradas: ${ignoredInvalidEquipment} | PL/PV ignoradas: ${ignoredPreventiveOrders} | OS consideradas: ${rows.length}`
     );
 
-    const items = analyzeEquipments(rows, effective);
+    const items = analyzeEquipments(rows, effective, lookup);
     const limit = normalizeLimit(params.limit);
     const ranking = items.slice(0, limit);
 
@@ -394,13 +421,16 @@ export async function getCriticalEquipmentsPageData(
         totalWorkedHours: item.totalWorkedHours
       }));
 
+    const summary = buildSummary(items, rows.length, rawRows.length, ignoredPreventiveOrders, ignoredInvalidEquipment);
+
     return {
       period,
-      summary: buildSummary(items, rows.length, ignoredPreventiveOrders),
+      summary,
       ranking,
       hours,
       statusDistribution: buildStatusDistribution(rows),
-      trend: buildTrend(rows, items, limit),
+      trend: buildTrend(rows, items, limit, lookup),
+      familyDistribution: buildFamilyDistribution(items),
       filterOptions,
       source: rows.length ? "database" : "empty"
     };
@@ -414,56 +444,99 @@ export async function getCriticalEquipmentsPageData(
 /* Núcleo de agregação                                                */
 /* ------------------------------------------------------------------ */
 
+type ComponentAccumulator = {
+  tag: string;
+  description: string;
+  familyLabel: string;
+  totalOrders: number;
+  openOrders: number;
+  workedHours: number;
+};
+
 function analyzeEquipments(
   rows: ServiceOrderRow[],
-  params: Partial<CriticalEquipmentFilters>
+  params: Partial<CriticalEquipmentFilters>,
+  lookup: Map<string, FunctionalLocationLite>
 ): CriticalEquipmentItem[] {
   type Accumulator = {
     equipmentName: string;
+    rootTag: string;
     equipmentCode: string;
+    familyCode: string;
+    familyLabel: string;
+    costCenter: string;
+    sector: string;
     machinePrefix: string;
     dataQualityIssue: boolean;
+    hasDirectRootName: boolean;
     totalOrders: number;
     statusCounts: Record<ServiceOrderStatusLabel, number>;
     totalWorkedHours: number;
     lastOrderDate: Date | null;
     responsibles: Map<string, number>;
     planningGroups: Map<string, number>;
+    components: Set<string>;
+    firstHalfOrders: number;
+    secondHalfOrders: number;
   };
 
+  const midpoint = computeGlobalMidpoint(rows);
   const groups = new Map<string, Accumulator>();
 
   for (const row of rows) {
-    const grouping = getEquipmentGroupingKey(row);
-    const code = grouping.key;
-    let group = groups.get(code);
+    const root = getRootFunctionalLocation(row, lookup);
+    const key = root.rootTag;
+    let group = groups.get(key);
 
     if (!group) {
       group = {
-        equipmentName: grouping.name || cleanText(row.equipmentName) || NO_NAME,
-        // Código técnico / local de instalação resolvido (explícito ou extraído do objeto técnico).
-        equipmentCode: grouping.code || NO_CODE,
-        machinePrefix: grouping.prefix,
-        dataQualityIssue: grouping.dataQualityIssue,
+        equipmentName: root.rootDescription || NO_NAME,
+        rootTag: root.rootTag,
+        equipmentCode: root.dataQualityIssue ? NO_CODE : root.rootTag,
+        familyCode: root.familyCode,
+        familyLabel: root.familyLabel,
+        costCenter: root.costCenter ?? "",
+        sector: extractSector(root.rootTag, root.dataQualityIssue),
+        machinePrefix: root.familyCode,
+        dataQualityIssue: root.dataQualityIssue,
+        hasDirectRootName: !root.componentTag && !root.dataQualityIssue,
         totalOrders: 0,
         statusCounts: emptyStatusCounts(),
         totalWorkedHours: 0,
         lastOrderDate: null,
         responsibles: new Map(),
-        planningGroups: new Map()
+        planningGroups: new Map(),
+        components: new Set(),
+        firstHalfOrders: 0,
+        secondHalfOrders: 0
       };
-      groups.set(code, group);
-    } else if (group.equipmentName === NO_NAME && (grouping.name || cleanText(row.equipmentName))) {
-      // Completa o nome se uma ordem posterior trouxer um nome melhor para o mesmo código.
-      group.equipmentName = grouping.name || cleanText(row.equipmentName);
+      groups.set(key, group);
+    } else if (!root.componentTag && !root.dataQualityIssue && !group.hasDirectRootName) {
+      // OS registrada exatamente na raiz traz o melhor nome oficial.
+      group.equipmentName = root.rootDescription || group.equipmentName;
+      group.hasDirectRootName = true;
+    }
+    if (!group.costCenter && root.costCenter) {
+      group.costCenter = root.costCenter;
     }
 
     group.totalOrders += 1;
     group.statusCounts[row.status as ServiceOrderStatusLabel] += 1;
     group.totalWorkedHours += row.workedHours ?? 0;
 
-    if (row.openedAt && (!group.lastOrderDate || row.openedAt > group.lastOrderDate)) {
-      group.lastOrderDate = row.openedAt;
+    if (root.componentTag) {
+      group.components.add(root.componentTag);
+    }
+
+    if (row.openedAt) {
+      if (!group.lastOrderDate || row.openedAt > group.lastOrderDate) {
+        group.lastOrderDate = row.openedAt;
+      }
+      if (midpoint && row.openedAt.getTime() >= midpoint) {
+        group.secondHalfOrders += 1;
+      } else {
+        group.firstHalfOrders += 1;
+      }
     }
 
     const responsible = cleanName(row.responsibleName);
@@ -477,36 +550,58 @@ function analyzeEquipments(
     }
   }
 
-  // Filtros pós-agregação no nível do equipamento.
+  // Filtros pós-agregação no nível do equipamento (não afetam a fonte de OS).
+  const families = normalizeSet(params.families);
+  const costCenters = normalizeSet(params.costCenters);
+  const sectors = normalizeSet(params.sectors);
+
   let aggregated = Array.from(groups.entries()).map(([id, group]) => {
     const backlogOrders =
       group.statusCounts.ABERTA +
       group.statusCounts.LIBERADA +
       group.statusCounts.EM_ANDAMENTO +
       group.statusCounts.AGUARDANDO_MATERIAL;
-
     return { id, group, backlogOrders };
   });
 
+  if (families.size) {
+    aggregated = aggregated.filter((entry) => families.has(entry.group.familyCode.toUpperCase()));
+  }
+  if (costCenters.size) {
+    aggregated = aggregated.filter((entry) => costCenters.has(entry.group.costCenter.toUpperCase()));
+  }
+  if (sectors.size) {
+    aggregated = aggregated.filter((entry) => sectors.has(entry.group.sector.toUpperCase()));
+  }
   if (params.onlyOpenOrders) {
     aggregated = aggregated.filter((entry) => entry.backlogOrders > 0);
   }
   if (params.onlyWithWorkedHours) {
     aggregated = aggregated.filter((entry) => entry.group.totalWorkedHours > 0);
   }
+  if (params.onlyRecurrent) {
+    aggregated = aggregated.filter((entry) => entry.group.totalOrders >= RECURRENCE_MIN_ORDERS);
+  }
 
   const maxOrders = Math.max(0, ...aggregated.map((entry) => entry.group.totalOrders));
   const maxWorkedHours = Math.max(0, ...aggregated.map((entry) => entry.group.totalWorkedHours));
   const maxOpenOrders = Math.max(0, ...aggregated.map((entry) => entry.backlogOrders));
+  const maxRecurrence = Math.max(0, ...aggregated.map((entry) => Math.max(0, entry.group.totalOrders - 1)));
 
-  const items: CriticalEquipmentItem[] = aggregated.map(({ id, group, backlogOrders }) => {
+  let items: CriticalEquipmentItem[] = aggregated.map(({ id, group, backlogOrders }) => {
+    const trend = computeTrend(group.firstHalfOrders, group.secondHalfOrders);
+    const recurrence = Math.max(0, group.totalOrders - 1);
+
     const score = calculateCriticalityScore({
       totalOrders: group.totalOrders,
       maxOrders,
       totalWorkedHours: group.totalWorkedHours,
       maxWorkedHours,
       openOrders: backlogOrders,
-      maxOpenOrders
+      maxOpenOrders,
+      recurrence,
+      maxRecurrence,
+      worseningTrend: trend.worsening
     });
 
     return {
@@ -514,6 +609,11 @@ function analyzeEquipments(
       position: 0,
       equipmentName: group.equipmentName,
       equipmentCode: group.equipmentCode,
+      rootTag: group.rootTag,
+      familyCode: group.familyCode,
+      familyLabel: group.familyLabel,
+      costCenter: group.costCenter,
+      sector: group.sector,
       machinePrefix: group.machinePrefix,
       dataQualityIssue: group.dataQualityIssue,
       totalOrders: group.totalOrders,
@@ -525,6 +625,11 @@ function analyzeEquipments(
       canceledOrders: group.statusCounts.CANCELADA,
       backlogOrders,
       totalWorkedHours: Number(group.totalWorkedHours.toFixed(3)),
+      averageHoursPerOrder: group.totalOrders > 0 ? Number((group.totalWorkedHours / group.totalOrders).toFixed(2)) : 0,
+      componentCount: group.components.size,
+      isRecurrent: group.totalOrders >= RECURRENCE_MIN_ORDERS,
+      trendDirection: trend.direction,
+      trendDelta: trend.delta,
       lastOrderDate: group.lastOrderDate?.toISOString() ?? null,
       mainResponsible: pickTop(group.responsibles),
       mainPlanningGroup: pickTop(group.planningGroups),
@@ -532,6 +637,11 @@ function analyzeEquipments(
       criticalityLabel: getCriticalityLabel(score)
     };
   });
+
+  // Filtro de exibição (não altera os máximos/score): somente críticos.
+  if (params.onlyCritical) {
+    items = items.filter((item) => item.criticalityScore >= CRITICALITY_SCORE_THRESHOLD);
+  }
 
   items.sort((a, b) => b.totalOrders - a.totalOrders || b.totalWorkedHours - a.totalWorkedHours);
   items.forEach((item, index) => {
@@ -544,31 +654,44 @@ function analyzeEquipments(
 function buildSummary(
   items: CriticalEquipmentItem[],
   totalOrders: number,
-  ignoredPreventiveOrders = 0
+  rawOrders: number,
+  ignoredPreventiveOrders = 0,
+  ignoredInvalidEquipment = 0
 ): CriticalEquipmentSummary {
   const totalEquipmentsAnalyzed = items.length;
-  // "Equipamento com mais ordens": prioriza o ativo IDENTIFICADO (com código/local
-  // de instalação), evitando exibir o bucket genérico "EQUIPAMENTO NÃO INFORMADO"
-  // como líder. Se não houver nenhum identificado, cai no topo geral.
+  // "Equipamento com mais ordens": prioriza o ativo IDENTIFICADO (com raiz),
+  // evitando exibir o bucket genérico como líder.
   const top = items.find((item) => !item.dataQualityIssue) ?? items[0];
   const totalWorkedHours = items.reduce((sum, item) => sum + item.totalWorkedHours, 0);
   const totalOpenOrders = items.reduce((sum, item) => sum + item.backlogOrders, 0);
+  const criticalItems = items.filter((item) => item.criticalityScore >= CRITICALITY_SCORE_THRESHOLD);
+  const mostCritical = items.reduce<CriticalEquipmentItem | null>(
+    (best, item) =>
+      !item.dataQualityIssue && (!best || item.criticalityScore > best.criticalityScore) ? item : best,
+    null
+  );
 
   return {
     totalEquipmentsAnalyzed,
     totalOrdersInPeriod: totalOrders,
     equipmentWithMostOrders: top?.equipmentName ?? NOT_INFORMED,
     highestOrderCount: top?.totalOrders ?? 0,
+    mostCriticalEquipment: mostCritical?.equipmentName ?? top?.equipmentName ?? NOT_INFORMED,
+    highestCriticalityScore: mostCritical?.criticalityScore ?? 0,
     totalWorkedHours: Number(totalWorkedHours.toFixed(3)),
     averageOrdersPerEquipment: totalEquipmentsAnalyzed
       ? Number((totalOrders / totalEquipmentsAnalyzed).toFixed(1))
       : 0,
     totalOpenOrders,
-    totalCriticalEquipments: items.filter((item) => item.criticalityScore >= CRITICALITY_SCORE_THRESHOLD).length,
+    openOrdersOnCriticalEquipments: criticalItems.reduce((sum, item) => sum + item.backlogOrders, 0),
+    totalCriticalEquipments: criticalItems.length,
+    totalRecurrentEquipments: items.filter((item) => item.isRecurrent).length,
     ordersWithoutTechnicalCode: items
       .filter((item) => item.dataQualityIssue)
       .reduce((sum, item) => sum + item.totalOrders, 0),
-    ignoredPreventiveOrders
+    ignoredPreventiveOrders,
+    ignoredInvalidEquipment,
+    rawOrdersInPeriod: rawOrders
   };
 }
 
@@ -589,13 +712,19 @@ function buildStatusDistribution(rows: ServiceOrderRow[]): CriticalEquipmentStat
 function buildTrend(
   rows: ServiceOrderRow[],
   items: CriticalEquipmentItem[],
-  limit: number
+  limit: number,
+  lookup: Map<string, FunctionalLocationLite>
 ): CriticalEquipmentTrendPoint[] {
   const topKeys = new Set(items.slice(0, limit).map((item) => item.id));
-  const byPeriod = new Map<string, number>();
+  const relevant = rows.filter((row) => topKeys.has(resolveRootKey(row, lookup)));
+  return buildTrendForRows(relevant);
+}
 
+/** Evolução mensal (YYYY-MM) para um conjunto de OS. */
+function buildTrendForRows(rows: Array<{ openedAt: Date | null }>): CriticalEquipmentTrendPoint[] {
+  const byPeriod = new Map<string, number>();
   for (const row of rows) {
-    if (!row.openedAt || !topKeys.has(resolveCode(row))) {
+    if (!row.openedAt) {
       continue;
     }
     const key = row.openedAt.toISOString().slice(0, 7); // YYYY-MM
@@ -608,6 +737,128 @@ function buildTrend(
       const [year, month] = period.split("-");
       return { period, label: `${month}/${year}`, totalOrders };
     });
+}
+
+/** Distribuição de OS por família de equipamento (para o gráfico de família). */
+function buildFamilyDistribution(items: CriticalEquipmentItem[]): CriticalEquipmentFamilySlice[] {
+  const byFamily = new Map<string, CriticalEquipmentFamilySlice>();
+  for (const item of items) {
+    const code = item.familyCode || "";
+    const key = code || "SEM-FAMILIA";
+    const slice =
+      byFamily.get(key) ??
+      {
+        familyCode: code,
+        familyLabel: code ? getFamilyLabel(code) : "Não informado",
+        totalOrders: 0,
+        totalEquipments: 0,
+        totalWorkedHours: 0
+      };
+    slice.totalOrders += item.totalOrders;
+    slice.totalEquipments += 1;
+    slice.totalWorkedHours += item.totalWorkedHours;
+    byFamily.set(key, slice);
+  }
+
+  return Array.from(byFamily.values())
+    .map((slice) => ({ ...slice, totalWorkedHours: Number(slice.totalWorkedHours.toFixed(3)) }))
+    .sort((a, b) => b.totalOrders - a.totalOrders);
+}
+
+/** Ramificações/componentes com mais OS dentro de um ativo raiz (drill-down). */
+function buildComponentBreakdown(
+  rows: ServiceOrderRow[],
+  lookup: Map<string, FunctionalLocationLite>
+): CriticalEquipmentComponent[] {
+  const byComponent = new Map<string, ComponentAccumulator>();
+  const openStatuses = new Set<ServiceOrderStatusLabel>([
+    "ABERTA",
+    "LIBERADA",
+    "EM_ANDAMENTO",
+    "AGUARDANDO_MATERIAL"
+  ]);
+
+  for (const row of rows) {
+    const root = getRootFunctionalLocation(row, lookup);
+    // Componente = ramificação; OS na própria raiz cai em "Equipamento (raiz)".
+    const tag = root.componentTag ?? root.rootTag;
+    const description = root.componentTag
+      ? root.componentDescription || cleanText(row.equipmentName) || tag
+      : "Equipamento (raiz)";
+    const familyLabel = root.componentTag ? getFamilyLabel(extractComponentFamily(root.componentTag)) : root.familyLabel;
+
+    const acc =
+      byComponent.get(tag) ??
+      { tag, description, familyLabel, totalOrders: 0, openOrders: 0, workedHours: 0 };
+    acc.totalOrders += 1;
+    acc.workedHours += row.workedHours ?? 0;
+    if (openStatuses.has(row.status as ServiceOrderStatusLabel)) {
+      acc.openOrders += 1;
+    }
+    byComponent.set(tag, acc);
+  }
+
+  return Array.from(byComponent.values())
+    .map((acc) => ({
+      tag: acc.tag,
+      description: acc.description,
+      familyLabel: acc.familyLabel,
+      totalOrders: acc.totalOrders,
+      openOrders: acc.openOrders,
+      totalWorkedHours: Number(acc.workedHours.toFixed(3))
+    }))
+    .sort((a, b) => b.totalOrders - a.totalOrders || b.totalWorkedHours - a.totalWorkedHours)
+    .slice(0, 12);
+}
+
+/* ------------------------------------------------------------------ */
+/* Tendência / helpers de score                                       */
+/* ------------------------------------------------------------------ */
+
+/** Ponto médio (timestamp) do intervalo coberto pelas OS, p/ dividir a tendência. */
+function computeGlobalMidpoint(rows: Array<{ openedAt: Date | null }>): number | null {
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (const row of rows) {
+    if (!row.openedAt) {
+      continue;
+    }
+    const t = row.openedAt.getTime();
+    if (t < min) min = t;
+    if (t > max) max = t;
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+    return null;
+  }
+  return min + (max - min) / 2;
+}
+
+function computeTrend(
+  firstHalf: number,
+  secondHalf: number
+): { direction: TrendDirection; delta: number; worsening: number } {
+  const total = firstHalf + secondHalf;
+  if (total === 0) {
+    return { direction: "stable", delta: 0, worsening: 0 };
+  }
+  // Variação percentual (blindada contra divisão por zero).
+  const delta =
+    firstHalf > 0
+      ? Math.round(((secondHalf - firstHalf) / firstHalf) * 100)
+      : secondHalf > 0
+        ? 100
+        : 0;
+
+  let direction: TrendDirection = "stable";
+  if (secondHalf > firstHalf * 1.15) {
+    direction = "up";
+  } else if (secondHalf < firstHalf * 0.85) {
+    direction = "down";
+  }
+
+  // worsening 0–1: fração de piora relativa (só quando aumentou).
+  const worsening = secondHalf > firstHalf ? clamp01((secondHalf - firstHalf) / total) : 0;
+  return { direction, delta, worsening };
 }
 
 /* ------------------------------------------------------------------ */
@@ -644,12 +895,10 @@ async function fetchRowsRaw(params: Partial<CriticalEquipmentFilters>): Promise<
 
 /**
  * Ordens de Manutenção VÁLIDAS para criticidade: exclui as preventivas
- * programadas (PL/PV), que pertencem à aba Preventivas Programadas. Fonte única
- * da regra em `service-order-classification` para as duas abas serem complementares.
+ * programadas (PL/PV) e os registros de teste sem equipamento.
  */
 async function fetchRows(params: Partial<CriticalEquipmentFilters>): Promise<ServiceOrderRow[]> {
   const rows = await fetchRowsRaw(params);
-  // Exclui registros de teste sem equipamento e, em seguida, PL/PV programadas.
   return rows.filter((row) => !isInvalidTestEquipmentOrder(row) && !isProgrammedPreventiveOrder(row));
 }
 
@@ -683,8 +932,6 @@ async function fetchRowsFull(params: Partial<CriticalEquipmentFilters>): Promise
     }
   })) as ServiceOrderFullRow[];
 
-  // Drill-down também exclui registros de teste sem equipamento e PL/PV
-  // (essas ficam em Preventivas Programadas).
   return rows.filter((row) => !isInvalidTestEquipmentOrder(row) && !isProgrammedPreventiveOrder(row));
 }
 
@@ -730,11 +977,7 @@ function buildWhere(params: Partial<CriticalEquipmentFilters>): Prisma.ServiceOr
 function buildResponsibleClause(value: string): Prisma.ServiceOrderWhereInput {
   if (value === "SEM RESPONSÁVEL") {
     return {
-      OR: [
-        { responsibleName: null },
-        { responsibleName: "" },
-        { responsibleName: "SEM RESPONSÁVEL" }
-      ]
+      OR: [{ responsibleName: null }, { responsibleName: "" }, { responsibleName: "SEM RESPONSÁVEL" }]
     };
   }
 
@@ -742,18 +985,82 @@ function buildResponsibleClause(value: string): Prisma.ServiceOrderWhereInput {
   return { responsibleName: name };
 }
 
+/**
+ * Carrega o cadastro de LOCAIS DE INSTALAÇÃO (planilha importada) num Map por TAG
+ * normalizado, para enriquecer/sobrepor a resolução da raiz. É OPCIONAL: se a
+ * tabela estiver vazia ou indisponível, retorna Map vazio e o resolvedor usa o
+ * padrão estrutural do TAG (funciona sem a planilha).
+ */
+async function loadFunctionalLocationLookup(): Promise<Map<string, FunctionalLocationLite>> {
+  try {
+    const rows = await prisma.functionalLocation.findMany({
+      select: {
+        tag: true,
+        description: true,
+        costCenter: true,
+        rootTag: true,
+        rootDescription: true,
+        equipmentFamily: true
+      }
+    });
+    const map = new Map<string, FunctionalLocationLite>();
+    for (const row of rows) {
+      map.set(row.tag, row);
+    }
+    return map;
+  } catch (error) {
+    console.warn("[equipamentos-criticos] cadastro de locais indisponível — usando padrão estrutural.", error);
+    return new Map();
+  }
+}
+
 async function loadFilterOptions(): Promise<CriticalEquipmentFilterOptions> {
   try {
-    const options = await getServiceOrderFilterOptions();
+    const [options, lookup, codes] = await Promise.all([
+      getServiceOrderFilterOptions(),
+      loadFunctionalLocationLookup(),
+      prisma.serviceOrder.findMany({
+        where: excludeInvalidTestEquipmentWhere(),
+        select: { equipmentCode: true, equipmentName: true, technicalObjectRaw: true },
+        distinct: ["equipmentCode"]
+      })
+    ]);
+
+    const familyMap = new Map<string, string>();
+    const sectorSet = new Set<string>();
+    const costCenterSet = new Set<string>();
+
+    for (const row of codes) {
+      const root = getRootFunctionalLocation(row, lookup);
+      if (root.dataQualityIssue) {
+        continue;
+      }
+      if (root.familyCode) {
+        familyMap.set(root.familyCode, root.familyLabel);
+      }
+      const sector = extractSector(root.rootTag, false);
+      if (sector) {
+        sectorSet.add(sector);
+      }
+      if (root.costCenter) {
+        costCenterSet.add(root.costCenter);
+      }
+    }
+
     return {
       statuses: options.statuses,
       areas: options.areas,
       planningGroups: options.planningGroups,
-      responsibles: options.responsibles
+      responsibles: options.responsibles,
+      families: Array.from(familyMap.entries())
+        .map(([value, label]) => ({ value, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, "pt-BR")),
+      costCenters: Array.from(costCenterSet).sort((a, b) => a.localeCompare(b, "pt-BR")),
+      sectors: Array.from(sectorSet).sort((a, b) => a.localeCompare(b, "pt-BR"))
     };
   } catch (error) {
     console.error("Falha ao carregar opções de filtro de equipamentos críticos.", error);
-    return { statuses: [], areas: [], planningGroups: [], responsibles: [] };
+    return { statuses: [], areas: [], planningGroups: [], responsibles: [], families: [], costCenters: [], sectors: [] };
   }
 }
 
@@ -795,18 +1102,25 @@ function emptyPageData(period: { startDate: string; endDate: string }): Critical
       totalOrdersInPeriod: 0,
       equipmentWithMostOrders: NOT_INFORMED,
       highestOrderCount: 0,
+      mostCriticalEquipment: NOT_INFORMED,
+      highestCriticalityScore: 0,
       totalWorkedHours: 0,
       averageOrdersPerEquipment: 0,
       totalOpenOrders: 0,
+      openOrdersOnCriticalEquipments: 0,
       totalCriticalEquipments: 0,
+      totalRecurrentEquipments: 0,
       ordersWithoutTechnicalCode: 0,
-      ignoredPreventiveOrders: 0
+      ignoredPreventiveOrders: 0,
+      ignoredInvalidEquipment: 0,
+      rawOrdersInPeriod: 0
     },
     ranking: [],
     hours: [],
     statusDistribution: [],
     trend: [],
-    filterOptions: { statuses: [], areas: [], planningGroups: [], responsibles: [] },
+    familyDistribution: [],
+    filterOptions: { statuses: [], areas: [], planningGroups: [], responsibles: [], families: [], costCenters: [], sectors: [] },
     source: "empty"
   };
 }
@@ -822,13 +1136,34 @@ function emptyStatusCounts(): Record<ServiceOrderStatusLabel, number> {
   };
 }
 
-/**
- * Chave de agrupamento da máquina: código técnico explícito → código extraído do
- * objeto técnico (local de instalação) → nome → genérico. Fonte única em
- * technical-object-normalizer para o ranking e o detalhe agruparem igual.
- */
-function resolveCode(row: { equipmentCode: string | null; equipmentName: string | null; technicalObjectRaw: string | null }): string {
-  return getEquipmentGroupingKey(row).key;
+/** Chave de agrupamento = TAG da raiz resolvido (fonte única para ranking e detalhe). */
+function resolveRootKey(
+  row: { equipmentCode: string | null; equipmentName: string | null; technicalObjectRaw: string | null },
+  lookup: Map<string, FunctionalLocationLite>
+): string {
+  return getRootFunctionalLocation(row, lookup).rootTag;
+}
+
+/** Setor/galpão = 2º–3º segmentos do TAG (ex.: ZC-SR-G07-... -> "SR-G07"). */
+function extractSector(rootTag: string, dataQualityIssue: boolean): string {
+  if (dataQualityIssue || !rootTag) {
+    return "";
+  }
+  const segments = rootTag.split("-");
+  if (segments.length < 2) {
+    return "";
+  }
+  return segments.slice(1, Math.min(3, segments.length)).join("-");
+}
+
+/** Família de um componente: 1º segmento alfabético após o número da raiz. */
+function extractComponentFamily(componentTag: string): string {
+  const match = componentTag.match(/-([A-Z]{2,})-\d/);
+  return match ? match[1] : "";
+}
+
+function normalizeSet(values?: string[]): Set<string> {
+  return new Set((values ?? []).filter(Boolean).map((value) => value.toUpperCase()));
 }
 
 function pickTop(counts: Map<string, number>): string {
@@ -881,6 +1216,13 @@ function cleanText(value: string | null | undefined): string {
 function cleanName(value: string | null | undefined): string {
   const text = cleanText(value);
   return text || NOT_INFORMED;
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(1, Math.max(0, value));
 }
 
 function normalizeLimit(limit?: number): number {

@@ -19,8 +19,13 @@ export default async function EquipamentosCriticosPage({ searchParams = {} }: Cr
     responsibleNames: params.responsibleNames,
     planningGroups: params.planningGroups,
     areas: params.areas,
+    families: params.families,
+    costCenters: params.costCenters,
+    sectors: params.sectors,
     onlyOpenOrders: params.onlyOpenOrders,
     onlyWithWorkedHours: params.onlyWithWorkedHours,
+    onlyRecurrent: params.onlyRecurrent,
+    onlyCritical: params.onlyCritical,
     limit: params.limit
   });
 
@@ -42,8 +47,13 @@ function parseParams(searchParams: SearchParams): AppliedCriticalEquipmentFilter
     responsibleNames: toArray(searchParams.responsavel),
     planningGroups: toArray(searchParams.grupo),
     areas: toArray(searchParams.area),
+    families: toArray(searchParams.familia),
+    costCenters: toArray(searchParams.cc),
+    sectors: toArray(searchParams.setor),
     onlyOpenOrders: firstParam(searchParams.abertas) === "1",
     onlyWithWorkedHours: firstParam(searchParams.horas) === "1",
+    onlyRecurrent: firstParam(searchParams.reincidentes) === "1",
+    onlyCritical: firstParam(searchParams.criticos) === "1",
     limit: parseLimit(firstParam(searchParams.top))
   };
 }

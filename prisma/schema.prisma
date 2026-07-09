@@ -933,6 +933,40 @@ model SystemConfig {
   updatedAt   DateTime @updatedAt
 }
 
+/// Hierarquia de LOCAIS DE INSTALAÇÃO (SAP PM) importada da planilha
+/// "Local de Instalação.xlsx". Camada OPCIONAL de enriquecimento da aba
+/// Equipamentos Críticos: fornece a descrição oficial, o centro de custo, a
+/// família e a RAIZ autoritativa de cada TAG. Quando ausente/vazia, a resolução
+/// da raiz é feita pelo padrão estrutural do TAG (functional-location-hierarchy).
+/// Nunca contém dados sensíveis nem substitui as Ordens de Manutenção (fonte
+/// oficial dos indicadores continua sendo ServiceOrder).
+model FunctionalLocation {
+  id                    String   @id @default(cuid())
+  /// TAG do local de instalação (normalizado em maiúsculas). Chave natural.
+  tag                   String   @unique
+  description           String
+  costCenter            String?
+  costCenterDescription String?
+  /// TAG do local pai (um nível acima na hierarquia).
+  parentTag             String?
+  /// TAG do equipamento RAIZ (máquina principal) a que este local pertence.
+  rootTag               String?
+  rootDescription       String?
+  /// Setor/galpão derivado do TAG (ex.: SR-G07).
+  area                  String?
+  /// Código da família de equipamento (ex.: MF, PZ, LR).
+  equipmentFamily       String?
+  /// true quando o TAG é o próprio equipamento raiz (máquina principal).
+  isRootEquipment       Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([rootTag])
+  @@index([parentTag])
+  @@index([equipmentFamily])
+  @@index([isRootEquipment])
+}
+
 /// Parâmetros administrativos editáveis do portal (metas, regras, prefixos…).
 /// Genérico por (category, key); `value` é Json para suportar número, texto,
 /// booleano, lista de palavras e seleção. Sempre há fallback no código.
