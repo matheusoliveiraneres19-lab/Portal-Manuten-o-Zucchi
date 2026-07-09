@@ -129,10 +129,43 @@ export type RootResolvableOrder = {
   technicalObjectRaw?: string | null;
 };
 
+/**
+ * Códigos de família AMBÍGUOS: um mesmo código de 2 letras é reutilizado pelo SAP
+ * para máquinas diferentes. Desambiguamos por palavra-chave na descrição real do
+ * equipamento raiz. Ex.: `PT` = "Pórtico de Blocos" (ZC-PB-PT-0000) OU "Plataforma
+ * Elevatória Tesoura". A 1ª regra que casar vence; sem descrição/sem casar, cai no
+ * rótulo padrão de EQUIPMENT_FAMILY_LABELS.
+ */
+export const AMBIGUOUS_FAMILY_LABELS: Record<string, Array<{ pattern: RegExp; label: string }>> = {
+  PT: [
+    { pattern: /PORTICO/, label: "Pórtico de Blocos" },
+    { pattern: /PLATAFORMA/, label: "Plataforma Elevatória" }
+  ]
+};
+
 /** Rótulo gerencial da família a partir do código (ou o próprio código). */
 export function getFamilyLabel(familyCode: string): string {
   const code = familyCode.trim().toUpperCase();
   return EQUIPMENT_FAMILY_LABELS[code] ?? code;
+}
+
+/**
+ * Rótulo da família DESAMBIGUADO pela descrição do equipamento (quando o código é
+ * reutilizado para máquinas distintas). Preferir sempre esta função à
+ * `getFamilyLabel` quando houver uma descrição disponível.
+ */
+export function resolveFamilyLabel(familyCode: string, description?: string | null): string {
+  const code = familyCode.trim().toUpperCase();
+  const rules = AMBIGUOUS_FAMILY_LABELS[code];
+  if (rules && description) {
+    const upper = stripDiacritics(description).toUpperCase();
+    for (const rule of rules) {
+      if (rule.pattern.test(upper)) {
+        return rule.label;
+      }
+    }
+  }
+  return getFamilyLabel(code);
 }
 
 /**
@@ -239,7 +272,7 @@ export function getRootFunctionalLocation(
     rootTag,
     rootDescription,
     familyCode,
-    familyLabel: familyCode ? getFamilyLabel(familyCode) : "Não informado",
+    familyLabel: familyCode ? resolveFamilyLabel(familyCode, rootDescription) : "Não informado",
     costCenter: cleanDescription(rootEntry?.costCenter) || cleanDescription(entry?.costCenter) || undefined,
     dataQualityIssue: false
   };
@@ -254,4 +287,8 @@ export function getRootFunctionalLocation(
 
 function cleanDescription(value: string | null | undefined): string {
   return (value ?? "").trim();
+}
+
+function stripDiacritics(value: string): string {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }

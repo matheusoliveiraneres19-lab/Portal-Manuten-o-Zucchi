@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { AlertTriangle, CalendarRange, ShieldAlert } from "lucide-react";
 import { formatPeriodRange } from "@/utils/period";
-import { getFamilyLabel } from "@/utils/functional-location-hierarchy";
 import { CriticalEquipmentDetailsDrawer } from "@/components/critical-equipments/CriticalEquipmentDetailsDrawer";
 import { EquipmentHoursByResponsibleModal } from "@/components/critical-equipments/EquipmentHoursByResponsibleModal";
 import type { CriticalEquipmentDetails, EquipmentHoursByResponsible } from "@/types/critical-equipments";
@@ -416,7 +415,7 @@ function buildChips(
     chips.push({
       id: `familia:${family}`,
       groupLabel: "Família",
-      valueLabel: getFamilyLabel(family),
+      valueLabel: family,
       onRemove: () => apply({ ...filters, families: filters.families.filter((value) => value !== family) })
     });
   }

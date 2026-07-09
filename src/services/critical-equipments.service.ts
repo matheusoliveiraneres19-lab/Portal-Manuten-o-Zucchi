@@ -565,7 +565,7 @@ function analyzeEquipments(
   });
 
   if (families.size) {
-    aggregated = aggregated.filter((entry) => families.has(entry.group.familyCode.toUpperCase()));
+    aggregated = aggregated.filter((entry) => families.has(entry.group.familyLabel.toUpperCase()));
   }
   if (costCenters.size) {
     aggregated = aggregated.filter((entry) => costCenters.has(entry.group.costCenter.toUpperCase()));
@@ -739,17 +739,21 @@ function buildTrendForRows(rows: Array<{ openedAt: Date | null }>): CriticalEqui
     });
 }
 
-/** Distribuição de OS por família de equipamento (para o gráfico de família). */
+/**
+ * Distribuição de OS por família de equipamento (gráfico de família). Agrupa pelo
+ * RÓTULO desambiguado (não pelo código cru), evitando misturar máquinas que
+ * reutilizam o mesmo código de família (ex.: PT = Pórtico vs. Plataforma).
+ */
 function buildFamilyDistribution(items: CriticalEquipmentItem[]): CriticalEquipmentFamilySlice[] {
   const byFamily = new Map<string, CriticalEquipmentFamilySlice>();
   for (const item of items) {
-    const code = item.familyCode || "";
-    const key = code || "SEM-FAMILIA";
+    const label = item.familyLabel || "Não informado";
+    const key = label.toUpperCase();
     const slice =
       byFamily.get(key) ??
       {
-        familyCode: code,
-        familyLabel: code ? getFamilyLabel(code) : "Não informado",
+        familyCode: item.familyCode || "",
+        familyLabel: label,
         totalOrders: 0,
         totalEquipments: 0,
         totalWorkedHours: 0
@@ -1026,7 +1030,8 @@ async function loadFilterOptions(): Promise<CriticalEquipmentFilterOptions> {
       })
     ]);
 
-    const familyMap = new Map<string, string>();
+    // Famílias por RÓTULO desambiguado (valor = rótulo), coerente com o filtro.
+    const familySet = new Set<string>();
     const sectorSet = new Set<string>();
     const costCenterSet = new Set<string>();
 
@@ -1035,8 +1040,8 @@ async function loadFilterOptions(): Promise<CriticalEquipmentFilterOptions> {
       if (root.dataQualityIssue) {
         continue;
       }
-      if (root.familyCode) {
-        familyMap.set(root.familyCode, root.familyLabel);
+      if (root.familyCode && root.familyLabel && root.familyLabel !== "Não informado") {
+        familySet.add(root.familyLabel);
       }
       const sector = extractSector(root.rootTag, false);
       if (sector) {
@@ -1052,8 +1057,8 @@ async function loadFilterOptions(): Promise<CriticalEquipmentFilterOptions> {
       areas: options.areas,
       planningGroups: options.planningGroups,
       responsibles: options.responsibles,
-      families: Array.from(familyMap.entries())
-        .map(([value, label]) => ({ value, label }))
+      families: Array.from(familySet)
+        .map((label) => ({ value: label, label }))
         .sort((a, b) => a.label.localeCompare(b.label, "pt-BR")),
       costCenters: Array.from(costCenterSet).sort((a, b) => a.localeCompare(b, "pt-BR")),
       sectors: Array.from(sectorSet).sort((a, b) => a.localeCompare(b, "pt-BR"))
