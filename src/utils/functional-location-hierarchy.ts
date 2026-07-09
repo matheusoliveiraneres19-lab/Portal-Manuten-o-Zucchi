@@ -49,23 +49,48 @@ const FAMILY_BEFORE_NUMBER = /-([A-Z]{2,})-\d{2,4}(?=-|$)/g;
  * um texto genérico. Ajuste/expanda conforme a planilha de locais evoluir.
  */
 export const EQUIPMENT_FAMILY_LABELS: Record<string, string> = {
+  // Máquinas de beneficiamento (nomes conferidos com as máquinas raiz reais).
   MF: "Multifio",
-  PZ: "Politriz",
+  BF: "Bifio",
+  NF: "Nano Fio",
+  PZ: "Linha de Polimento",
   LR: "Linha de Resina",
-  LV: "Lavadora",
-  PR: "Ponte Rolante",
-  CT: "Carro Transportador",
-  GT: "Giratória de Carros",
-  RN: "Rampa Niveladora",
-  PT: "Estação de Bombas",
-  ET: "Estação de Tratamento",
-  SP: "Suporte / Galpão",
-  TR: "Tear",
+  LV: "Linha de Levigamento",
+  TC: "Tear Convencional",
+  TD: "Tear Diamantado",
+  FP: "Fresa Ponte",
+  BR: "Britador",
+  VB: "Virador de Blocos",
+  EV: "Envelopamento de Blocos",
+  // Utilidades / infraestrutura.
+  ET: "Estação de Tratamento de Água",
   CP: "Compressor",
-  CL: "Caldeira",
-  ES: "Esteira",
-  FR: "Forno",
-  EX: "Exaustor"
+  US: "Usina de Energia Solar",
+  SE: "Subestação",
+  BS: "Bomba",
+  // Movimentação / logística.
+  PR: "Ponte Rolante",
+  GT: "Giratória de Carros",
+  CT: "Carro Transportador",
+  CC: "Carro Transportador de Carros",
+  RN: "Rampa Niveladora",
+  LP: "Lavadora de Piso",
+  PT: "Plataforma Elevatória",
+  PG: "Plataforma Elevatória",
+  EM: "Empilhadeira",
+  CG: "Carregadeira",
+  CM: "Caminhão",
+  // Nós de local (não são máquinas).
+  SP: "Suporte / Galpão",
+  // Componentes/ramificações comuns (drill-down).
+  PE: "Painel Elétrico",
+  RM: "Rolo Movido",
+  CH: "Chuveiro",
+  AR: "Aplicadora de Resina",
+  CV: "Câmara de Vácuo",
+  DT: "Desenrolador de Tela",
+  EX: "Exaustor",
+  FR: "Forno"
 };
 
 export type FunctionalLocationRoot = {
