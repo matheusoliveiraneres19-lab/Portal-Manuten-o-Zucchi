@@ -17,6 +17,7 @@ import {
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
 import { toInputDate } from "@/utils/period";
 import {
+  deriveFamilyLabelFromName,
   getFamilyLabel,
   getRootFunctionalLocation,
   type FunctionalLocationLite
@@ -789,7 +790,11 @@ function buildComponentBreakdown(
     const description = root.componentTag
       ? root.componentDescription || cleanText(row.equipmentName) || tag
       : "Equipamento (raiz)";
-    const familyLabel = root.componentTag ? getFamilyLabel(extractComponentFamily(root.componentTag)) : root.familyLabel;
+    // Componente: rótulo derivado da DESCRIÇÃO (código de componente é reutilizado
+    // com significados distintos); fallback para o mapa e, por fim, o código.
+    const familyLabel = root.componentTag
+      ? deriveFamilyLabelFromName(description) || getFamilyLabel(extractComponentFamily(root.componentTag))
+      : root.familyLabel;
 
     const acc =
       byComponent.get(tag) ??

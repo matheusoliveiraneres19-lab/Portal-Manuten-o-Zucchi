@@ -151,7 +151,8 @@ export function getFamilyLabel(familyCode: string): string {
 
 /**
  * Rótulo da família DESAMBIGUADO pela descrição do equipamento (quando o código é
- * reutilizado para máquinas distintas). Preferir sempre esta função à
+ * reutilizado para máquinas distintas). Ordem: regra ambígua → mapa curado →
+ * rótulo derivado da descrição → o próprio código. Preferir sempre esta função à
  * `getFamilyLabel` quando houver uma descrição disponível.
  */
 export function resolveFamilyLabel(familyCode: string, description?: string | null): string {
@@ -165,7 +166,42 @@ export function resolveFamilyLabel(familyCode: string, description?: string | nu
       }
     }
   }
-  return getFamilyLabel(code);
+  if (EQUIPMENT_FAMILY_LABELS[code]) {
+    return EQUIPMENT_FAMILY_LABELS[code];
+  }
+  return deriveFamilyLabelFromName(description) || code;
+}
+
+/**
+ * Deriva um rótulo de família a partir da DESCRIÇÃO do equipamento: mantém as
+ * primeiras palavras descritivas até o 1º token com dígito (nº da máquina, código
+ * ou galpão). Ex.: "MESA ROLOS 01 CENTRAL LR03S G8" → "Mesa Rolos";
+ * "SISTEMA HIDRAULICO MF 07 SKYSTONE" → "Sistema Hidraulico". Nunca exibe código
+ * cru — é usado para os COMPONENTES do drill-down, cujo código é reutilizado.
+ */
+export function deriveFamilyLabelFromName(name?: string | null): string {
+  const raw = (name ?? "").trim();
+  if (!raw) {
+    return "";
+  }
+  const words = raw.split(/\s+/);
+  const kept: string[] = [];
+  for (const word of words) {
+    // Para no 1º token com dígito (nº/código/galpão) ou num código de família
+    // conhecido que apareça após a parte descritiva (ex.: "... MF 07").
+    if (/\d/.test(word)) {
+      break;
+    }
+    if (kept.length >= 1 && EQUIPMENT_FAMILY_LABELS[word.toUpperCase()]) {
+      break;
+    }
+    kept.push(word);
+    if (kept.length >= 4) {
+      break;
+    }
+  }
+  const base = kept.length ? kept : [words[0]];
+  return base.map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(" ");
 }
 
 /**
