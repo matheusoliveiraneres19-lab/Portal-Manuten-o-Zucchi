@@ -473,9 +473,25 @@ function ImportPreviewPanel({ onClose, onImported }: { onClose: () => void; onIm
       const formData = new FormData();
       formData.append("file", file);
       const response = await fetch("/api/service-orders/import", { method: "POST", body: formData });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error ?? data?.message ?? "Falha ao importar a planilha.");
+
+      // A resposta pode não ser JSON (ex.: timeout da função serverless devolve HTML/erro genérico).
+      const raw = await response.text();
+      let data: (ResultadoImportacaoOrdensServico & { error?: string; message?: string }) | null = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = null;
+      }
+
+      if (!response.ok || !data) {
+        const timedOut = response.status === 502 || response.status === 504 || !data;
+        throw new Error(
+          data?.error ??
+            data?.message ??
+            (timedOut
+              ? "A importação excedeu o tempo do servidor. Para planilhas grandes, use a importação via CLI (npm run import:service-orders)."
+              : "Falha ao importar a planilha.")
+        );
       }
       setResult(data as ResultadoImportacaoOrdensServico);
       toast.success(`Importação concluída: ${data.createdRows} criadas, ${data.updatedRows} atualizadas`);

@@ -5,6 +5,9 @@ import { auditImport } from "@/lib/audit-import";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+// Amplia a janela da função serverless (parsing + gravação em lote da planilha).
+// Limite do plano Pro da Vercel (até 300s); planilhas grandes exigem a janela cheia.
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   const { session, error } = await requireApiSession(["ADMIN", "GESTOR"]);
