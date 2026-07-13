@@ -45,7 +45,7 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
       formData.append("file", file);
       const response = await fetch("/api/purchases/import", { method: "POST", body: formData });
 
-      // A resposta pode não ser JSON (ex.: timeout do Netlify devolve HTML/erro genérico).
+      // A resposta pode não ser JSON (ex.: timeout da função serverless devolve HTML/erro genérico).
       const raw = await response.text();
       let data: (PurchaseImportResult & { success?: boolean; message?: string; details?: string }) | null = null;
       try {

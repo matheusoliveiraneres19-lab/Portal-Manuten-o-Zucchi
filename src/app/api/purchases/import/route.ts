@@ -6,7 +6,8 @@ import { auditImport } from "@/lib/audit-import";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 // Amplia a janela da função serverless (parsing + gravação em lote da planilha).
-export const maxDuration = 26;
+// Limite do plano Pro da Vercel (até 300s); planilhas grandes exigem a janela cheia.
+export const maxDuration = 300;
 
 const CLI_HINT =
   'Para planilhas muito grandes, utilize a importação via CLI ("npm run import:purchases") para evitar o limite de tempo da função serverless.';
