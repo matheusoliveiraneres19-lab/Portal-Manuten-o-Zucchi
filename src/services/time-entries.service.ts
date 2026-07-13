@@ -66,7 +66,8 @@ async function getHoursFromTimeEntries(period: DateRange): Promise<HoursByCollab
   return timeEntries.map((item) => ({
     userName: item.userName?.trim() || NO_RESPONSIBLE_LABEL,
     hours: Number(safeHours(item._sum.hours).toFixed(2)),
-    orders: 0
+    orders: 0,
+    responsibleId: null // TimeEntry não carrega matrícula; casa só por nome.
   }));
 }
 
@@ -87,22 +88,32 @@ async function getHoursFromServiceOrders(period: DateRange): Promise<HoursByColl
       // Dois fragmentos com `NOT` no topo — combinar via AND (spread sobrescreveria).
       AND: [excludeLubricationOrderWhere(), excludeInvalidTestEquipmentWhere()]
     },
-    select: { responsibleName: true, workedHours: true }
+    select: { responsibleName: true, responsibleId: true, workedHours: true }
   });
 
   if (!orders.length) {
     return [];
   }
 
-  const totals = new Map<string, number>();
+  // Agrega por nome, mas carrega a matrícula (responsibleId) para o casamento
+  // preferencial com o colaborador — o nome do SAP pode divergir do cadastro.
+  const totals = new Map<string, { hours: number; responsibleId: string | null }>();
 
   for (const order of orders) {
     const name = order.responsibleName?.trim() || NO_RESPONSIBLE_LABEL;
-    totals.set(name, (totals.get(name) ?? 0) + safeHours(order.workedHours));
+    const current = totals.get(name) ?? { hours: 0, responsibleId: null };
+    current.hours += safeHours(order.workedHours);
+    if (!current.responsibleId && order.responsibleId) current.responsibleId = order.responsibleId;
+    totals.set(name, current);
   }
 
   return Array.from(totals.entries())
-    .map(([userName, hours]) => ({ userName, hours: Number(hours.toFixed(2)), orders: 0 }))
+    .map(([userName, value]) => ({
+      userName,
+      hours: Number(value.hours.toFixed(2)),
+      orders: 0,
+      responsibleId: value.responsibleId
+    }))
     .sort((a, b) => b.hours - a.hours);
 }
 

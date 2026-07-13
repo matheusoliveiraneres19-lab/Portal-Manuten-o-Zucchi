@@ -20,3 +20,17 @@ export function normalizeNameKey(value: unknown): string {
     .trim()
     .toLowerCase();
 }
+
+/**
+ * Normaliza uma matrícula para uma chave de casamento estável (só os dígitos).
+ *
+ * O cadastro guarda "P-20" / "P - 20" e o SAP grava o responsável como
+ * "NOME (20)" — extraído para `ServiceOrder.responsibleId = "20"`. Reduzir aos
+ * dígitos casa os dois lados de forma confiável, independentemente da grafia do
+ * nome. Retorna "" quando não há dígito algum.
+ *
+ * Ex.: "P-20" -> "20" | "P - 20" -> "20" | "20" -> "20"
+ */
+export function normalizeMatriculaKey(value: unknown): string {
+  return String(value ?? "").replace(/\D/g, "");
+}

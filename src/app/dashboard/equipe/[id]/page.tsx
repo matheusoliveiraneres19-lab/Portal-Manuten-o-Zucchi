@@ -31,7 +31,7 @@ export default async function CollaboratorDetailRoute({ params }: { params: { id
 
   const now = new Date();
   const nameKey = normalizeNameKey(collaborator.name);
-  const monthly = await getCollaboratorMonthlyHours(nameKey, MONTHS_BACK, now);
+  const monthly = await getCollaboratorMonthlyHours(nameKey, collaborator.matricula, MONTHS_BACK, now);
 
   const goal = collaborator.monthlyGoal;
   const currentYm = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
