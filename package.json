@@ -33,6 +33,7 @@
     "@prisma/client": "^6.19.3",
     "@remotion/cli": "^4.0.473",
     "@supabase/supabase-js": "^2.108.2",
+    "@vercel/analytics": "^2.0.1",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",
     "exceljs": "^4.4.0",
