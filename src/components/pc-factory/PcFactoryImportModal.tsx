@@ -4,7 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FileSpreadsheet, Loader2, Upload } from "lucide-react";
 import { PcFactoryModalShell, ghostButtonClass, primaryButtonClass } from "@/components/pc-factory/PcFactoryModalShell";
-import type { PcFactoryImportResult } from "@/types/pc-factory";
+import type { PcFactoryImportResult, PcFactoryLayoutType } from "@/types/pc-factory";
+
+/** Rótulos amigáveis do layout detectado na importação (TAREFA 7/8). */
+const LAYOUT_LABELS: Record<PcFactoryLayoutType, string> = {
+  PC_FACTORY_IMPORT: "Import_PC_FACTORY (ajustada)",
+  PC_FACTORY_AG_GRID: "ag-grid (transacional)",
+  PC_FACTORY_AG_GRID_DAILY_SUMMARY: "ag-grid diário (resumo)",
+  UNKNOWN: "não reconhecido"
+};
 
 type PcFactoryImportModalProps = {
   open: boolean;
@@ -119,12 +127,14 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
               <Summary label="Com problema de dados" value={result.dataQualityRows} tone={result.dataQualityRows > 0 ? "danger" : "default"} />
               <Summary label="Horas totais" value={result.totalHours} suffix=" h" />
               <Summary label="Horas de manutenção" value={result.maintenanceHours} suffix=" h" tone="gold" />
+              <Summary label="Ocorrências (eventos)" value={result.totalOccurrences} />
             </dl>
           </div>
 
           {result.sheetUsed ? (
             <p className="text-[11px] text-zinc-500">
               <span className="font-semibold text-gold">Aba lida:</span> {result.sheetUsed}
+              <span className="ml-2 font-semibold text-gold">Layout:</span> {LAYOUT_LABELS[result.layoutType] ?? result.layoutType}
             </p>
           ) : null}
           {result.groupsDetected.length ? (

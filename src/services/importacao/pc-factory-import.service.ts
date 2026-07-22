@@ -26,7 +26,13 @@ import {
   parsePcFactoryDate,
   resolvePcFactoryStatusColor
 } from "@/utils/pc-factory-normalizer";
-import type { PcFactoryExcelRow, PcFactoryImportError, PcFactoryImportResult, PcFactoryStatusColorInfo } from "@/types/pc-factory";
+import type {
+  PcFactoryExcelRow,
+  PcFactoryImportError,
+  PcFactoryImportResult,
+  PcFactoryLayoutType,
+  PcFactoryStatusColorInfo
+} from "@/types/pc-factory";
 
 /** Cor de um status lida da planilha (coluna explícita ou preenchimento de célula). */
 type SheetStatusColor = { hex: string; source: "excel-column" | "excel-cell-fill" };
@@ -82,7 +88,21 @@ const COLUMN_MAP: Record<string, keyof PcFactoryExcelRow> = {
   // Detalhes do status
   detalhes_status_recurso: "statusDetails", // ag-grid: "Detalhes Status Recurso"
   detalhes_do_status_recurso: "statusDetails",
+  nome_detalhe: "statusDetails", // ag-grid diário: "Nome Detalhe"
+  detalhe: "statusDetails", // ag-grid diário: "Detalhe"
   statusdetails: "statusDetails",
+  // Classificação textual do status (ag-grid diário: "Classificação Status"). Só entra como
+  // fallback p/ statusCategory quando o texto casa exatamente com um enum; senão é ignorada
+  // (a fonte da verdade é a regra sobre statusRaw). Ver coerceStatusCategory.
+  classificacao_status: "statusCategory",
+  classificacao_do_status: "statusCategory",
+  // Ocorrência — nº de eventos agregados por linha (layout de resumo diário)
+  ocorrencia: "occurrence",
+  ocorrencias: "occurrence",
+  eventos: "occurrence",
+  qtd_ocorrencias: "occurrence",
+  occurrence: "occurrence",
+  eventcount: "occurrence",
   // Cor explícita do status (se a planilha trouxer uma coluna de cor)
   cor: "statusColor",
   color: "statusColor",
@@ -116,6 +136,15 @@ const COLUMN_MAP: Record<string, keyof PcFactoryExcelRow> = {
   data_de_fim: "endDate",
   data_hora_fim: "endDate",
   enddatetime: "endDate",
+  // (R)Data de Produção — data do dia agregado (layout de resumo diário). Vira start 00:00:00
+  // e end 23:59:59 no parseRow. Nomes: "(R)Data de Produção" → r_data_de_producao.
+  r_data_de_producao: "productionDate",
+  rdata_de_producao: "productionDate",
+  data_de_producao: "productionDate",
+  data_producao: "productionDate",
+  data_producao_r: "productionDate",
+  competencia: "productionDate",
+  productiondate: "productionDate",
   hora_inicio: "startTime",
   hora_de_inicio: "startTime",
   hora_fim: "endTime",
@@ -210,14 +239,43 @@ type ImportOptions = {
   replaceAll?: boolean;
 };
 
-type ReadResult = { rows: PcFactoryExcelRow[]; sheetUsed: string | null };
+type ReadResult = { rows: PcFactoryExcelRow[]; sheetUsed: string | null; layoutType: PcFactoryLayoutType };
 
 /** Lê e mapeia as linhas da planilha a partir de um arquivo ou buffer. */
 export function readPcFactoryRows(source: string | Buffer | ArrayBuffer, sheetName?: string): PcFactoryExcelRow[] {
   return readPcFactorySheet(source, sheetName).rows;
 }
 
-/** Lê a planilha resolvendo a aba preferida e devolve as linhas e o nome da aba usada. */
+/**
+ * Detecta o layout da planilha a partir dos cabeçalhos crus (TAREFA 7). O ponto crítico é
+ * distinguir o "Tempo Decorrido[hr]" do resumo diário (HORAS DECIMAIS, usar direto) do
+ * "Tempo Decorrido [hr]" do transacional (FRAÇÃO DE DIA, ×24) — ambos normalizam igual.
+ */
+function detectLayout(headers: string[], sheetUsed: string | null): PcFactoryLayoutType {
+  if (sheetUsed && sheetUsed.trim().toLowerCase() === "import_pc_factory") return "PC_FACTORY_IMPORT";
+
+  const normalized = new Set<string>();
+  for (const header of headers) {
+    const norm = normalizarNomeColuna(String(header ?? ""));
+    if (norm) {
+      normalized.add(norm);
+      normalized.add(norm.replace(/_/g, ""));
+    }
+  }
+  const has = (...keys: string[]) => keys.some((k) => normalized.has(k) || normalized.has(k.replace(/_/g, "")));
+
+  const hasResource = has("recurso", "apelido_recurso", "nome_recurso", "resourcename");
+  const hasElapsedHr = has("tempo_decorrido_hr");
+  const hasOccurrence = has("ocorrencia", "ocorrencias", "occurrence");
+  const hasStartEnd = has("inicio", "termino", "data_inicio", "data_fim", "startdatetime", "enddatetime");
+
+  // Resumo diário: tem Ocorrência + Tempo Decorrido[hr] + Recurso e NÃO tem Início/Término.
+  if (hasResource && hasElapsedHr && hasOccurrence && !hasStartEnd) return "PC_FACTORY_AG_GRID_DAILY_SUMMARY";
+  if (hasResource || hasElapsedHr) return "PC_FACTORY_AG_GRID";
+  return "UNKNOWN";
+}
+
+/** Lê a planilha resolvendo a aba preferida e devolve as linhas, o nome da aba e o layout. */
 export function readPcFactorySheet(source: string | Buffer | ArrayBuffer, sheetName?: string): ReadResult {
   // cellDates:false de propósito: algumas planilhas (ex.: export G0009) formatam colunas
   // de DURAÇÃO como tempo, e com cellDates:true o xlsx as devolve como Date deslocada por
@@ -236,7 +294,9 @@ export function readPcFactorySheet(source: string | Buffer | ArrayBuffer, sheetN
   }
 
   const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "", raw: true });
-  return { rows: rawRows.map(mapRow), sheetUsed: resolvedName };
+  const headers = rawRows.length ? Object.keys(rawRows[0]) : [];
+  const layoutType = detectLayout(headers, resolvedName);
+  return { rows: rawRows.map(mapRow), sheetUsed: resolvedName, layoutType };
 }
 
 /** Resolve a aba a ler: explícita > Import_PC_FACTORY > ag-grid > primeira. Case-insensitive. */
@@ -340,8 +400,11 @@ export async function importPcFactoryRecords(
   rows: PcFactoryExcelRow[],
   options: ImportOptions = {},
   sheetUsed: string | null = null,
-  statusColorMap: Map<string, SheetStatusColor> = new Map()
+  statusColorMap: Map<string, SheetStatusColor> = new Map(),
+  layoutType: PcFactoryLayoutType = "UNKNOWN"
 ): Promise<PcFactoryImportResult> {
+  // No resumo diário, "Tempo Decorrido[hr]" já vem em HORAS DECIMAIS (usar direto, sem ×24).
+  const decimalHours = layoutType === "PC_FACTORY_AG_GRID_DAILY_SUMMARY";
   const result: PcFactoryImportResult = {
     totalRows: rows.length,
     importedRows: 0,
@@ -366,6 +429,8 @@ export async function importPcFactoryRecords(
     dataQualityRows: 0,
     missingRealDurationRows: 0,
     sheetUsed,
+    layoutType,
+    totalOccurrences: 0,
     periodDetected: { start: null, end: null },
     resourcesDetected: 0,
     groupsDetected: [],
@@ -394,13 +459,15 @@ export async function importPcFactoryRecords(
     const line = index + 2; // +1 cabeçalho, +1 base 1
 
     try {
-      const outcome = parseRow(rows[index], line);
+      const outcome = parseRow(rows[index], line, decimalHours);
       if ("ignore" in outcome) {
         result.ignoredRows += 1;
         result.ignoredReasons[outcome.ignore] += 1;
         continue;
       }
       const parsed = outcome.row;
+      // Soma de eventos pela coluna "Ocorrência" (auditoria; não persistida por linha).
+      result.totalOccurrences += parsed.occurrence;
 
       // Auditoria de classificação (conta TODAS as linhas válidas, inclusive as excluídas do tempo planejado).
       tallyClassification(result, parsed.statusRaw, parsed.statusCategory);
@@ -577,10 +644,10 @@ export async function importPcFactoryFromExcel(
   source: string | Buffer | ArrayBuffer,
   options: ImportOptions = {}
 ): Promise<PcFactoryImportResult> {
-  const { rows, sheetUsed } = readPcFactorySheet(source, options.sheetName);
+  const { rows, sheetUsed, layoutType } = readPcFactorySheet(source, options.sheetName);
   // Lê as cores por status direto do arquivo (exceljs) — best-effort, não bloqueia o import.
   const statusColorMap = await extractStatusColorsFromExcel(source, sheetUsed);
-  return importPcFactoryRecords(rows, options, sheetUsed, statusColorMap);
+  return importPcFactoryRecords(rows, options, sheetUsed, statusColorMap, layoutType);
 }
 
 type ParsedRow = {
@@ -619,22 +686,37 @@ type ParsedRow = {
   observation: string | null;
   rootCause: string | null;
   dataQualityIssue: string | null;
+  /** "Ocorrência": nº de eventos agregados na linha (≥1). Auditoria; não é persistido. */
+  occurrence: number;
   technicalKey: string;
 };
 
 type IgnoreReason = "noResource" | "noStatus" | "noDuration" | "emptyRow";
 type ParseOutcome = { row: ParsedRow } | { ignore: IgnoreReason };
 
-function parseRow(row: PcFactoryExcelRow, line: number): ParseOutcome {
+function parseRow(row: PcFactoryExcelRow, line: number, decimalHours: boolean): ParseOutcome {
   const resourceName = normalizeResourceName(row.resourceName) || normalizeResourceName(row.resourceCode);
   const statusRaw = optionalText(row.status);
 
-  const startDateTime = combineDateAndTime(parsePcFactoryDate(row.startDate), row.startTime);
-  const endDateTime = combineDateAndTime(parsePcFactoryDate(row.endDate), row.endTime);
-  const durationFallback = resolveFallbackMinutes(row);
+  let startDateTime = combineDateAndTime(parsePcFactoryDate(row.startDate), row.startTime);
+  let endDateTime = combineDateAndTime(parsePcFactoryDate(row.endDate), row.endTime);
+  // Layout de resumo diário: "(R)Data de Produção" → dia começa 00:00:00 e termina 23:59:59.
+  const productionDate = parsePcFactoryDate(row.productionDate);
+  if (!startDateTime && productionDate) {
+    const y = productionDate.getUTCFullYear();
+    const m = productionDate.getUTCMonth();
+    const d = productionDate.getUTCDate();
+    startDateTime = new Date(Date.UTC(y, m, d, 0, 0, 0));
+    if (!endDateTime) endDateTime = new Date(Date.UTC(y, m, d, 23, 59, 59));
+  }
+  const durationFallback = resolveFallbackMinutes(row, decimalHours);
 
-  // "Tempo Decorrido Real" (base principal dos KPIs). Pode não existir na planilha.
-  const realDurationMinutes = resolveRealDurationMinutes(row);
+  // "Tempo Decorrido Real" (auditoria). Pode não existir na planilha.
+  const realDurationMinutes = resolveRealDurationMinutes(row, decimalHours);
+
+  // "Ocorrência": nº de eventos agregados (resumo diário). Vazio/inválido → 1.
+  const occurrenceParsed = parsePlainNumber(row.occurrence);
+  const occurrence = occurrenceParsed !== null && occurrenceParsed > 0 ? Math.round(occurrenceParsed) : 1;
 
   // Duração-base do registro ("Tempo Decorrido"). Se a planilha só trouxe o Tempo
   // Decorrido Real, usamos ele como base para não descartar a linha por falta de duração.
@@ -710,6 +792,7 @@ function parseRow(row: PcFactoryExcelRow, line: number): ParseOutcome {
       observation: optionalText(row.observation),
       // PC-Factory exporta "0" quando a causa raiz não é preenchida → trata como ausente.
       rootCause: cleanRootCause(row.rootCause),
+      occurrence,
       dataQualityIssue: detectDataQualityIssue(statusCategory, startDateTime, endDateTime, durationMinutes),
       // TAREFA 7: usa a technicalKey da planilha quando presente; senão gera uma única por linha.
       technicalKey:
@@ -740,7 +823,7 @@ function coerceStatusCategory(value: unknown): PcFactoryStatusCategory | null {
  * 3) "Tempo Decorrido [hr]" da aba bruta (fração de dia, regra <1.5 → ×24);
  * 4) coluna genérica de duração.
  */
-function resolveFallbackMinutes(row: PcFactoryExcelRow): number | null {
+function resolveFallbackMinutes(row: PcFactoryExcelRow, decimalHours: boolean): number | null {
   const explicitMinutes = parsePlainNumber(row.durationMinutes);
   if (explicitMinutes !== null && explicitMinutes >= 0) return round(explicitMinutes);
 
@@ -748,8 +831,14 @@ function resolveFallbackMinutes(row: PcFactoryExcelRow): number | null {
   if (explicitHours !== null && explicitHours >= 0) return round(explicitHours * 60);
 
   if (row.elapsedDayFraction !== undefined && row.elapsedDayFraction !== "") {
-    const fromElapsed = parseAgGridElapsedToMinutes(row.elapsedDayFraction);
-    if (fromElapsed !== null) return fromElapsed;
+    // Resumo diário: "Tempo Decorrido[hr]" já é HORAS DECIMAIS → ×60 direto (sem heurística ×24).
+    if (decimalHours) {
+      const hours = parsePlainNumber(row.elapsedDayFraction);
+      if (hours !== null && hours >= 0) return round(hours * 60);
+    } else {
+      const fromElapsed = parseAgGridElapsedToMinutes(row.elapsedDayFraction);
+      if (fromElapsed !== null) return fromElapsed;
+    }
   }
 
   return parseDurationToMinutes(row.duration);
@@ -761,7 +850,7 @@ function resolveFallbackMinutes(row: PcFactoryExcelRow): number | null {
  * 3) "Tempo Decorrido Real[hr]" da aba bruta (fração de dia, regra <1.5 → ×24).
  * Retorna null quando a coluna real não existe — aí os cálculos caem em durationHours.
  */
-function resolveRealDurationMinutes(row: PcFactoryExcelRow): number | null {
+function resolveRealDurationMinutes(row: PcFactoryExcelRow, decimalHours: boolean): number | null {
   const explicitMinutes = parsePlainNumber(row.realDurationMinutes);
   if (explicitMinutes !== null && explicitMinutes >= 0) return round(explicitMinutes);
 
@@ -769,8 +858,14 @@ function resolveRealDurationMinutes(row: PcFactoryExcelRow): number | null {
   if (explicitHours !== null && explicitHours >= 0) return round(explicitHours * 60);
 
   if (row.elapsedRealDayFraction !== undefined && row.elapsedRealDayFraction !== "") {
-    const fromElapsed = parseAgGridElapsedToMinutes(row.elapsedRealDayFraction);
-    if (fromElapsed !== null) return fromElapsed;
+    // Resumo diário: "Tempo Decorrido Real" já é HORAS DECIMAIS → ×60 direto (sem ×24).
+    if (decimalHours) {
+      const hours = parsePlainNumber(row.elapsedRealDayFraction);
+      if (hours !== null && hours >= 0) return round(hours * 60);
+    } else {
+      const fromElapsed = parseAgGridElapsedToMinutes(row.elapsedRealDayFraction);
+      if (fromElapsed !== null) return fromElapsed;
+    }
   }
 
   return null;

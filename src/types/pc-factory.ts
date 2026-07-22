@@ -393,6 +393,21 @@ export type PcFactoryImportError = {
   mensagem: string;
 };
 
+/**
+ * Layout de planilha detectado na leitura (auditoria da importação):
+ *  - PC_FACTORY_IMPORT: aba ajustada `Import_PC_FACTORY` (camelCase em inglês).
+ *  - PC_FACTORY_AG_GRID: export transacional ag-grid (Início/Término; "Tempo Decorrido [hr]"
+ *    como FRAÇÃO DE DIA → ×24).
+ *  - PC_FACTORY_AG_GRID_DAILY_SUMMARY: pivô agregado Recurso × Status (coluna "Ocorrência",
+ *    sem Início/Término; "Tempo Decorrido[hr]" já em HORAS DECIMAIS → usado direto, sem ×24).
+ *  - UNKNOWN: layout não reconhecido.
+ */
+export type PcFactoryLayoutType =
+  | "PC_FACTORY_IMPORT"
+  | "PC_FACTORY_AG_GRID"
+  | "PC_FACTORY_AG_GRID_DAILY_SUMMARY"
+  | "UNKNOWN";
+
 /** Motivos pelos quais uma linha foi ignorada (auditoria — TAREFA 9). */
 export type PcFactoryIgnoredReasons = {
   noResource: number;
@@ -440,6 +455,13 @@ export type PcFactoryImportResult = {
   missingRealDurationRows: number;
   /** Aba efetivamente lida (Import_PC_FACTORY, ag-grid, etc.). */
   sheetUsed: string | null;
+  /** Layout detectado na leitura (TAREFA 7). */
+  layoutType: PcFactoryLayoutType;
+  /**
+   * Soma da coluna "Ocorrência" (nº de eventos agregados) no layout de resumo diário.
+   * Auditoria da importação (TAREFA 6/8) — NÃO é persistida por linha (sem coluna no banco).
+   */
+  totalOccurrences: number;
   periodDetected: { start: string | null; end: string | null };
   resourcesDetected: number;
   groupsDetected: string[];
@@ -465,6 +487,10 @@ export type PcFactoryExcelRow = {
   statusCode?: unknown;
   status?: unknown;
   statusDetails?: unknown;
+  /** "Ocorrência" — nº de eventos agregados na linha (layout de resumo diário). */
+  occurrence?: unknown;
+  /** "(R)Data de Produção" — data do dia agregado (layout de resumo diário). */
+  productionDate?: unknown;
   /** Cor explícita do status, se a planilha trouxer coluna de cor (Cor/Color/Status Color…). */
   statusColor?: unknown;
   /** Colunas pré-calculadas da aba ajustada (usadas como fallback p/ status desconhecido). */
