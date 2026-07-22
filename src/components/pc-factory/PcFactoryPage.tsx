@@ -39,10 +39,6 @@ const PcFactoryTrendChart = dynamic(() => import("@/components/pc-factory/PcFact
   ssr: false,
   loading: () => <ChartSkeleton className="xl:col-span-12" />
 });
-const PcFactoryRootCauseChart = dynamic(
-  () => import("@/components/pc-factory/PcFactoryRootCauseChart").then((m) => m.PcFactoryRootCauseChart),
-  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-6" /> }
-);
 
 export type AppliedPcFactoryFilters = {
   startDate: string;
@@ -229,8 +225,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
             <PcFactoryStatusChart className="xl:col-span-5" slices={data.statusDistribution} />
             <PcFactoryMaintenanceSplitChart className="xl:col-span-7" split={data.maintenanceSplit} />
 
-            <PcFactoryReliabilityTable className="xl:col-span-6" rows={data.reliabilityByMachine} onSelect={openDetails} />
-            <PcFactoryRootCauseChart className="xl:col-span-6" rows={data.rootCausePareto} />
+            <PcFactoryReliabilityTable className="xl:col-span-12" rows={data.reliabilityByMachine} onSelect={openDetails} />
 
             <PcFactoryCriticalMachinesStackedChart
               className="xl:col-span-6"
