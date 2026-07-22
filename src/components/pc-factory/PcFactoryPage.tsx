@@ -234,7 +234,11 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
             />
             <PcFactoryCompositionChart className="xl:col-span-6" rows={data.productionLines} />
 
-            <PcFactoryTrendChart className="xl:col-span-12" points={data.trend} />
+            <PcFactoryTrendChart
+              className="xl:col-span-12"
+              points={data.trend}
+              selectedMachine={appliedFilters.resources.length === 1 ? appliedFilters.resources[0] : null}
+            />
           </section>
 
           <PcFactoryRecordsTable initial={data.records} filters={toTableFilters(appliedFilters)} onSelectResource={openDetails} />

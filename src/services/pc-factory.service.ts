@@ -742,29 +742,25 @@ function buildGroupSummary(records: AnalyticsRecord[]): PcFactoryGroupRow[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* 5. Tendência (dia se curto, mês se longo)                          */
+/* 5. Tendência (sempre mensal — YYYY-MM)                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Evolução SEMPRE mensal (chave YYYY-MM), independente do tamanho do período.
+ * Reaproveita a base oficial: horas via aggregateHours (durationHours) e
+ * disponibilidade via availability(plannedHours, stoppedHours). Respeita todos
+ * os filtros da página (inclusive máquina, via buildWhere → resourceName), pois
+ * os registros vêm de loadRecords(params). Ordenação cronológica crescente
+ * (YYYY-MM ordena lexicograficamente = cronologicamente).
+ */
 export async function getPcFactoryTrend(params: PcFactoryQueryParams): Promise<PcFactoryTrendPoint[]> {
   const records = (await loadRecords(params)).filter((r) => r.startDateTime);
   if (records.length === 0) return [];
 
-  let min = records[0].startDateTime as Date;
-  let max = records[0].startDateTime as Date;
-  for (const r of records) {
-    const d = r.startDateTime as Date;
-    if (d < min) min = d;
-    if (d > max) max = d;
-  }
-  const spanDays = (max.getTime() - min.getTime()) / 86_400_000;
-  const daily = spanDays <= 62;
-
   const buckets = new Map<string, AnalyticsRecord[]>();
   for (const r of records) {
     const d = r.startDateTime as Date;
-    const key = daily
-      ? `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
-      : `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
+    const key = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
     const list = buckets.get(key);
     if (list) list.push(r);
     else buckets.set(key, [r]);
@@ -774,10 +770,9 @@ export async function getPcFactoryTrend(params: PcFactoryQueryParams): Promise<P
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([period, list]) => {
       const agg = aggregateHours(list);
-      const label = daily ? period.slice(8) + "/" + period.slice(5, 7) : monthLabel(period);
       return {
         period,
-        label,
+        label: monthLabel(period),
         maintenanceHours: agg.maintenanceHours,
         mechanicalHours: agg.mechanicalHours,
         electricalHours: agg.electricalHours,
