@@ -676,6 +676,71 @@ export async function getPcFactoryResourceRanking(params: PcFactoryQueryParams):
   return buildResourceRanking(await loadRecords(params)).sort((a, b) => b.maintenanceHours - a.maintenanceHours);
 }
 
+export type PcFactoryMachineBelowAverage = {
+  machineName: string;
+  machineCode: string | null;
+  availability: number;
+  plannedHours: number;
+  maintenanceHours: number;
+  downtimeHours: number;
+  gapToAverage: number;
+};
+
+export type PcFactoryMachinesBelowAverageResult = {
+  /** Média de disponibilidade das máquinas válidas (null quando não há dados). */
+  averageAvailability: number | null;
+  /** Máquinas abaixo da média, da pior para a melhor disponibilidade. */
+  machinesBelowAverage: PcFactoryMachineBelowAverage[];
+  /** Quantidade de máquinas abaixo da média. */
+  count: number;
+  /** Total de máquinas válidas (tempo planejado > 0) consideradas na média. */
+  totalMachines: number;
+};
+
+/**
+ * "Máquinas Críticas" da aba Início: máquinas com disponibilidade ABAIXO da média
+ * geral do PC-Factory no período. Reaproveita a disponibilidade OFICIAL por máquina
+ * (getPcFactoryResourceRanking → availabilityPercent), que usa durationHours e já
+ * exclui "Fora de Turno"/"Recurso Não Programado" do tempo planejado — sem regra
+ * paralela. Só considera máquinas com tempo planejado > 0 (availability != null).
+ * Blindado contra NaN/Infinity.
+ */
+export async function getPcFactoryMachinesBelowAverage(
+  params: PcFactoryQueryParams = {}
+): Promise<PcFactoryMachinesBelowAverageResult> {
+  const rows = await getPcFactoryResourceRanking(params);
+  const valid = rows.filter(
+    (row) => row.availabilityPercent !== null && Number.isFinite(row.availabilityPercent) && row.plannedHours > 0
+  );
+
+  if (valid.length === 0) {
+    return { averageAvailability: null, machinesBelowAverage: [], count: 0, totalMachines: 0 };
+  }
+
+  const average = valid.reduce((sum, row) => sum + (row.availabilityPercent as number), 0) / valid.length;
+  const round1 = (value: number) => Number(value.toFixed(1));
+
+  const machinesBelowAverage = valid
+    .filter((row) => (row.availabilityPercent as number) < average)
+    .sort((a, b) => (a.availabilityPercent as number) - (b.availabilityPercent as number))
+    .map((row) => ({
+      machineName: row.resourceName,
+      machineCode: row.resourceCode,
+      availability: round1(row.availabilityPercent as number),
+      plannedHours: round1(row.plannedHours),
+      maintenanceHours: round1(row.maintenanceHours),
+      downtimeHours: round1(row.stoppedHours),
+      gapToAverage: round1(average - (row.availabilityPercent as number))
+    }));
+
+  return {
+    averageAvailability: round1(average),
+    machinesBelowAverage,
+    count: machinesBelowAverage.length,
+    totalMachines: valid.length
+  };
+}
+
 export async function getPcFactoryProductionLineSummary(params: PcFactoryQueryParams): Promise<PcFactoryProductionLineRow[]> {
   const records = await loadRecords(params);
   const groups = new Map<string, AnalyticsRecord[]>();

@@ -19,10 +19,13 @@ import { prisma } from "@/lib/prisma";
 import { getCriticalAlertsCount } from "@/services/alerts.service";
 import {
   getCriticalEquipmentsByOrders,
-  getCriticalEquipmentsSummary,
   getTopEquipmentsByCorrectiveVolume
 } from "@/services/critical-equipments.service";
 import { getDerivedAlerts } from "@/services/derived-alerts.service";
+import {
+  getPcFactoryMachinesBelowAverage,
+  type PcFactoryMachinesBelowAverageResult
+} from "@/services/pc-factory.service";
 import { getLubricantConsumption } from "@/services/lubricants.service";
 import { getMostUsedMaterialsCount } from "@/services/materials.service";
 import { countPublishedProcedures } from "@/services/procedures.service";
@@ -107,13 +110,13 @@ export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promi
       where: { status: { in: OPEN_SERVICE_ORDER_STATUSES }, ...excludeInvalidTestEquipmentWhere() }
     }),
     getPendingPurchasesCount(),
-    // Máquinas críticas = MESMA regra da aba Equipamentos Críticos (score ≥ 80,
-    // por equipamento raiz, exclui PL/PV e sem equipamento) — não a criticidade
-    // de cadastro. Garante que o card bata com /dashboard/equipamentos-criticos.
-    getCriticalEquipmentsSummary({
+    // Máquinas críticas = máquinas ABAIXO da média de disponibilidade do PC-Factory
+    // no período (fonte oficial PcFactoryRecord). NÃO usa Ordens de Serviço nem a aba
+    // Equipamentos Críticos. Ver getPcFactoryMachinesBelowAverage.
+    getPcFactoryMachinesBelowAverage({
       startDate: toInputDate(period.startDate),
       endDate: toInputDate(period.endDate)
-    }).then((summary) => summary.totalCriticalEquipments),
+    }).then((result) => result.count),
     // Consumo (SAÍDA) de lubrificantes via service oficial (fonte única).
     getLubricantConsumption(period),
     getMostUsedMaterialsCount(period),
@@ -427,7 +430,8 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     topMachinesBreakIndex,
     hoursByCollaborator,
     purchasesByMonth,
-    lubricantConsumptionByPeriod
+    lubricantConsumptionByPeriod,
+    pcFactoryCritical
   ] = await Promise.all([
     currentKpis,
     getDashboardKPIComparisons(period, currentKpis),
@@ -440,17 +444,26 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     getHoursByCollaborator(period),
     // "Compras por mês" usa o ANO do fim do período (mais recente/relevante).
     getPurchasesByMonth(period.endDate.getUTCFullYear()),
-    getLubricantConsumptionByPeriod(period)
+    getLubricantConsumptionByPeriod(period),
+    // Máquinas abaixo da média de disponibilidade do PC-Factory (card Máquinas Críticas).
+    getPcFactoryMachinesBelowAverage({
+      startDate: toInputDate(period.startDate),
+      endDate: toInputDate(period.endDate)
+    })
   ]);
 
+  // Garante que o card use exatamente o resultado detalhado do PC-Factory (média + top).
+  kpis.criticalMachines = pcFactoryCritical.count;
+
   // TAREFA 14 — Auditoria de consistência (dev): estes números devem bater com as
-  // abas oficiais. OS abertas = Ordens (soma dos status em aberto); compras
-  // pendentes = Compras Pendentes; máquinas críticas = Equipamentos Críticos;
+  // abas oficiais. OS abertas = Ordens; compras pendentes = Compras Pendentes;
+  // máquinas críticas = abaixo da média de disponibilidade do PC-Factory;
   // procedimentos = Publicados da Central.
   console.info(
     `[dashboard-inicio] período ${toInputDate(period.startDate)}→${toInputDate(period.endDate)} | ` +
       `OS abertas: ${kpis.openServiceOrders} | compras pendentes: ${kpis.pendingPurchases} | ` +
-      `máquinas críticas: ${kpis.criticalMachines} | procedimentos publicados: ${kpis.activeProcedures} | ` +
+      `máquinas críticas (PC-Factory < média ${pcFactoryCritical.averageAvailability ?? "—"}%): ${pcFactoryCritical.count}` +
+      ` de ${pcFactoryCritical.totalMachines} | procedimentos publicados: ${kpis.activeProcedures} | ` +
       `corretiva/preventiva: ${correctivePreventiveChart.corrective}/${correctivePreventiveChart.preventive}`
   );
 
@@ -467,7 +480,8 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     topMachinesBreakIndex,
     hoursByCollaborator,
     purchasesByMonth,
-    lubricantConsumptionByPeriod
+    lubricantConsumptionByPeriod,
+    pcFactoryCritical
   };
 }
 
@@ -562,7 +576,7 @@ export function getEmptyDashboardData(): DashboardData {
     kpis: [
       emptyKpi("OS Abertas", "blue", ClipboardList, "Sem registros"),
       emptyKpi("Compras Pendentes", "gold", ShoppingCart, "Aguardando importação"),
-      emptyKpi("Máquinas Críticas", "red", AlertTriangle, "Aguardando importação"),
+      emptyKpi("Máquinas Críticas", "red", AlertTriangle, "Aguardando importação PC-Factory"),
       emptyKpi("Consumo Lubrificantes", "blue", Droplet, "Aguardando importação"),
       emptyKpi("Materiais Mais Utilizados", "gold", Package, "Aguardando integração com materiais"),
       emptyKpi("Procedimentos Ativos", "blue", FileText, "Aguardando importação")
@@ -635,6 +649,53 @@ function snapshotSubtitle(label: string): KPIComparison {
   return { status: "unavailable", label };
 }
 
+function percentLabel(value: number): string {
+  return `${value.toFixed(1).replace(".", ",")}%`;
+}
+
+/**
+ * Card "Máquinas Críticas" da aba Início — fonte PC-Factory: máquinas ABAIXO da
+ * média de disponibilidade no período. Valor = quantidade; subtítulo com a média;
+ * tooltip com as piores; clique abre a aba PC-Factory (com o período atual).
+ */
+function buildMachinesCriticalKpi(data: DatabaseDashboardData): DashboardKPI {
+  const pc = data.pcFactoryCritical;
+  const hasData = pc.averageAvailability !== null;
+  const avgLabel = hasData ? percentLabel(pc.averageAvailability as number) : null;
+
+  const startDate = toInputDate(data.period.startDate);
+  const endDate = toInputDate(data.period.endDate);
+  const href = `/dashboard/pc-factory?view=below-average&startDate=${startDate}&endDate=${endDate}`;
+
+  const tooltip =
+    pc.machinesBelowAverage.length > 0
+      ? [
+          `Máquinas críticas por disponibilidade PC-Factory (méd. ${avgLabel})`,
+          ...pc.machinesBelowAverage
+            .slice(0, 5)
+            .map((machine, index) => `${index + 1}. ${machine.machineName} — ${percentLabel(machine.availability)}`)
+        ].join("\n")
+      : undefined;
+
+  const subtitle = !hasData
+    ? "Aguardando importação PC-Factory"
+    : pc.count === 0
+      ? `Todas acima da média (méd. ${avgLabel})`
+      : `Abaixo da média PC-Factory · méd. ${avgLabel}`;
+
+  return {
+    title: "Máquinas Críticas",
+    value: String(pc.count),
+    tone: "red",
+    icon: AlertTriangle,
+    comparison: snapshotSubtitle(subtitle),
+    isEmpty: !hasData,
+    emptyHint: "Aguardando importação PC-Factory",
+    href,
+    tooltip
+  };
+}
+
 /** Rótulo de mês (ex.: "Jan/24") — inclui o ano para não confundir meses de anos distintos. */
 function monthLabel(date: Date): string {
   return `${formatMonthName(date)}/${String(date.getUTCFullYear()).slice(2)}`;
@@ -703,15 +764,7 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
         comparison: snapshotSubtitle("Compras Y01 aguardando ação"),
         emptyHint: "Nenhuma compra pendente"
       }),
-      buildKpi({
-        title: "Máquinas Críticas",
-        rawValue: data.kpis.criticalMachines,
-        value: String(data.kpis.criticalMachines),
-        tone: "red",
-        icon: AlertTriangle,
-        comparison: snapshotSubtitle("Score crítico ≥ 80 no período"),
-        emptyHint: "Nenhum equipamento crítico"
-      }),
+      buildMachinesCriticalKpi(data),
       buildKpi({
         title: "Consumo Lubrificantes",
         rawValue: data.kpis.lubricantConsumption,

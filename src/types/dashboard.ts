@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import type { AlertStatus, AlertType, Criticality, Priority, PurchaseStatus } from "@prisma/client";
+import type { PcFactoryMachinesBelowAverageResult } from "@/services/pc-factory.service";
 import type { PeriodVariation } from "@/utils/period";
 
 export type KPITrendDirection = "up" | "down" | "stable";
@@ -24,6 +25,10 @@ export type DashboardKPI = {
   isEmpty: boolean;
   /** Texto auxiliar exibido quando isEmpty (ex.: "Sem registros no período"). */
   emptyHint?: string;
+  /** Rota de destino ao clicar no card (opcional). */
+  href?: string;
+  /** Texto auxiliar mostrado ao passar o mouse no card (tooltip nativo). */
+  tooltip?: string;
 };
 
 export type ChartPoint = Record<string, string | number>;
@@ -169,4 +174,6 @@ export type DatabaseDashboardData = {
   hoursByCollaborator: HoursByCollaboratorData[];
   purchasesByMonth: PurchasesByMonthData[];
   lubricantConsumptionByPeriod: LubricantConsumptionPoint[];
+  /** Máquinas abaixo da média de disponibilidade do PC-Factory (card Máquinas Críticas). */
+  pcFactoryCritical: PcFactoryMachinesBelowAverageResult;
 };

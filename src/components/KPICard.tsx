@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ArrowDown, ArrowRight, ArrowUp, Clock, Minus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { DashboardKPI } from "@/types/dashboard";
@@ -28,8 +29,13 @@ export function KPICard({ kpi }: KPICardProps) {
   const Icon = kpi.icon;
   const footer = resolveFooter(kpi);
 
-  return (
-    <article className="panel flex min-h-[110px] items-center gap-4 rounded-lg p-4 transition hover:-translate-y-0.5 hover:shadow-premium">
+  const card = (
+    <article
+      title={kpi.tooltip}
+      className={`panel flex min-h-[110px] items-center gap-4 rounded-lg p-4 transition hover:-translate-y-0.5 hover:shadow-premium ${
+        kpi.href ? "cursor-pointer" : ""
+      }`}
+    >
       <div className={`grid h-16 w-16 shrink-0 place-items-center rounded-full shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] ${toneMap[kpi.tone]}`}>
         <Icon className="h-8 w-8" strokeWidth={1.8} />
       </div>
@@ -43,6 +49,16 @@ export function KPICard({ kpi }: KPICardProps) {
       </div>
     </article>
   );
+
+  if (kpi.href) {
+    return (
+      <Link href={kpi.href} className="block">
+        {card}
+      </Link>
+    );
+  }
+
+  return card;
 }
 
 function resolveFooter(kpi: DashboardKPI): { Icon: LucideIcon; className: string; text: string } {
