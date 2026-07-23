@@ -6,7 +6,8 @@ import type {
   CollaboratorInput,
   CollaboratorListParams,
   CollaboratorListResult,
-  CollaboratorRow
+  CollaboratorRow,
+  CollaboratorStats
 } from "@/types/collaborators";
 
 const AREA_ORDER: CollaboratorArea[] = [
@@ -108,6 +109,33 @@ export async function listCollaborators(params: CollaboratorListParams = {}): Pr
     pageSize,
     totalPages: Math.max(1, Math.ceil(total / pageSize))
   };
+}
+
+/**
+ * Indicadores de cadastro da equipe (cards da página Equipe de Manutenção).
+ * Vêm 100% da base de colaboradores — nada de horas. "Inativos" = todo colaborador
+ * cujo status não é ATIVO (Férias/Afastado/Desligado).
+ */
+export async function getCollaboratorStats(): Promise<CollaboratorStats> {
+  const [total, byStatus, byArea] = await Promise.all([
+    prisma.collaborator.count(),
+    prisma.collaborator.groupBy({ by: ["status"], _count: { _all: true } }),
+    prisma.collaborator.groupBy({ by: ["area"], _count: { _all: true } })
+  ]);
+
+  const active = byStatus.find((row) => row.status === CollaboratorStatus.ATIVO)?._count._all ?? 0;
+
+  const areaCounts: Record<CollaboratorArea, number> = {
+    [CollaboratorArea.MECANICA]: 0,
+    [CollaboratorArea.ELETRICA]: 0,
+    [CollaboratorArea.AUTOMACAO]: 0,
+    [CollaboratorArea.OUTROS]: 0
+  };
+  for (const row of byArea) {
+    areaCounts[row.area] = row._count._all;
+  }
+
+  return { total, active, inactive: total - active, byArea: areaCounts };
 }
 
 export async function getCollaboratorById(id: string): Promise<CollaboratorRow | null> {

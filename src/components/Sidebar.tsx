@@ -27,7 +27,7 @@ const baseMenu = [
   { label: "Equipamentos Críticos", href: "/dashboard/equipamentos-criticos", icon: ShieldCheck },
   { label: "PC-Factory", href: "/dashboard/pc-factory", icon: Factory },
   { label: "Central de Procedimentos", href: "/dashboard/procedimentos", icon: FileText },
-  { label: "Equipe e Horas", href: "/dashboard/equipe-horas", icon: UsersRound },
+  { label: "Equipe de Manutenção", href: "/dashboard/equipe-horas", icon: UsersRound },
   { label: "Preventivas Programadas", href: "/dashboard/preventivas-programadas", icon: CalendarCheck2 },
   { label: "Configurações", href: "/dashboard/configuracoes", icon: Settings }
 ];

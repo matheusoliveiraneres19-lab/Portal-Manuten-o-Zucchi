@@ -27,8 +27,8 @@ const modules = {
     description: "Organize procedimentos técnicos, instruções operacionais e documentos de referência."
   },
   "equipe-horas": {
-    title: "Equipe e Horas",
-    description: "Acompanhe apontamentos, disponibilidade e produtividade da equipe de manutenção."
+    title: "Equipe de Manutenção",
+    description: "Gerencie o cadastro dos colaboradores da manutenção, suas áreas, funções, matrículas e status."
   }
 } as const;
 

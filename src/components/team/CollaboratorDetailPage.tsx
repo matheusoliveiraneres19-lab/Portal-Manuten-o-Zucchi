@@ -70,7 +70,7 @@ export function CollaboratorDetailPage({ data }: { data: CollaboratorDetailData 
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78),rgba(0,0,0,0.44)),radial-gradient(circle_at_88%_8%,rgba(196,154,69,0.15),transparent_22rem)]" />
         <div className="relative z-10">
           <Link href="/dashboard/equipe-horas" className="mb-3 inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gold transition hover:text-champagne">
-            <ArrowLeft className="h-3.5 w-3.5" /> Equipe e Horas
+            <ArrowLeft className="h-3.5 w-3.5" /> Equipe de Manutenção
           </Link>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>

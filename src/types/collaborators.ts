@@ -2,6 +2,14 @@ import type { CollaboratorArea, CollaboratorStatus } from "@prisma/client";
 
 export type { CollaboratorArea, CollaboratorStatus };
 
+/** Indicadores de cadastro da equipe (cards da página Equipe de Manutenção). */
+export type CollaboratorStats = {
+  total: number;
+  active: number;
+  inactive: number;
+  byArea: Record<CollaboratorArea, number>;
+};
+
 /** Linha de colaborador exposta pela API/serviço (datas serializadas em ISO). */
 export type CollaboratorRow = {
   id: string;

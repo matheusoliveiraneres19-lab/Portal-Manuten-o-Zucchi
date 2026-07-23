@@ -1,16 +1,13 @@
 import { CollaboratorsPage } from "@/components/team/CollaboratorsPage";
-import { listCollaborators } from "@/services/collaborators.service";
-import { getTeamHours } from "@/services/team-hours.service";
-import { monthRange } from "@/utils/date-range";
+import { getCollaboratorStats, listCollaborators } from "@/services/collaborators.service";
 
 export const dynamic = "force-dynamic";
 
-export default async function EquipeHorasRoute() {
-  const now = new Date();
-  const [initial, initialHours] = await Promise.all([
+export default async function EquipeManutencaoRoute() {
+  const [initial, stats] = await Promise.all([
     listCollaborators({ page: 1, pageSize: 20 }),
-    getTeamHours(monthRange(now.getUTCFullYear(), now.getUTCMonth() + 1))
+    getCollaboratorStats()
   ]);
 
-  return <CollaboratorsPage initial={initial} initialHours={initialHours} />;
+  return <CollaboratorsPage initial={initial} stats={stats} />;
 }

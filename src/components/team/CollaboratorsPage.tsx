@@ -2,24 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { m } from "framer-motion";
-import { Loader2, Search, UserPlus, Users } from "lucide-react";
+import { Boxes, Cpu, Loader2, Search, UserCheck, UserPlus, Users, UserX, Wrench, Zap } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { AREA_LABELS, CollaboratorFormModal, STATUS_LABELS } from "@/components/team/CollaboratorFormModal";
-import { TeamHoursPanel } from "@/components/team/TeamHoursPanel";
 import type {
   CollaboratorArea,
   CollaboratorListResult,
   CollaboratorRow,
-  CollaboratorStatus,
-  TeamHoursResult
+  CollaboratorStats,
+  CollaboratorStatus
 } from "@/types/collaborators";
 
 type CollaboratorsPageProps = {
   initial: CollaboratorListResult;
-  initialHours: TeamHoursResult;
+  stats: CollaboratorStats;
 };
-
-type TabKey = "colaboradores" | "horas";
 
 const STATUS_TONE: Record<CollaboratorStatus, string> = {
   ATIVO: "bg-[#3f8f6b]/15 text-[#5fd0a0]",
@@ -28,9 +25,8 @@ const STATUS_TONE: Record<CollaboratorStatus, string> = {
   DESLIGADO: "bg-danger/15 text-rose-300"
 };
 
-export function CollaboratorsPage({ initial, initialHours }: CollaboratorsPageProps) {
+export function CollaboratorsPage({ initial, stats }: CollaboratorsPageProps) {
   const router = useRouter();
-  const [tab, setTab] = useState<TabKey>("colaboradores");
   const [result, setResult] = useState<CollaboratorListResult>(initial);
   const [status, setStatus] = useState<CollaboratorStatus | "">("");
   const [area, setArea] = useState<CollaboratorArea | "">("");
@@ -87,9 +83,9 @@ export function CollaboratorsPage({ initial, initialHours }: CollaboratorsPagePr
                 Equipe de manutenção
               </span>
             </div>
-            <h1 className="font-serif text-3xl leading-tight text-white sm:text-4xl">Equipe e Horas</h1>
+            <h1 className="font-serif text-3xl leading-tight text-white sm:text-4xl">Equipe de Manutenção</h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-zinc-300">
-              Cadastro dos colaboradores da manutenção. As horas apontadas serão casadas por nome nas próximas etapas.
+              Gerencie o cadastro dos colaboradores da manutenção, suas áreas, funções, matrículas e status.
             </p>
           </div>
           <button
@@ -102,20 +98,17 @@ export function CollaboratorsPage({ initial, initialHours }: CollaboratorsPagePr
         </div>
       </header>
 
-      {/* Abas */}
-      <div className="flex gap-1 border-b border-white/10">
-        <TabButton active={tab === "colaboradores"} onClick={() => setTab("colaboradores")}>
-          Colaboradores
-        </TabButton>
-        <TabButton active={tab === "horas"} onClick={() => setTab("horas")}>
-          Horas da equipe
-        </TabButton>
-      </div>
+      {/* Cards de cadastro (base de colaboradores, sem horas) */}
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+        <StatCard label="Colaboradores" value={stats.total} icon={Users} tone="gold" />
+        <StatCard label="Ativos" value={stats.active} icon={UserCheck} tone="emerald" />
+        <StatCard label="Inativos" value={stats.inactive} icon={UserX} tone="danger" />
+        <StatCard label="Mecânica" value={stats.byArea.MECANICA} icon={Wrench} tone="petroleum" />
+        <StatCard label="Elétrica" value={stats.byArea.ELETRICA} icon={Zap} tone="petroleum" />
+        <StatCard label="Automação" value={stats.byArea.AUTOMACAO} icon={Cpu} tone="petroleum" />
+        <StatCard label="Outros" value={stats.byArea.OUTROS} icon={Boxes} tone="petroleum" />
+      </section>
 
-      {tab === "horas" ? (
-        <TeamHoursPanel initial={initialHours} onGoalsChanged={load} />
-      ) : (
-        <>
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
@@ -171,7 +164,6 @@ export function CollaboratorsPage({ initial, initialHours }: CollaboratorsPagePr
                   <th className="px-4 py-2.5">Função</th>
                   <th className="px-4 py-2.5">Área</th>
                   <th className="px-4 py-2.5">Turno</th>
-                  <th className="px-4 py-2.5 text-right">Meta (h)</th>
                   <th className="px-4 py-2.5">Status</th>
                 </tr>
               </thead>
@@ -188,7 +180,6 @@ export function CollaboratorsPage({ initial, initialHours }: CollaboratorsPagePr
                     <td className="px-4 py-2.5 text-zinc-600">{row.role ?? "—"}</td>
                     <td className="px-4 py-2.5">{AREA_LABELS[row.area]}</td>
                     <td className="px-4 py-2.5 text-zinc-600">{row.shift ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{row.monthlyGoal.toLocaleString("pt-BR")}</td>
                     <td className="px-4 py-2.5">
                       <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold ${STATUS_TONE[row.status]}`}>
                         {STATUS_LABELS[row.status]}
@@ -203,27 +194,33 @@ export function CollaboratorsPage({ initial, initialHours }: CollaboratorsPagePr
       </article>
 
       <p className="text-[11px] text-zinc-500">
-        <span className="font-semibold text-gold">Dica:</span> clique em uma linha para abrir a ficha do colaborador (horas, banco de horas e férias).
+        <span className="font-semibold text-gold">Dica:</span> clique em uma linha para abrir a ficha do colaborador (dados, férias e histórico).
       </p>
-        </>
-      )}
 
       <CollaboratorFormModal open={modalOpen} initial={editing} onClose={() => setModalOpen(false)} onSaved={load} />
     </section>
   );
 }
 
-function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+type StatTone = "gold" | "emerald" | "danger" | "petroleum";
+
+const TONE_CLASS: Record<StatTone, string> = {
+  gold: "bg-gold",
+  emerald: "bg-[#3f8f6b]",
+  danger: "bg-danger",
+  petroleum: "bg-petroleum"
+};
+
+function StatCard({ label, value, icon: Icon, tone }: { label: string; value: number; icon: LucideIcon; tone: StatTone }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`relative px-4 py-2 text-sm font-semibold transition ${
-        active ? "text-gold" : "text-zinc-400 hover:text-champagne"
-      }`}
-    >
-      {children}
-      {active ? <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gold" /> : null}
-    </button>
+    <div className="panel flex items-center gap-3 rounded-lg p-3.5">
+      <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] ${TONE_CLASS[tone]}`}>
+        <Icon className="h-5 w-5" strokeWidth={1.8} />
+      </div>
+      <div className="min-w-0">
+        <h3 className="truncate text-[10px] font-extrabold uppercase tracking-wide text-zinc-800">{label}</h3>
+        <div className="text-2xl font-light text-zinc-950">{value.toLocaleString("pt-BR")}</div>
+      </div>
+    </div>
   );
 }
