@@ -255,10 +255,11 @@ function normalizeServiceOrderRow(row: LinhaOrdemServicoNormalizada, line: numbe
   }
 
   const openedAt = converterDataExcel(row.openedAt);
-  // Data de fechamento (quando a coluna de conclusão/encerramento existir no
-  // arquivo). Fica null quando ausente — nunca inventamos data. OS com status
-  // fechado e sem esta data são sinalizadas na auditoria do gráfico do dashboard.
-  const closedAt = converterDataExcel(row.closedAt);
+  // Data de fechamento: só faz sentido para OS FECHADAS. A coluna de término
+  // ("Data-base do fim") existe também em OS abertas (é planejada), então só
+  // gravamos closedAt quando o status é fechado — evita marcar OS aberta como
+  // fechada. Fica null quando ausente; nunca inventamos data.
+  const closedAt = status === ServiceOrderStatus.FECHADA ? converterDataExcel(row.closedAt) : null;
   const workedHours = converterHorasParaDecimal(row.workedHours);
   const responsibleName = limparTexto(row.responsibleName) || "SEM RESPONSÁVEL";
   const title = limparTexto(row.title) || osNumber;

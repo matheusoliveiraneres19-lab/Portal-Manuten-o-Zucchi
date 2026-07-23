@@ -64,6 +64,10 @@ function isClosureDateHeader(key: string): boolean {
     "fim_real",
     "data_fim_real",
     "data_fim",
+    // SAP/Fiori: "Data-base do fim" (data-base de término da ordem). É a única data
+    // de término no export; usada como closedAt SOMENTE p/ OS fechadas (no serviço).
+    "data_base_do_fim",
+    "data_base_fim",
     "data_de_referencia",
     "data_referencia",
     "data_conclusao_efetiva",
