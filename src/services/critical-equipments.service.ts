@@ -202,6 +202,24 @@ export async function getTopEquipmentsByBreakVolume(
     .slice(0, Math.max(1, limit));
 }
 
+/**
+ * Top equipamentos por VOLUME de OS CORRETIVA no período — alimenta o bloco
+ * "Top Máquinas por Volume de OS Corretiva" da aba Início. Reutiliza
+ * `getTopEquipmentsByBreakVolume` (fonte oficial: exclui lubrificação/PL e ordens
+ * sem equipamento) e reordena/filtra pelo nº de corretivas, para o ranking
+ * representar de fato quebras corretivas — não o volume total de ordens.
+ */
+export async function getTopEquipmentsByCorrectiveVolume(
+  params: { startDate?: string; endDate?: string } = {},
+  limit = 5
+): Promise<TopBreakEquipment[]> {
+  const items = await getTopEquipmentsByBreakVolume(params, 50);
+  return items
+    .filter((item) => item.correctiveOrders > 0)
+    .sort((a, b) => b.correctiveOrders - a.correctiveOrders || b.totalOrders - a.totalOrders)
+    .slice(0, Math.max(1, limit));
+}
+
 export async function getCriticalEquipmentsSummary(
   params: Partial<CriticalEquipmentFilters> = {}
 ): Promise<CriticalEquipmentSummary> {

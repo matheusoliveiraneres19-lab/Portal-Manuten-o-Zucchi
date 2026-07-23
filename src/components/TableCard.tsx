@@ -1,5 +1,6 @@
 ﻿import { ShoppingCart } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
+import { SeeAllLink } from "@/components/SeeAllLink";
 import type { PendingPurchase } from "@/types/dashboard";
 
 type TableCardProps = {
@@ -8,6 +9,8 @@ type TableCardProps = {
   className?: string;
   emptyTitle?: string;
   emptyDescription?: string;
+  /** Rota da aba oficial para o botão "Ver todas" (com query params de período). */
+  href?: string;
 };
 
 export function TableCard({
@@ -15,13 +18,14 @@ export function TableCard({
   purchases,
   className = "",
   emptyTitle = "Sem compras pendentes no período",
-  emptyDescription = "Aguardando importação de compras para exibir este indicador."
+  emptyDescription = "Aguardando importação de compras para exibir este indicador.",
+  href
 }: TableCardProps) {
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">{title}</h3>
-        {purchases.length ? <button className="text-xs font-semibold text-petroleum">Ver todas</button> : null}
+        {href ? <SeeAllLink href={href} /> : null}
       </div>
       {purchases.length === 0 ? (
         <EmptyState icon={ShoppingCart} title={emptyTitle} description={emptyDescription} />

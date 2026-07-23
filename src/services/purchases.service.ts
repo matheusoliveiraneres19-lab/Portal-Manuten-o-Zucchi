@@ -742,8 +742,11 @@ export async function getPurchasesByMonth(year: number): Promise<PurchasesByMont
   const start = new Date(Date.UTC(year, 0, 1, 0, 0, 0, 0));
   const end = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
   const records = await prisma.purchaseRecord.findMany({
+    // Escopo Y01 (material): exclui ignorados (CódElim L / Bloq / Frete / fornecedor
+    // eliminado), serviço (Y0008) e regularização (Y04) — mesmo classificador da
+    // aba Compras. Antes só excluía `ignored`, divergindo do KPI/tabela de Compras.
     where: mergeWhere(
-      { ignored: false },
+      Y01_BASE,
       {
         OR: [
           { purchaseOrderDate: { gte: start, lte: end } },

@@ -1,5 +1,6 @@
 import { Trophy } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
+import { SeeAllLink } from "@/components/SeeAllLink";
 
 type RankingItem = {
   name: string;
@@ -13,6 +14,10 @@ type RankingListProps = {
   className?: string;
   emptyTitle?: string;
   emptyDescription?: string;
+  /** Rota da aba oficial para o botão "Ver todas" (com query params de período). */
+  href?: string;
+  /** Como formatar o valor na variante "bars": contagem inteira (padrão) ou %. */
+  unit?: "count" | "percent";
 };
 
 export function RankingList({
@@ -21,7 +26,9 @@ export function RankingList({
   variant,
   className = "",
   emptyTitle = "Sem dados no período",
-  emptyDescription = "Importe ordens ou ajuste o filtro para visualizar este indicador."
+  emptyDescription = "Importe ordens ou ajuste o filtro para visualizar este indicador.",
+  href,
+  unit = "count"
 }: RankingListProps) {
   const maxValue = Math.max(...items.map((item) => item.value), 0) || 1;
 
@@ -29,9 +36,7 @@ export function RankingList({
     <article className={`panel rounded-lg p-4 ${className}`}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">{title}</h3>
-        {variant === "bars" && items.length ? (
-          <button className="text-xs font-semibold text-petroleum">Ver todas</button>
-        ) : null}
+        {href && items.length ? <SeeAllLink href={href} /> : null}
       </div>
       {items.length === 0 ? (
         <EmptyState icon={Trophy} title={emptyTitle} description={emptyDescription} />
@@ -53,7 +58,11 @@ export function RankingList({
                 {item.value}
               </span>
             ) : (
-              <span className="text-sm font-semibold text-zinc-800">{item.value.toFixed(1).replace(".", ",")}%</span>
+              <span className="text-sm font-semibold text-zinc-800">
+                {unit === "percent"
+                  ? `${item.value.toFixed(1).replace(".", ",")}%`
+                  : item.value.toLocaleString("pt-BR")}
+              </span>
             )}
           </div>
         ))}

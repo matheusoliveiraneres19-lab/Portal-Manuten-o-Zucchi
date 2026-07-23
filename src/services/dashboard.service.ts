@@ -1,10 +1,7 @@
 import {
   AlertStatus,
-  AlertType,
   Criticality,
   LubricantMovementCategory,
-  MaintenanceType,
-  Prisma,
   Priority,
   ServiceOrderStatus
 } from "@prisma/client";
@@ -18,31 +15,23 @@ import {
   ShoppingCart
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import {
-  alerts as mockAlerts,
-  collaboratorHours as mockCollaboratorHours,
-  correctivePreventive as mockCorrectivePreventive,
-  criticalEquipment as mockCriticalEquipment,
-  kpis as mockKpis,
-  lubricantConsumption as mockLubricantConsumption,
-  monthlyPurchases as mockMonthlyPurchases,
-  openClosedOrders as mockOpenClosedOrders,
-  pendingPurchases as mockPendingPurchases,
-  topBreakdownMachines as mockTopBreakdownMachines
-} from "@/data/dashboard";
 import { prisma } from "@/lib/prisma";
 import { getCriticalAlertsCount } from "@/services/alerts.service";
-import { getCriticalEquipmentsByOrders, getTopEquipmentsByBreakVolume } from "@/services/critical-equipments.service";
+import {
+  getCriticalEquipmentsByOrders,
+  getCriticalEquipmentsSummary,
+  getTopEquipmentsByCorrectiveVolume
+} from "@/services/critical-equipments.service";
+import { getDerivedAlerts } from "@/services/derived-alerts.service";
+import { getLubricantConsumption } from "@/services/lubricants.service";
 import { getMostUsedMaterialsCount } from "@/services/materials.service";
+import { countPublishedProcedures } from "@/services/procedures.service";
 import {
   getPendingPurchases,
   getPendingPurchasesCount,
   getPurchasesByMonth
 } from "@/services/purchases.service";
-import {
-  CRITICAL_EQUIPMENT_CRITICALITIES,
-  OPEN_SERVICE_ORDER_STATUSES
-} from "@/services/shared/portal-rules";
+import { OPEN_SERVICE_ORDER_STATUSES } from "@/services/shared/portal-rules";
 import { getHoursByCollaborator } from "@/services/time-entries.service";
 import type {
   CorrectivePreventiveChartData,
@@ -60,11 +49,13 @@ import type {
   TopCriticalEquipmentData,
   TopMachineBreakIndexData
 } from "@/types/dashboard";
-import { formatCurrency, formatDate, formatMonthName, formatPercent, formatShortDate, formatVolume } from "@/utils/formatters";
-import { dayKey, isWithinPeriod, toEndOfDay, toStartOfDay, withinPeriod } from "@/utils/date-range";
+import { formatCurrency, formatDate, formatMonthName, formatPercent, formatVolume } from "@/utils/formatters";
+import { isWithinPeriod, toEndOfDay, toStartOfDay, withinPeriod } from "@/utils/date-range";
 import { getDefaultPortalPeriod, getTodayDate } from "@/utils/date";
-import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
-import { excludeInvalidTestEquipmentWhere } from "@/utils/service-order-classification";
+import {
+  excludeInvalidTestEquipmentWhere,
+  isProgrammedPreventiveOrder
+} from "@/utils/service-order-classification";
 import { calculatePeriodVariation, getPreviousPeriod, toInputDate, type PeriodVariation } from "@/utils/period";
 
 /**
@@ -109,20 +100,25 @@ export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promi
     activeProcedures,
     criticalAlerts
   ] = await Promise.all([
+    // OS "em aberto" = conjunto único de status do portal (aberta/liberada/em
+    // andamento/aguardando material), excluindo registros sem equipamento.
     prisma.serviceOrder.count({
       where: { status: { in: OPEN_SERVICE_ORDER_STATUSES }, ...excludeInvalidTestEquipmentWhere() }
     }),
     getPendingPurchasesCount(),
-    prisma.equipment.count({ where: { criticality: { in: CRITICAL_EQUIPMENT_CRITICALITIES } } }),
-    prisma.lubricantMovement.aggregate({
-      _sum: { absoluteQuantity: true },
-      where: {
-        movementCategory: LubricantMovementCategory.SAIDA,
-        movementDate: withinPeriod(period)
-      }
-    }),
+    // Máquinas críticas = MESMA regra da aba Equipamentos Críticos (score ≥ 80,
+    // por equipamento raiz, exclui PL/PV e sem equipamento) — não a criticidade
+    // de cadastro. Garante que o card bata com /dashboard/equipamentos-criticos.
+    getCriticalEquipmentsSummary({
+      startDate: toInputDate(period.startDate),
+      endDate: toInputDate(period.endDate)
+    }).then((summary) => summary.totalCriticalEquipments),
+    // Consumo (SAÍDA) de lubrificantes via service oficial (fonte única).
+    getLubricantConsumption(period),
     getMostUsedMaterialsCount(period),
-    prisma.procedure.count({ where: { active: true } }),
+    // Procedimentos "ativos" = PUBLICADOS na Central (status "Publicado" + categoria),
+    // não o campo legado `active`. Bate com /dashboard/procedimentos.
+    countPublishedProcedures(),
     getCriticalAlertsCount()
   ]);
 
@@ -130,7 +126,7 @@ export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promi
     openServiceOrders,
     pendingPurchases,
     criticalMachines,
-    lubricantConsumption: Number(lubricantConsumption._sum.absoluteQuantity ?? 0),
+    lubricantConsumption,
     mostUsedMaterials,
     activeProcedures,
     criticalAlerts
@@ -152,17 +148,18 @@ export async function getDashboardKPIComparisons(
   currentKpis?: Promise<DashboardKPIsData> | DashboardKPIsData
 ): Promise<Record<string, PeriodVariation>> {
   const previousPeriod = getPreviousPeriod(period.startDate, period.endDate);
-  const [current, previous] = await Promise.all([
+  // Só os KPIs realmente temporais têm comparativo. Buscamos APENAS eles no período
+  // anterior (lubrificantes + materiais) em vez de recalcular todos os 7 KPIs —
+  // evita repetir a análise pesada de equipamentos críticos para o período anterior.
+  const [current, previousLubricant, previousMaterials] = await Promise.all([
     currentKpis ?? getDashboardKPIs(period),
-    getDashboardKPIs(previousPeriod)
+    getLubricantConsumption(previousPeriod),
+    getMostUsedMaterialsCount(previousPeriod)
   ]);
 
   return {
-    lubricantConsumption: calculatePeriodVariation(
-      current.lubricantConsumption,
-      previous.lubricantConsumption
-    ),
-    mostUsedMaterials: calculatePeriodVariation(current.mostUsedMaterials, previous.mostUsedMaterials)
+    lubricantConsumption: calculatePeriodVariation(current.lubricantConsumption, previousLubricant),
+    mostUsedMaterials: calculatePeriodVariation(current.mostUsedMaterials, previousMaterials)
   };
 }
 
@@ -181,15 +178,23 @@ export async function getOpenClosedServiceOrders(
       status: true
     }
   });
-  const buckets = createDailyBuckets(period);
+  // Agrupado por MÊS (não por dia): abertas x fechadas ao longo do período,
+  // evitando pontos soltos sem contexto. Cada mês do período vira um ponto.
+  const buckets = createMonthlyBuckets(period);
 
   for (const order of orders) {
     if (order.openedAt && isWithinPeriod(order.openedAt, period)) {
-      buckets.get(dayKey(order.openedAt))!.abertas += 1;
+      const bucket = buckets.get(monthKey(order.openedAt));
+      if (bucket) {
+        bucket.abertas += 1;
+      }
     }
 
     if (order.status === ServiceOrderStatus.FECHADA && order.closedAt && isWithinPeriod(order.closedAt, period)) {
-      buckets.get(dayKey(order.closedAt))!.fechadas += 1;
+      const bucket = buckets.get(monthKey(order.closedAt));
+      if (bucket) {
+        bucket.fechadas += 1;
+      }
     }
   }
 
@@ -200,18 +205,27 @@ export async function getCorrectivePreventiveChart(
   periodInput: DashboardPeriodInput
 ): Promise<CorrectivePreventiveChartData> {
   const period = parsePeriod(periodInput);
-  const grouped = await prisma.serviceOrder.groupBy({
-    by: ["type"],
+  // Regra oficial do portal: PREVENTIVA = plano programado (título "PL -"/"PV -"),
+  // via isProgrammedPreventiveOrder — a MESMA usada nas abas Preventivas e
+  // Equipamentos Críticos. CORRETIVA = demais OS válidas do período. Não classifica
+  // pelo enum `type` (regra solta) nem duplica lógica no componente.
+  const orders = await prisma.serviceOrder.findMany({
     where: {
       openedAt: withinPeriod(period),
-      type: { in: [MaintenanceType.CORRETIVA, MaintenanceType.PREVENTIVA] },
       ...excludeInvalidTestEquipmentWhere()
     },
-    _count: { _all: true }
+    select: { title: true }
   });
 
-  const corrective = grouped.find((item) => item.type === MaintenanceType.CORRETIVA)?._count._all ?? 0;
-  const preventive = grouped.find((item) => item.type === MaintenanceType.PREVENTIVA)?._count._all ?? 0;
+  let preventive = 0;
+  let corrective = 0;
+  for (const order of orders) {
+    if (isProgrammedPreventiveOrder(order)) {
+      preventive += 1;
+    } else {
+      corrective += 1;
+    }
+  }
   const total = corrective + preventive;
 
   return {
@@ -255,25 +269,42 @@ function labelToCriticality(label: string): Criticality {
 }
 
 /**
- * Alertas do dashboard (TAREFA 4.8): top 5 equipamentos com mais ordens no período,
- * EXCLUINDO ordens de lubrificação (PL). Motivo fixo "Alto volume de ordens no período".
- * Substitui os alertas genéricos da tabela Alert na lista do dashboard.
+ * Alertas críticos consolidados da aba Início (TAREFA 10). Reutiliza o service
+ * OFICIAL de alertas derivados (getDerivedAlerts), que cruza as MESMAS fontes do
+ * portal: OS corretiva recorrente, OS aberta há muitos dias, compra atrasada,
+ * regularização Y04 de valor alto e lubrificante abaixo do mínimo. Sem dados de
+ * teste. Ordena por severidade (crítico → alto → médio) e devolve os mais graves.
  */
-export async function getTopEquipmentAlerts(period: DashboardPeriod, limit = 5): Promise<CriticalAlertData[]> {
-  const top = await getTopEquipmentsByBreakVolume(
-    { startDate: toInputDate(period.startDate), endDate: toInputDate(period.endDate) },
-    limit
-  );
+export async function getDashboardCriticalAlerts(period: DashboardPeriod, limit = 6): Promise<CriticalAlertData[]> {
+  const alerts = await getDerivedAlerts(period);
 
-  return top.map((equipment) => ({
-    title: "Alto volume de ordens no período",
-    description: `${equipment.totalOrders.toLocaleString("pt-BR")} ordem(ns) no período`,
-    equipmentName: equipment.equipmentName,
-    severity: Priority.ALTA,
-    status: AlertStatus.ABERTO,
-    type: AlertType.QUEBRA_RECORRENTE,
-    createdAt: period.endDate
-  }));
+  return alerts
+    .slice()
+    .sort((a, b) => severityRank(b.severity) - severityRank(a.severity))
+    .slice(0, limit)
+    .map((alert) => ({
+      title: alert.title,
+      description: alert.description,
+      equipmentName: null,
+      severity: alert.severity,
+      status: AlertStatus.ABERTO,
+      type: alert.type,
+      createdAt: period.endDate
+    }));
+}
+
+/** Ordena severidades: crítica > alta > média > demais. */
+function severityRank(severity: Priority): number {
+  switch (severity) {
+    case Priority.CRITICA:
+      return 3;
+    case Priority.ALTA:
+      return 2;
+    case Priority.MEDIA:
+      return 1;
+    default:
+      return 0;
+  }
 }
 
 export async function getTopMachinesBreakIndex(
@@ -281,39 +312,18 @@ export async function getTopMachinesBreakIndex(
   limit = 5
 ): Promise<TopMachineBreakIndexData[]> {
   const period = parsePeriod(periodInput);
-  // Índice de QUEBRA: só corretivas e SEM ordens de lubrificação (prefixo PL),
-  // que não representam falha do equipamento. Fonte única do filtro PL.
-  const breakWhere: Prisma.ServiceOrderWhereInput = {
-    type: MaintenanceType.CORRETIVA,
-    openedAt: withinPeriod(period),
-    equipmentId: { not: null },
-    ...excludeLubricationOrderWhere()
-  };
-  const [totalCorrective, grouped] = await Promise.all([
-    prisma.serviceOrder.count({ where: breakWhere }),
-    prisma.serviceOrder.groupBy({
-      by: ["equipmentId"],
-      where: breakWhere,
-      _count: { _all: true },
-      orderBy: { _count: { equipmentId: "desc" } },
-      take: limit
-    })
-  ]);
-  const equipmentById = await getEquipmentById(grouped.map((item) => item.equipmentId).filter(Boolean) as string[]);
-  const denominator = Math.max(1, totalCorrective);
+  // Top máquinas por VOLUME de OS corretiva, via service OFICIAL de Equipamentos
+  // Críticos (exclui lubrificação/PL e ordens sem equipamento). Substitui o antigo
+  // "índice de quebra" em % por uma contagem clara de OS corretivas por equipamento.
+  const top = await getTopEquipmentsByCorrectiveVolume(
+    { startDate: toInputDate(period.startDate), endDate: toInputDate(period.endDate) },
+    limit
+  );
 
-  return grouped.flatMap((item) => {
-    const equipment = item.equipmentId ? equipmentById.get(item.equipmentId) : null;
-
-    return equipment
-      ? [
-          {
-            equipmentName: equipment.name,
-            breakIndex: roundPercent((item._count._all / denominator) * 100)
-          }
-        ]
-      : [];
-  });
+  return top.map((equipment) => ({
+    equipmentName: equipment.equipmentName,
+    correctiveOrders: equipment.correctiveOrders
+  }));
 }
 
 export async function getLubricantConsumptionByPeriod(
@@ -331,10 +341,16 @@ export async function getLubricantConsumptionByPeriod(
     },
     orderBy: { movementDate: "asc" }
   });
-  const buckets = createConsumptionBuckets(period);
+  // Agrupado por MÊS (igual ao módulo de Lubrificantes), evitando uma curva diária
+  // ruidosa que não bate com a aba. Meses sem saída ficam zerados e o gráfico
+  // mostra empty state quando não há consumo real no período.
+  const buckets = createConsumptionMonthlyBuckets(period);
 
   for (const movement of movements) {
-    buckets.get(dayKey(movement.movementDate))!.consumption += Number(movement.absoluteQuantity);
+    const bucket = buckets.get(monthKey(movement.movementDate));
+    if (bucket) {
+      bucket.consumption += Number(movement.absoluteQuantity);
+    }
   }
 
   return Array.from(buckets.values()).map((item) => ({
@@ -368,12 +384,24 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     getCorrectivePreventiveChart(period),
     getTopCriticalEquipments(period),
     getPendingPurchases(),
-    getTopEquipmentAlerts(period),
+    getDashboardCriticalAlerts(period),
     getTopMachinesBreakIndex(period),
     getHoursByCollaborator(period),
-    getPurchasesByMonth(period.startDate.getUTCFullYear()),
+    // "Compras por mês" usa o ANO do fim do período (mais recente/relevante).
+    getPurchasesByMonth(period.endDate.getUTCFullYear()),
     getLubricantConsumptionByPeriod(period)
   ]);
+
+  // TAREFA 14 — Auditoria de consistência (dev): estes números devem bater com as
+  // abas oficiais. OS abertas = Ordens (soma dos status em aberto); compras
+  // pendentes = Compras Pendentes; máquinas críticas = Equipamentos Críticos;
+  // procedimentos = Publicados da Central.
+  console.info(
+    `[dashboard-inicio] período ${toInputDate(period.startDate)}→${toInputDate(period.endDate)} | ` +
+      `OS abertas: ${kpis.openServiceOrders} | compras pendentes: ${kpis.pendingPurchases} | ` +
+      `máquinas críticas: ${kpis.criticalMachines} | procedimentos publicados: ${kpis.activeProcedures} | ` +
+      `corretiva/preventiva: ${correctivePreventiveChart.corrective}/${correctivePreventiveChart.preventive}`
+  );
 
   return {
     period,
@@ -419,8 +447,10 @@ export async function getDashboardData(periodInput?: DashboardPeriodInput): Prom
     const data = await getDatabaseDashboardData(period);
     return mapDatabaseDashboardToVisualData(data);
   } catch (error) {
-    console.error("Falha ao carregar dashboard pelo banco. Usando fallback mockado.", error);
-    return getMockDashboardData();
+    // NUNCA cair em dados mockados: em falha, devolve estado vazio (empty states)
+    // para não exibir números falsos na tela principal.
+    console.error("Falha ao carregar dashboard pelo banco. Exibindo estado vazio.", error);
+    return getEmptyDashboardData();
   }
 }
 
@@ -460,27 +490,41 @@ export async function resolveDefaultDashboardPeriod(): Promise<DashboardPeriod> 
   }
 }
 
-export function getMockDashboardData(): DashboardData {
+/**
+ * Estado VAZIO do dashboard (sem dados mockados) — usado apenas quando o banco
+ * falha. Mostra os 6 KPIs zerados/empty e listas/gráficos vazios, para os
+ * componentes renderizarem os empty states oficiais em vez de números falsos.
+ */
+export function getEmptyDashboardData(): DashboardData {
+  const emptyKpi = (title: string, tone: KPITone, icon: LucideIcon, emptyHint: string): DashboardKPI => ({
+    title,
+    value: "0",
+    tone,
+    icon,
+    comparison: { status: "unavailable", label: emptyHint },
+    isEmpty: true,
+    emptyHint
+  });
+
   return {
-    kpis: mockKpis.map((kpi): DashboardKPI => ({
-      title: kpi.title,
-      value: kpi.value,
-      tone: kpi.tone,
-      icon: kpi.icon,
-      comparison: { status: "unavailable", label: "Aguardando importação" },
-      isEmpty: true,
-      emptyHint: "Aguardando importação"
-    })),
-    openClosedOrders: mockOpenClosedOrders,
-    correctivePreventive: mockCorrectivePreventive,
-    criticalEquipment: mockCriticalEquipment,
-    pendingPurchases: mockPendingPurchases,
-    alerts: mockAlerts,
-    collaboratorHours: mockCollaboratorHours,
-    monthlyPurchases: mockMonthlyPurchases,
-    lubricantConsumption: mockLubricantConsumption,
-    topBreakdownMachines: mockTopBreakdownMachines,
-    source: "mock",
+    kpis: [
+      emptyKpi("OS Abertas", "blue", ClipboardList, "Sem registros"),
+      emptyKpi("Compras Pendentes", "gold", ShoppingCart, "Aguardando importação"),
+      emptyKpi("Máquinas Críticas", "red", AlertTriangle, "Aguardando importação"),
+      emptyKpi("Consumo Lubrificantes", "blue", Droplet, "Aguardando importação"),
+      emptyKpi("Materiais Mais Utilizados", "gold", Package, "Aguardando integração com materiais"),
+      emptyKpi("Procedimentos Ativos", "blue", FileText, "Aguardando importação")
+    ],
+    openClosedOrders: [],
+    correctivePreventive: [],
+    criticalEquipment: [],
+    pendingPurchases: [],
+    alerts: [],
+    collaboratorHours: [],
+    monthlyPurchases: [],
+    lubricantConsumption: [],
+    topBreakdownMachines: [],
+    source: "empty",
     period: null
   };
 }
@@ -492,58 +536,61 @@ function monthPeriod(year: number, month: number): DashboardPeriod {
   };
 }
 
-function createDailyBuckets(period: DashboardPeriod) {
+/** Chave de mês (YYYY-MM) em UTC para agrupamento mensal dos gráficos. */
+function monthKey(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Um bucket por MÊS do período (primeiro dia do mês como referência). */
+function createMonthlyBuckets(period: DashboardPeriod) {
   const buckets = new Map<string, OpenClosedServiceOrdersPoint>();
 
-  for (const date = new Date(period.startDate); date <= period.endDate; date.setUTCDate(date.getUTCDate() + 1)) {
-    const day = new Date(date);
-    buckets.set(dayKey(day), { date: day, abertas: 0, fechadas: 0 });
+  const cursor = new Date(Date.UTC(period.startDate.getUTCFullYear(), period.startDate.getUTCMonth(), 1));
+  while (cursor <= period.endDate) {
+    const month = new Date(cursor);
+    buckets.set(monthKey(month), { date: month, abertas: 0, fechadas: 0 });
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
 
   return buckets;
 }
 
-function createConsumptionBuckets(period: DashboardPeriod) {
+/** Um bucket de consumo por MÊS do período (igual ao módulo de Lubrificantes). */
+function createConsumptionMonthlyBuckets(period: DashboardPeriod) {
   const buckets = new Map<string, LubricantConsumptionPoint>();
 
-  for (const date = new Date(period.startDate); date <= period.endDate; date.setUTCDate(date.getUTCDate() + 1)) {
-    const day = new Date(date);
-    buckets.set(dayKey(day), { date: day, consumption: 0 });
+  const cursor = new Date(Date.UTC(period.startDate.getUTCFullYear(), period.startDate.getUTCMonth(), 1));
+  while (cursor <= period.endDate) {
+    const month = new Date(cursor);
+    buckets.set(monthKey(month), { date: month, consumption: 0 });
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
 
   return buckets;
-}
-
-async function getEquipmentById(ids: string[]) {
-  if (!ids.length) {
-    return new Map<string, { id: string; name: string; criticality: Criticality }>();
-  }
-
-  const equipment = await prisma.equipment.findMany({
-    where: { id: { in: ids } },
-    select: {
-      id: true,
-      name: true,
-      criticality: true
-    }
-  });
-
-  return new Map(equipment.map((item) => [item.id, item]));
 }
 
 function roundPercent(value: number) {
   return Number(value.toFixed(1));
 }
 
-const NON_TEMPORAL_COMPARISON: KPIComparison = {
-  status: "unavailable",
-  label: "Comparativo indisponível"
-};
+/**
+ * Subtítulo descritivo para KPIs "snapshot" (sem comparativo temporal). Substitui
+ * o antigo "Comparativo indisponível" (TAREFA 16) por um texto que explica o que
+ * o número representa — mais informativo e menos poluído.
+ */
+function snapshotSubtitle(label: string): KPIComparison {
+  return { status: "unavailable", label };
+}
+
+/** Rótulo de mês (ex.: "Jan/24") — inclui o ano para não confundir meses de anos distintos. */
+function monthLabel(date: Date): string {
+  return `${formatMonthName(date)}/${String(date.getUTCFullYear()).slice(2)}`;
+}
 
 /** Converte a variação calculada em um comparativo pronto para exibição (com rótulo). */
 function toComparison(variation: PeriodVariation | undefined): KPIComparison {
   if (!variation || variation.status === "unavailable") {
-    return { ...NON_TEMPORAL_COMPARISON };
+    return { status: "unavailable", label: "Sem período anterior para comparar" };
   }
 
   const arrow = variation.direction === "up" ? "↑" : variation.direction === "down" ? "↓" : "→";
@@ -591,8 +638,8 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
         value: String(data.kpis.openServiceOrders),
         tone: "blue",
         icon: ClipboardList,
-        comparison: NON_TEMPORAL_COMPARISON,
-        emptyHint: "Sem registros no período"
+        comparison: snapshotSubtitle("Total em aberto (abertas + em andamento)"),
+        emptyHint: "Sem OS em aberto"
       }),
       buildKpi({
         title: "Compras Pendentes",
@@ -600,8 +647,8 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
         value: String(data.kpis.pendingPurchases),
         tone: "gold",
         icon: ShoppingCart,
-        comparison: NON_TEMPORAL_COMPARISON,
-        emptyHint: "Aguardando importação"
+        comparison: snapshotSubtitle("Compras Y01 aguardando ação"),
+        emptyHint: "Nenhuma compra pendente"
       }),
       buildKpi({
         title: "Máquinas Críticas",
@@ -609,8 +656,8 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
         value: String(data.kpis.criticalMachines),
         tone: "red",
         icon: AlertTriangle,
-        comparison: NON_TEMPORAL_COMPARISON,
-        emptyHint: "Aguardando importação"
+        comparison: snapshotSubtitle("Score crítico ≥ 80 no período"),
+        emptyHint: "Nenhum equipamento crítico"
       }),
       buildKpi({
         title: "Consumo Lubrificantes",
@@ -628,7 +675,7 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
         tone: "gold",
         icon: Package,
         comparison: toComparison(data.kpiComparisons.mostUsedMaterials),
-        emptyHint: "Aguardando importação"
+        emptyHint: "Aguardando integração com materiais"
       }),
       buildKpi({
         title: "Procedimentos Ativos",
@@ -636,12 +683,12 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
         value: String(data.kpis.activeProcedures),
         tone: "blue",
         icon: FileText,
-        comparison: NON_TEMPORAL_COMPARISON,
-        emptyHint: "Aguardando importação"
+        comparison: snapshotSubtitle("Publicados na Central"),
+        emptyHint: "Nenhum procedimento publicado"
       })
     ],
-    openClosedOrders: pickChartCheckpoints(data.openClosedServiceOrders).map((item) => ({
-      name: formatShortDate(item.date),
+    openClosedOrders: data.openClosedServiceOrders.map((item) => ({
+      name: monthLabel(item.date),
       abertas: item.abertas,
       fechadas: item.fechadas
     })),
@@ -668,18 +715,18 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
     monthlyPurchases: data.purchasesByMonth
       .filter((item) => item.value > 0)
       .map((item) => ({
-        name: formatMonthName(new Date(Date.UTC(data.period.startDate.getUTCFullYear(), item.month - 1, 1))),
+        name: formatMonthName(new Date(Date.UTC(data.period.endDate.getUTCFullYear(), item.month - 1, 1))),
         value: Number((item.value / 1000).toFixed(1))
       })),
     lubricantConsumption: data.lubricantConsumptionByPeriod
       .filter((item) => item.consumption > 0)
       .map((item) => ({
-        name: formatShortDate(item.date),
+        name: monthLabel(item.date),
         value: item.consumption
       })),
     topBreakdownMachines: data.topMachinesBreakIndex.map((item) => ({
       name: item.equipmentName,
-      value: item.breakIndex
+      value: item.correctiveOrders
     })),
     source: "database",
     period: {
@@ -687,15 +734,6 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       endDate: data.period.endDate.toISOString()
     }
   };
-}
-
-function pickChartCheckpoints(points: OpenClosedServiceOrdersPoint[]) {
-  if (points.length <= 5) {
-    return points;
-  }
-
-  const indexes = [0, 7, 14, 21, points.length - 1].filter((index, position, all) => all.indexOf(index) === position);
-  return indexes.map((index) => points[index]).filter(Boolean);
 }
 
 /**

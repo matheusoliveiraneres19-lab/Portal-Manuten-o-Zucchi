@@ -57,7 +57,7 @@ export type DashboardData = {
   monthlyPurchases: ChartPoint[];
   lubricantConsumption: ChartPoint[];
   topBreakdownMachines: RankingItem[];
-  source: "database" | "mock";
+  source: "database" | "empty";
   /** Intervalo analisado (ISO) para exibição discreta no dashboard. */
   period: { startDate: string; endDate: string } | null;
 };
@@ -126,7 +126,8 @@ export type CriticalAlertData = {
 
 export type TopMachineBreakIndexData = {
   equipmentName: string;
-  breakIndex: number;
+  /** Nº de OS corretivas do equipamento no período (volume de quebra). */
+  correctiveOrders: number;
 };
 
 export type HoursByCollaboratorData = {

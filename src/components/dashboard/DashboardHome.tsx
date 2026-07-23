@@ -13,6 +13,12 @@ type DashboardHomeProps = {
 };
 
 export function DashboardHome({ dashboard }: DashboardHomeProps) {
+  // Preserva o período atual (mesmo store da URL) nos links "Ver todas", para a
+  // aba de destino abrir já filtrada pelo mesmo intervalo do dashboard.
+  const periodQuery = buildPeriodQuery(dashboard.period);
+  const href = (path: string) => `${path}${periodQuery}`;
+  const purchasesYear = dashboard.period ? new Date(dashboard.period.endDate).getUTCFullYear() : null;
+
   return (
     <>
       <HeroBanner />
@@ -40,7 +46,8 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
           className="xl:col-span-4"
           data={dashboard.openClosedOrders}
           kind="line"
-          title="OS abertas x fechadas"
+          title="OS abertas x fechadas (por mês)"
+          href={href("/dashboard/ordens-servico")}
           emptyTitle="Sem ordens no período"
           emptyDescription="Importe ordens ou ajuste o filtro para visualizar este indicador."
         />
@@ -49,6 +56,7 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
           data={dashboard.correctivePreventive}
           kind="donut"
           title="Manutenção corretiva x preventiva"
+          href={href("/dashboard/ordens-servico")}
           emptyTitle="Sem ordens classificadas"
           emptyDescription="Importe ordens corretivas/preventivas para visualizar a distribuição."
         />
@@ -57,6 +65,7 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
           items={dashboard.criticalEquipment}
           title="Top Equipamentos Críticos"
           variant="badges"
+          href={href("/dashboard/equipamentos-criticos")}
           emptyTitle="Sem equipamentos críticos no período"
           emptyDescription="Importe ordens ou ajuste o filtro para visualizar este indicador."
         />
@@ -65,6 +74,7 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
           data={dashboard.collaboratorHours}
           kind="bar-horizontal"
           title="Horas apontadas por colaborador"
+          href={href("/dashboard/equipe-horas")}
           emptyTitle="Nenhuma hora apontada no período."
           emptyDescription="Aguardando importação de apontamentos de horas."
         />
@@ -72,7 +82,8 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
           className="xl:col-span-4"
           data={dashboard.monthlyPurchases}
           kind="bar"
-          title="Compras por mês (R$)"
+          title={purchasesYear ? `Compras por mês · ${purchasesYear} (R$ mil, Data do Pedido)` : "Compras por mês (R$ mil)"}
+          href={href("/dashboard/compras-realizadas")}
           emptyTitle="Sem compras no período"
           emptyDescription="Aguardando importação de compras."
         />
@@ -81,27 +92,41 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
           data={dashboard.lubricantConsumption}
           kind="area"
           title="Consumo de Lubrificantes (L)"
+          href={href("/dashboard/lubrificantes")}
           emptyTitle="Sem consumo registrado no período"
-          emptyDescription="Aguardando importação de lubrificantes."
+          emptyDescription="Aguardando importação de movimentações de lubrificantes."
         />
         <TableCard
           className="xl:col-span-6"
           purchases={dashboard.pendingPurchases}
           title="Compras Pendentes"
+          href={href("/dashboard/compras-pendentes")}
           emptyTitle="Sem compras pendentes"
           emptyDescription="Aguardando importação de compras para exibir este indicador."
         />
         <div className="grid gap-3 xl:col-span-6">
-          <AlertList alerts={dashboard.alerts} title="Alertas Críticos" />
+          <AlertList alerts={dashboard.alerts} title="Alertas Críticos" href={href("/dashboard/equipamentos-criticos")} />
           <RankingList
             items={dashboard.topBreakdownMachines}
-            title="Top Máquinas - Maior Índice de Quebra"
+            title="Top Máquinas por Volume de OS Corretiva"
             variant="bars"
-            emptyTitle="Sem índice de quebra no período"
+            unit="count"
+            href={href("/dashboard/equipamentos-criticos")}
+            emptyTitle="Sem OS corretiva no período"
             emptyDescription="Importe ordens corretivas para visualizar este indicador."
           />
         </div>
       </section>
     </>
   );
+}
+
+/** Monta ?startDate&endDate (yyyy-mm-dd) a partir do período ISO do dashboard. */
+function buildPeriodQuery(period: DashboardData["period"]): string {
+  if (!period) {
+    return "";
+  }
+  const startDate = period.startDate.slice(0, 10);
+  const endDate = period.endDate.slice(0, 10);
+  return `?startDate=${startDate}&endDate=${endDate}`;
 }

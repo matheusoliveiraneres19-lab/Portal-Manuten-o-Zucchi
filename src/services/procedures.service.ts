@@ -251,6 +251,17 @@ export async function getProcedureCategories(): Promise<ProcedureCategoryCount[]
   }));
 }
 
+/**
+ * Contagem oficial de procedimentos PUBLICADOS da Central (fonte única).
+ * Mesmo critério de `getProceduresCenterData.totalPublished`:
+ * `status = "Publicado"` E `categoryName != null` (ignora legados sem categoria
+ * e arquivados). Usada pelo KPI "Procedimentos Ativos" da aba Início para bater
+ * exatamente com a Central de Procedimentos.
+ */
+export async function countPublishedProcedures(): Promise<number> {
+  return prisma.procedure.count({ where: { status: "Publicado", categoryName: { not: null } } });
+}
+
 /** Monta tudo o que a página da Central precisa numa só chamada (por usuário). */
 export async function getProceduresCenterData(userId?: string | null): Promise<ProceduresCenterData> {
   const [totalPublished, categories, featured, onboarding, all, favorites, readIds, mostAccessed, attachedIds] =

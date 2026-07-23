@@ -21,6 +21,7 @@ import {
 import type { TooltipProps } from "recharts";
 import { LineChart as LineChartIcon } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
+import { SeeAllLink } from "@/components/SeeAllLink";
 
 /** Trunca nomes longos no eixo, preservando leitura (o nome completo vai no tooltip). */
 function truncateLabel(value: string, max = 18): string {
@@ -68,6 +69,8 @@ type ChartCardProps = {
   className?: string;
   emptyTitle?: string;
   emptyDescription?: string;
+  /** Rota da aba oficial para o botão "Ver todas" (com query params de período). */
+  href?: string;
 };
 
 export function ChartCard({
@@ -76,17 +79,25 @@ export function ChartCard({
   data,
   className = "",
   emptyTitle = "Sem dados no período",
-  emptyDescription = "Importe ordens ou ajuste o filtro para visualizar este indicador."
+  emptyDescription = "Importe ordens ou ajuste o filtro para visualizar este indicador.",
+  href
 }: ChartCardProps) {
   const donutTotal = data.reduce((total, item) => total + Number(item.value ?? 0), 0);
   const isEmpty = kind === "donut" ? donutTotal === 0 : data.length === 0;
   // Séries temporais com 1 ponto não permitem leitura de tendência.
   const isInsufficient = !isEmpty && kind !== "donut" && data.length < 2;
 
+  const header = (
+    <div className="mb-3 flex items-center justify-between gap-3">
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">{title}</h3>
+      {href ? <SeeAllLink href={href} /> : null}
+    </div>
+  );
+
   if (isEmpty) {
     return (
       <article className={`panel rounded-lg p-4 ${className}`}>
-        <h3 className="mb-3 text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">{title}</h3>
+        {header}
         <div className="h-[185px] w-full">
           <EmptyState icon={LineChartIcon} title={emptyTitle} description={emptyDescription} />
         </div>
@@ -96,7 +107,7 @@ export function ChartCard({
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
-      <h3 className="mb-3 text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">{title}</h3>
+      {header}
       <div className="h-[185px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           {kind === "line" ? (
