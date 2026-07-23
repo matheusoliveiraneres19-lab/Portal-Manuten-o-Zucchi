@@ -1,142 +1,82 @@
 /**
- * Service de Horas Apontadas — fonte única das horas por colaborador.
+ * Service de Horas Apontadas — FONTE ÚNICA E OFICIAL: Ordens de Manutenção
+ * (tabela ServiceOrder). As horas da equipe são a soma de `ServiceOrder.workedHours`
+ * agrupada por responsável. NÃO usa mais TimeEntry (que ficava congelado num
+ * snapshot importado por script); assim, toda nova importação de OS reflete
+ * imediatamente nas horas.
  *
- * Fonte primária: tabela TimeEntry (apontamento dedicado).
- * Fallback: quando não há TimeEntry no período, agrega ServiceOrder.workedHours
- * por responsável (responsibleName) — mesma base usada em Equipamentos Críticos.
- *
- * Cada linha carrega também a quantidade de Ordens de Serviço (orders) do
- * colaborador no período, vinda SEMPRE das Ordens de Serviço (responsibleName),
- * independentemente da fonte das horas — assim a aba Início e a aba Equipe e Horas
- * exibem nome + horas + nº de ordens de forma consistente.
+ * Regras aplicadas (compartilhadas com o portal):
+ *  - EXCLUI registros de teste sem equipamento ("Equipamento não informado")
+ *    via excludeInvalidTestEquipmentWhere.
+ *  - INCLUI PL/PV (lubrificação e preventiva programada) por padrão — elas
+ *    também consomem mão de obra real. Um filtro opcional `osType` permite
+ *    restringir a Corretivas ou Preventivas (PL/PV) quando desejado.
+ *  - Período filtrado por `openedAt` (data de abertura da OS) — mesma data usada
+ *    em Ordens de Serviço, Equipamentos Críticos e no dashboard, garantindo que
+ *    os números batam entre módulos. O schema não tem data dedicada de
+ *    apontamento; `closedAt` deixaria de fora OS ainda abertas com horas lançadas.
  */
 import { prisma } from "@/lib/prisma";
-import { normalizeNameKey } from "@/lib/name-normalizer";
 import { withinPeriod, type DateRange } from "@/utils/date-range";
-import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
-import { excludeInvalidTestEquipmentWhere } from "@/utils/service-order-classification";
+import { excludeInvalidTestEquipmentWhere, isProgrammedPreventiveOrder } from "@/utils/service-order-classification";
 import type { HoursByCollaboratorData } from "@/types/dashboard";
 
 const NO_RESPONSIBLE_LABEL = "SEM RESPONSÁVEL";
 
-/** Horas saneadas: ignora null/NaN/Infinity/negativos. */
+/** Tipo de OS considerado no cálculo das horas. */
+export type HoursOsType = "all" | "corrective" | "preventive";
+
+/** Horas saneadas: ignora null/NaN/Infinity/negativos (nunca gera lixo numérico). */
 function safeHours(value: number | null | undefined): number {
   const n = Number(value ?? 0);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /**
- * Horas apontadas por colaborador no período.
- *
- * Fonte: TimeEntry (apontamento dedicado) QUANDO tem cobertura real — ou seja,
- * total ao menos igual às horas registradas nas Ordens de Serviço. Caso contrário
- * (ex.: TimeEntry ainda com poucos registros), as Ordens de Serviço são a fonte
- * de verdade das horas de manutenção. Sem número mágico: compara cobertura real.
+ * Horas apontadas por colaborador no período, direto das Ordens de Manutenção.
+ * Cada linha traz nome do responsável, soma de horas, nº de OS e a matrícula
+ * (responsibleId) para o casamento preferencial com o cadastro.
  */
-export async function getHoursByCollaborator(period: DateRange): Promise<HoursByCollaboratorData[]> {
-  const [fromTimeEntries, fromOrders, ordersByKey] = await Promise.all([
-    getHoursFromTimeEntries(period),
-    getHoursFromServiceOrders(period),
-    getOrderCountByCollaborator(period)
-  ]);
+export async function getHoursByCollaborator(
+  period: DateRange,
+  options: { osType?: HoursOsType } = {}
+): Promise<HoursByCollaboratorData[]> {
+  const osType = options.osType ?? "all";
 
-  const timeEntryTotal = sumHours(fromTimeEntries);
-  const orderTotal = sumHours(fromOrders);
-
-  const rows = timeEntryTotal > 0 && timeEntryTotal >= orderTotal ? fromTimeEntries : fromOrders;
-
-  // Anexa a contagem de ordens (sempre das OS) pela chave de nome normalizada.
-  return rows
-    .map((row) => ({
-      ...row,
-      orders: ordersByKey.get(normalizeNameKey(row.userName)) ?? 0
-    }))
-    .sort((a, b) => b.hours - a.hours);
-}
-
-/** Horas por colaborador a partir do apontamento dedicado (TimeEntry). */
-async function getHoursFromTimeEntries(period: DateRange): Promise<HoursByCollaboratorData[]> {
-  const timeEntries = await prisma.timeEntry.groupBy({
-    by: ["userName"],
-    where: { workDate: withinPeriod(period) },
-    _sum: { hours: true },
-    orderBy: { _sum: { hours: "desc" } }
-  });
-
-  return timeEntries.map((item) => ({
-    userName: item.userName?.trim() || NO_RESPONSIBLE_LABEL,
-    hours: Number(safeHours(item._sum.hours).toFixed(2)),
-    orders: 0,
-    responsibleId: null // TimeEntry não carrega matrícula; casa só por nome.
-  }));
-}
-
-function sumHours(rows: HoursByCollaboratorData[]): number {
-  return rows.reduce((total, row) => total + row.hours, 0);
-}
-
-/**
- * Fallback: horas trabalhadas vindas das Ordens de Serviço, por responsável.
- * Exclui ordens de lubrificação (PL) — são horas de manutenção geral, não de
- * lubrificação. O módulo de Lubrificantes tem sua própria análise.
- */
-async function getHoursFromServiceOrders(period: DateRange): Promise<HoursByCollaboratorData[]> {
   const orders = await prisma.serviceOrder.findMany({
     where: {
       openedAt: withinPeriod(period),
-      workedHours: { gt: 0 },
-      // Dois fragmentos com `NOT` no topo — combinar via AND (spread sobrescreveria).
-      AND: [excludeLubricationOrderWhere(), excludeInvalidTestEquipmentWhere()]
+      ...excludeInvalidTestEquipmentWhere()
     },
-    select: { responsibleName: true, responsibleId: true, workedHours: true }
+    select: { responsibleName: true, responsibleId: true, workedHours: true, title: true }
   });
 
-  if (!orders.length) {
-    return [];
-  }
-
-  // Agrega por nome, mas carrega a matrícula (responsibleId) para o casamento
-  // preferencial com o colaborador — o nome do SAP pode divergir do cadastro.
-  const totals = new Map<string, { hours: number; responsibleId: string | null }>();
+  const totals = new Map<string, { userName: string; hours: number; orders: number; responsibleId: string | null }>();
 
   for (const order of orders) {
-    const name = order.responsibleName?.trim() || NO_RESPONSIBLE_LABEL;
-    const current = totals.get(name) ?? { hours: 0, responsibleId: null };
+    // Filtro opcional por tipo de OS (classificação oficial por título PL/PV).
+    if (osType !== "all") {
+      const preventive = isProgrammedPreventiveOrder(order);
+      if (osType === "preventive" && !preventive) continue;
+      if (osType === "corrective" && preventive) continue;
+    }
+
+    const userName = order.responsibleName?.trim() || NO_RESPONSIBLE_LABEL;
+    const current = totals.get(userName) ?? { userName, hours: 0, orders: 0, responsibleId: null };
     current.hours += safeHours(order.workedHours);
-    if (!current.responsibleId && order.responsibleId) current.responsibleId = order.responsibleId;
-    totals.set(name, current);
+    current.orders += 1;
+    if (!current.responsibleId && order.responsibleId) {
+      current.responsibleId = order.responsibleId;
+    }
+    totals.set(userName, current);
   }
 
-  return Array.from(totals.entries())
-    .map(([userName, value]) => ({
-      userName,
-      hours: Number(value.hours.toFixed(2)),
-      orders: 0,
-      responsibleId: value.responsibleId
+  return Array.from(totals.values())
+    .map((row) => ({
+      userName: row.userName,
+      hours: Number(row.hours.toFixed(2)),
+      orders: row.orders,
+      responsibleId: row.responsibleId
     }))
     .sort((a, b) => b.hours - a.hours);
-}
-
-/**
- * Quantidade de Ordens de Serviço por colaborador (chave de nome normalizada),
- * vinda das Ordens de Serviço do período (exclui lubrificação PL). Usada para
- * enriquecer o gráfico com nº de ordens e média de horas por ordem.
- */
-async function getOrderCountByCollaborator(period: DateRange): Promise<Map<string, number>> {
-  const orders = await prisma.serviceOrder.findMany({
-    where: {
-      openedAt: withinPeriod(period),
-      // Dois fragmentos com `NOT` no topo — combinar via AND (spread sobrescreveria).
-      AND: [excludeLubricationOrderWhere(), excludeInvalidTestEquipmentWhere()]
-    },
-    select: { responsibleName: true }
-  });
-
-  const counts = new Map<string, number>();
-  for (const order of orders) {
-    const name = order.responsibleName?.trim() || NO_RESPONSIBLE_LABEL;
-    const key = normalizeNameKey(name);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return counts;
 }

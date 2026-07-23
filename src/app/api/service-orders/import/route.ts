@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import { importServiceOrdersFromExcel } from "@/services/importacao/service-orders-import.service";
 import { requireApiSession } from "@/lib/auth-guard";
 import { auditImport } from "@/lib/audit-import";
@@ -34,6 +35,15 @@ export async function POST(request: NextRequest) {
     });
 
     await auditImport({ request, session, module: "Ordens de Serviço", fileName, result });
+
+    // Nova base de OS ⇒ recalcular as telas que derivam de ServiceOrder (horas da
+    // equipe, dashboard e ordens de serviço). Sem isto, a aba Equipe e Horas podia
+    // continuar exibindo o payload em cache (horas antigas) após a importação.
+    revalidatePath("/dashboard/equipe-horas");
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/ordens-servico");
+    revalidatePath("/dashboard/equipamentos-criticos");
+
     return NextResponse.json(result);
   } catch (error) {
     console.error("Falha ao importar planilha de Ordens de Serviço.", error);

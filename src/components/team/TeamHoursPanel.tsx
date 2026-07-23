@@ -5,8 +5,9 @@ import { AlertTriangle, CalendarRange, Download, Loader2, Search, SlidersHorizon
 import { toast } from "sonner";
 import { AREA_LABELS, STATUS_LABELS } from "@/components/team/CollaboratorFormModal";
 import { AreaGoalsModal } from "@/components/team/AreaGoalsModal";
+import { TeamHoursDrilldownModal } from "@/components/team/TeamHoursDrilldownModal";
 import { normalizeNameKey } from "@/lib/name-normalizer";
-import type { CollaboratorArea, CollaboratorStatus, TeamHoursResult, TeamHoursRow } from "@/types/collaborators";
+import type { CollaboratorArea, CollaboratorStatus, TeamHoursOsType, TeamHoursResult, TeamHoursRow } from "@/types/collaborators";
 
 type TeamHoursPanelProps = {
   initial: TeamHoursResult;
@@ -20,27 +21,30 @@ export function TeamHoursPanel({ initial, onGoalsChanged }: TeamHoursPanelProps)
   const [data, setData] = useState<TeamHoursResult>(initial);
   const [startDate, setStartDate] = useState(initial.startDate.slice(0, 10));
   const [endDate, setEndDate] = useState(initial.endDate.slice(0, 10));
+  const [osType, setOsType] = useState<TeamHoursOsType>(initial.osType ?? "all");
   const [loading, setLoading] = useState(false);
   const [goalsOpen, setGoalsOpen] = useState(false);
+  const [drilldown, setDrilldown] = useState<{ id: string; name: string } | null>(null);
 
   const [areaFilter, setAreaFilter] = useState<CollaboratorArea | "">("");
   const [statusFilter, setStatusFilter] = useState<CollaboratorStatus | "">("");
   const [nameFilter, setNameFilter] = useState("");
 
-  async function fetchHours(start: string, end: string) {
+  async function fetchHours(start: string, end: string, type: TeamHoursOsType = osType) {
     if (start && end && start > end) {
       toast.error("A data inicial não pode ser maior que a final.");
       return;
     }
     setLoading(true);
     try {
-      const params = new URLSearchParams({ startDate: start, endDate: end });
+      const params = new URLSearchParams({ startDate: start, endDate: end, osType: type });
       const response = await fetch(`/api/collaborators/hours?${params.toString()}`);
       if (!response.ok) throw new Error("request failed");
       const result = (await response.json()) as TeamHoursResult;
       setData(result);
       setStartDate(result.startDate.slice(0, 10));
       setEndDate(result.endDate.slice(0, 10));
+      setOsType(result.osType ?? type);
     } catch {
       toast.error("Não foi possível carregar as horas do período.");
     } finally {
@@ -94,7 +98,7 @@ export function TeamHoursPanel({ initial, onGoalsChanged }: TeamHoursPanelProps)
       toast.error("Nada para exportar no filtro atual.");
       return;
     }
-    const headers = ["Matrícula", "Nome", "Função", "Área", "Status", "Horas", "Meta (h)", "% da meta"];
+    const headers = ["Matrícula", "Nome", "Função", "Área", "Status", "Horas", "Nº OS", "Meta (h)", "% da meta"];
     const lines = [
       headers.map(csvCell).join(";"),
       ...filteredRows.map((row) =>
@@ -105,6 +109,7 @@ export function TeamHoursPanel({ initial, onGoalsChanged }: TeamHoursPanelProps)
           csvCell(AREA_LABELS[row.area]),
           csvCell(STATUS_LABELS[row.status]),
           csvNumber(row.hours),
+          String(row.orderCount),
           csvNumber(row.monthlyGoal),
           row.goalPercent === null ? "" : csvNumber(row.goalPercent)
         ].join(";")
@@ -186,6 +191,21 @@ export function TeamHoursPanel({ initial, onGoalsChanged }: TeamHoursPanelProps)
             <option key={a} value={a} className="bg-[#0a0b0b]">{AREA_LABELS[a]}</option>
           ))}
         </select>
+        {/* Tipo de OS afeta a SOMA das horas → refaz a busca no servidor. */}
+        <select
+          value={osType}
+          onChange={(e) => {
+            const value = e.target.value as TeamHoursOsType;
+            setOsType(value);
+            void fetchHours(startDate, endDate, value);
+          }}
+          className={inputClass}
+          title="Tipo de Ordem de Manutenção considerado nas horas"
+        >
+          <option value="all" className="bg-[#0a0b0b]">Todas as OS</option>
+          <option value="corrective" className="bg-[#0a0b0b]">Corretivas</option>
+          <option value="preventive" className="bg-[#0a0b0b]">Preventivas (PL/PV)</option>
+        </select>
         <span className="ml-auto text-[11px] text-zinc-500">{filteredRows.length} de {data.rows.length} colaborador(es)</span>
       </div>
 
@@ -209,6 +229,7 @@ export function TeamHoursPanel({ initial, onGoalsChanged }: TeamHoursPanelProps)
                   <th className="px-4 py-2.5">Colaborador</th>
                   <th className="px-4 py-2.5">Área</th>
                   <th className="px-4 py-2.5 text-right">Horas</th>
+                  <th className="px-4 py-2.5 text-right">Nº OS</th>
                   <th className="px-4 py-2.5 text-right">Meta</th>
                   <th className="px-4 py-2.5">% da meta</th>
                   <th className="px-4 py-2.5">Status</th>
@@ -216,7 +237,12 @@ export function TeamHoursPanel({ initial, onGoalsChanged }: TeamHoursPanelProps)
               </thead>
               <tbody>
                 {filteredRows.map((row) => (
-                  <tr key={row.id} className="border-b border-zinc-100 text-zinc-800 last:border-0">
+                  <tr
+                    key={row.id}
+                    onClick={() => setDrilldown({ id: row.id, name: row.name })}
+                    className="cursor-pointer border-b border-zinc-100 text-zinc-800 transition last:border-0 hover:bg-gold/10"
+                    title="Ver as Ordens de Manutenção que compõem estas horas"
+                  >
                     <td className="px-4 py-2.5">
                       <div className="font-semibold">{row.name}</div>
                       <div className="text-[11px] text-zinc-500">
@@ -226,6 +252,7 @@ export function TeamHoursPanel({ initial, onGoalsChanged }: TeamHoursPanelProps)
                     </td>
                     <td className="px-4 py-2.5">{AREA_LABELS[row.area]}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums font-semibold">{fmt(row.hours)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-zinc-600">{row.orderCount}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-zinc-600">{fmt(row.monthlyGoal)}</td>
                     <td className="px-4 py-2.5">
                       <GoalBar percent={row.goalPercent} />
@@ -238,6 +265,11 @@ export function TeamHoursPanel({ initial, onGoalsChanged }: TeamHoursPanelProps)
           </div>
         )}
       </article>
+
+      <p className="text-[11px] text-zinc-500">
+        <span className="font-semibold text-gold">Fonte:</span> Ordens de Manutenção (ServiceOrder · soma de{" "}
+        <code className="text-zinc-400">workedHours</code>). Clique em um colaborador para ver as OS que compõem as horas.
+      </p>
 
       {/* Apontamentos sem cadastro */}
       {data.unmatched.length > 0 ? (
@@ -267,6 +299,14 @@ export function TeamHoursPanel({ initial, onGoalsChanged }: TeamHoursPanelProps)
           void fetchHours(startDate, endDate);
           onGoalsChanged?.();
         }}
+      />
+
+      <TeamHoursDrilldownModal
+        target={drilldown}
+        startDate={startDate}
+        endDate={endDate}
+        osType={osType}
+        onClose={() => setDrilldown(null)}
       />
     </div>
   );

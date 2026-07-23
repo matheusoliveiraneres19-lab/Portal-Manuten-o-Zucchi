@@ -12,13 +12,31 @@
 // para não depender de caracteres combinantes literais no fonte.
 const DIACRITICS = new RegExp("[\\u0300-\\u036f]", "g");
 
-export function normalizeNameKey(value: unknown): string {
+/**
+ * Base de normalização de nome de pessoa: remove acentos, tira a MATRÍCULA entre
+ * parênteses quando existir (SAP grava "NOME (P-60)"), e colapsa espaços.
+ * Ex.: "Romulo Frota (P-60)" -> "Romulo Frota".
+ */
+function stripNameNoise(value: unknown): string {
   return String(value ?? "")
     .normalize("NFD")
     .replace(DIACRITICS, "")
+    .replace(/\([^)]*\)/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+    .trim();
+}
+
+export function normalizeNameKey(value: unknown): string {
+  return stripNameNoise(value).toLowerCase();
+}
+
+/**
+ * Nome padronizado para EXIBIÇÃO/casamento em MAIÚSCULO (sem acento, sem
+ * matrícula entre parênteses, espaços colapsados). "Romulo Frota (P-60)",
+ * "ROMULO FROTA" e "Romulo Frota" resultam todos em "ROMULO FROTA".
+ */
+export function normalizePersonName(value: unknown): string {
+  return stripNameNoise(value).toUpperCase();
 }
 
 /**

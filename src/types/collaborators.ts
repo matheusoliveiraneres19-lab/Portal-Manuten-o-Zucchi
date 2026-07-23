@@ -127,6 +127,9 @@ export type CollaboratorListResult = {
 /* ETAPA 2 — Horas × colaborador                                      */
 /* ------------------------------------------------------------------ */
 
+/** Filtro de tipo de OS considerado nas horas da equipe. */
+export type TeamHoursOsType = "all" | "corrective" | "preventive";
+
 /** Linha de horas da equipe: colaborador + horas apontadas no período. */
 export type TeamHoursRow = {
   id: string;
@@ -137,8 +140,35 @@ export type TeamHoursRow = {
   status: CollaboratorStatus;
   monthlyGoal: number;
   hours: number;
+  /** Nº de Ordens de Manutenção que compõem as horas do colaborador no período. */
+  orderCount: number;
   /** % da meta mensal (hours / monthlyGoal × 100). null se meta = 0. */
   goalPercent: number | null;
+};
+
+/** OS que compõe as horas de um colaborador (drill-down). Fonte: ServiceOrder. */
+export type TeamHoursOrderRow = {
+  id: string;
+  osNumber: string;
+  title: string;
+  equipmentName: string | null;
+  status: string;
+  openedAt: string | null;
+  closedAt: string | null;
+  workedHours: number;
+  /** Classificação por título: PL/PV (preventiva programada) ou Corretiva. */
+  osType: "PL" | "PV" | "Corretiva";
+  planningGroup: string | null;
+};
+
+/** Payload do drill-down de horas de um colaborador. */
+export type CollaboratorHoursOrdersResult = {
+  collaboratorName: string;
+  matricula: string;
+  startDate: string;
+  endDate: string;
+  totalHours: number;
+  orders: TeamHoursOrderRow[];
 };
 
 /** Apontamento de horas sem colaborador cadastrado (gap de cadastro). */
@@ -160,6 +190,8 @@ export type AreaGoal = {
 export type TeamHoursResult = {
   startDate: string;
   endDate: string;
+  /** Tipo de OS efetivamente aplicado no cálculo (default "all"). */
+  osType: TeamHoursOsType;
   rows: TeamHoursRow[];
   unmatched: UnmatchedHoursRow[];
   totalHours: number;
