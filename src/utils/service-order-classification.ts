@@ -63,6 +63,41 @@ export function isCriticalEquipmentEligibleOrder(order: ClassifiableServiceOrder
 }
 
 /* ------------------------------------------------------------------ */
+/* Reconhecimento de OS FECHADA/CONCLUÍDA                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Tokens (sem acento, minúsculo) que indicam OS fechada/concluída/encerrada no
+ * texto de status cru do SAP (`statusSapRaw`). Usado como rede de segurança além
+ * do enum, cobrindo variações: Fechada/Concluída/Encerrada/Finalizada/Tecnicamente
+ * concluída/TECO/CONF/CNF.
+ */
+const CLOSED_STATUS_TOKENS = ["fechad", "conclu", "encerr", "finaliz", "teco", "conf", "cnf"];
+
+/** Subconjunto de campos necessários para reconhecer o status de fechamento. */
+export type ClosableServiceOrder = {
+  status?: string | null;
+  statusSapRaw?: string | null;
+};
+
+/**
+ * Verdadeiro quando a OS está FECHADA/concluída. Reconhece pelo enum oficial
+ * (`status === "FECHADA"`, resultado do mapeamento do importador) OU, como rede
+ * de segurança, pelo texto cru `statusSapRaw` (variações SAP não mapeadas).
+ * Normaliza (sem acento, minúsculo) antes de comparar.
+ */
+export function isClosedServiceOrder(order: ClosableServiceOrder): boolean {
+  if ((order.status ?? "") === "FECHADA") {
+    return true;
+  }
+  const raw = stripAccentsUpper(order.statusSapRaw ?? "").toLowerCase();
+  if (!raw) {
+    return false;
+  }
+  return CLOSED_STATUS_TOKENS.some((token) => raw.includes(token));
+}
+
+/* ------------------------------------------------------------------ */
 /* Exclusão de registros de teste sem equipamento                     */
 /* ------------------------------------------------------------------ */
 

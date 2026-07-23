@@ -14,7 +14,7 @@ import {
   getCorrectivePreventiveChart,
   getDashboardKPIs,
   getLubricantConsumptionByPeriod,
-  getOpenClosedServiceOrders,
+  getMonthlyOpenClosedServiceOrders,
   getTopCriticalEquipments,
   getTopMachinesBreakIndex,
   parsePeriod,
@@ -48,7 +48,7 @@ export async function getPortalAnalytics(periodInput?: DashboardPeriodInput): Pr
     hoursByCollaborator
   ] = await Promise.all([
     getDashboardKPIs(period),
-    getOpenClosedServiceOrders(period),
+    getMonthlyOpenClosedServiceOrders(period),
     getCorrectivePreventiveChart(period),
     getPendingPurchases(),
     getPurchasesByMonth(period.startDate.getUTCFullYear()),
@@ -67,7 +67,7 @@ export async function getPortalAnalytics(periodInput?: DashboardPeriodInput): Pr
     },
     kpis,
     serviceOrders: {
-      openClosed,
+      openClosed: openClosed.points,
       correctivePreventive
     },
     purchases: {
@@ -96,7 +96,7 @@ export async function getPortalAnalytics(periodInput?: DashboardPeriodInput): Pr
       hoursByCollaborator
     },
     charts: {
-      openClosedOrders: openClosed,
+      openClosedOrders: openClosed.points,
       correctivePreventive,
       purchasesByMonth: byMonth,
       lubricantConsumption: consumptionByPeriod,

@@ -19,7 +19,7 @@ import {
   YAxis
 } from "recharts";
 import type { TooltipProps } from "recharts";
-import { LineChart as LineChartIcon } from "lucide-react";
+import { AlertTriangle, LineChart as LineChartIcon } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { SeeAllLink } from "@/components/SeeAllLink";
 
@@ -62,6 +62,31 @@ function CollaboratorHoursTooltip({ active, payload }: TooltipProps<number, stri
   );
 }
 
+/**
+ * Tooltip do gráfico "OS abertas x fechadas (por mês)": mês + abertas + fechadas
+ * e a fonte oficial dos dados.
+ */
+function OpenClosedTooltip({ active, payload, label }: TooltipProps<number, string>) {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+  const abertas = Number(payload.find((item) => item.dataKey === "abertas")?.value ?? 0);
+  const fechadas = Number(payload.find((item) => item.dataKey === "fechadas")?.value ?? 0);
+
+  return (
+    <div className="rounded-md border border-gold/30 bg-[#0a0b0b]/95 px-3 py-2 text-xs text-zinc-100 shadow-lg">
+      <p className="mb-1 font-semibold text-champagne">{label}</p>
+      <p>
+        OS abertas: <strong className="text-white">{numberPtBr.format(abertas)}</strong>
+      </p>
+      <p>
+        OS fechadas: <strong className="text-white">{numberPtBr.format(fechadas)}</strong>
+      </p>
+      <p className="mt-1 text-[10px] text-zinc-400">Fonte: Ordens de Manutenção</p>
+    </div>
+  );
+}
+
 type ChartCardProps = {
   title: string;
   kind: "line" | "donut" | "bar-horizontal" | "bar" | "area";
@@ -71,6 +96,8 @@ type ChartCardProps = {
   emptyDescription?: string;
   /** Rota da aba oficial para o botão "Ver todas" (com query params de período). */
   href?: string;
+  /** Aviso técnico opcional exibido abaixo do gráfico (ex.: closedAt não importado). */
+  note?: string;
 };
 
 export function ChartCard({
@@ -80,7 +107,8 @@ export function ChartCard({
   className = "",
   emptyTitle = "Sem dados no período",
   emptyDescription = "Importe ordens ou ajuste o filtro para visualizar este indicador.",
-  href
+  href,
+  note
 }: ChartCardProps) {
   const donutTotal = data.reduce((total, item) => total + Number(item.value ?? 0), 0);
   const isEmpty = kind === "donut" ? donutTotal === 0 : data.length === 0;
@@ -115,7 +143,7 @@ export function ChartCard({
               <CartesianGrid stroke="#e8dfd1" strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
+              <Tooltip content={<OpenClosedTooltip />} />
               <Legend iconType="rect" wrapperStyle={{ fontSize: 11 }} />
               <Line dataKey="abertas" name="Abertas" stroke="#245f83" strokeWidth={3} dot={{ r: 3 }} />
               <Line dataKey="fechadas" name="Fechadas" stroke="#c49a45" strokeWidth={3} dot={{ r: 3 }} />
@@ -187,6 +215,12 @@ export function ChartCard({
       {isInsufficient ? (
         <p className="mt-2 text-center text-[11px] italic text-zinc-500">
           Dados insuficientes para análise completa.
+        </p>
+      ) : null}
+      {note ? (
+        <p className="mt-2 flex items-start gap-1.5 rounded-md border border-gold/30 bg-gold/[0.08] px-2.5 py-1.5 text-[11px] leading-snug text-[#7a5312]">
+          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-gold" />
+          <span>{note}</span>
         </p>
       ) : null}
     </article>

@@ -30,7 +30,8 @@ export function converterDataExcel(value: unknown): Date | null {
     return null;
   }
 
-  const brDate = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  // dd/mm/aaaa, dd.mm.aaaa (SAP) ou dd-mm-aaaa — separador . / ou -.
+  const brDate = text.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);
   if (brDate) {
     const day = Number(brDate[1]);
     const month = Number(brDate[2]) - 1;
@@ -134,12 +135,22 @@ export function padronizarStatusOS(value: unknown): ServiceOrderStatus | null {
     fechada: ServiceOrderStatus.FECHADA,
     fechado: ServiceOrderStatus.FECHADA,
     concluida: ServiceOrderStatus.FECHADA,
+    concluido: ServiceOrderStatus.FECHADA,
+    concl: ServiceOrderStatus.FECHADA,
     // SAP: "Tecnicamente encerrado" (TECO) = ordem tecnicamente conclu\u00edda.
     tecnicamente_encerrado: ServiceOrderStatus.FECHADA,
     tecnicamente_encerrada: ServiceOrderStatus.FECHADA,
+    tecnicamente_concluida: ServiceOrderStatus.FECHADA,
+    tecnicamente_concluido: ServiceOrderStatus.FECHADA,
     encerrado: ServiceOrderStatus.FECHADA,
     encerrada: ServiceOrderStatus.FECHADA,
+    encerr: ServiceOrderStatus.FECHADA,
+    finalizada: ServiceOrderStatus.FECHADA,
+    finalizado: ServiceOrderStatus.FECHADA,
     teco: ServiceOrderStatus.FECHADA,
+    tecn: ServiceOrderStatus.FECHADA,
+    conf: ServiceOrderStatus.FECHADA,
+    cnf: ServiceOrderStatus.FECHADA,
     cancelada: ServiceOrderStatus.CANCELADA,
     cancelado: ServiceOrderStatus.CANCELADA
   };

@@ -21,6 +21,7 @@ type SapColumn =
   | "responsavel"
   | "grupoPlanejamento"
   | "dataInicio"
+  | "dataFim"
   | "trabalhoReal";
 
 /**
@@ -36,8 +37,40 @@ function resolveSapColumn(header: string): SapColumn | null {
   if (key.startsWith("responsavel")) return "responsavel"; // "Responsável (ordem)"
   if (key.startsWith("grupo_de_planejamento") || key.startsWith("grupo_planejamento")) return "grupoPlanejamento";
   if (key.startsWith("data_base_do_inicio") || key.startsWith("data_base_inicio")) return "dataInicio";
+  // Data de conclusão/encerramento/fim real da OS -> closedAt. Tolerante às
+  // variações do SAP/Fiori. Verificado ANTES de dataInicio já ter casado, e nunca
+  // colide com a "data-base do início" (prefixos distintos).
+  if (isClosureDateHeader(key)) return "dataFim";
   if (key === "trabalho_real" || key.startsWith("trabalho_real")) return "trabalhoReal";
   return null;
+}
+
+/**
+ * Cabeçalhos que representam a DATA DE FECHAMENTO/CONCLUSÃO da OS (alimentam
+ * closedAt). Cobre os rótulos usuais do SAP PM/Fiori. Exige que seja uma coluna
+ * de FIM/CONCLUSÃO — não confundir com "Data-base do início".
+ */
+function isClosureDateHeader(key: string): boolean {
+  const closureKeys = [
+    "data_de_conclusao",
+    "data_conclusao",
+    "conclusao",
+    "data_de_encerramento",
+    "data_encerramento",
+    "encerramento",
+    "data_de_fechamento",
+    "data_fechamento",
+    "fechamento",
+    "fim_real",
+    "data_fim_real",
+    "data_fim",
+    "data_de_referencia",
+    "data_referencia",
+    "data_conclusao_efetiva",
+    "conclusao_efetiva",
+    "closedat"
+  ];
+  return closureKeys.some((closureKey) => key === closureKey || key.startsWith(`${closureKey}_`));
 }
 
 /** True quando os cabeçalhos batem com o layout cru do SAP (Ordem + Status + Operação). */
@@ -106,6 +139,8 @@ export function parseSapRow(row: RawRow): LinhaOrdemServicoNormalizada {
     area: deriveAreaFromGroupCode(grupo.code, grupo.label),
     // "Data-base do início" e "Trabalho real"
     openedAt: cols.dataInicio ?? null,
+    // Data de conclusão/encerramento -> closedAt (quando a coluna existir no export).
+    closedAt: cols.dataFim ?? null,
     workedHours: cols.trabalhoReal ?? null,
     source: "EXCEL_SAP_FIORI"
   };

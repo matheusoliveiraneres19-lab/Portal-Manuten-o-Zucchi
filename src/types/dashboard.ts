@@ -57,6 +57,8 @@ export type DashboardData = {
   monthlyPurchases: ChartPoint[];
   lubricantConsumption: ChartPoint[];
   topBreakdownMachines: RankingItem[];
+  /** Aviso técnico do gráfico OS abertas x fechadas (ex.: closedAt não importado). */
+  openClosedNote: string | null;
   source: "database" | "empty";
   /** Intervalo analisado (ISO) para exibição discreta no dashboard. */
   period: { startDate: string; endDate: string } | null;
@@ -158,6 +160,7 @@ export type DatabaseDashboardData = {
   kpis: DashboardKPIsData;
   kpiComparisons: Record<string, PeriodVariation>;
   openClosedServiceOrders: OpenClosedServiceOrdersPoint[];
+  openClosedNote: string | null;
   correctivePreventiveChart: CorrectivePreventiveChartData;
   topCriticalEquipments: TopCriticalEquipmentData[];
   pendingPurchases: PendingPurchaseData[];

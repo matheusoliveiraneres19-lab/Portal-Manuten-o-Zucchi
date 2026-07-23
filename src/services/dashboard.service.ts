@@ -54,6 +54,7 @@ import { isWithinPeriod, toEndOfDay, toStartOfDay, withinPeriod } from "@/utils/
 import { getDefaultPortalPeriod, getTodayDate } from "@/utils/date";
 import {
   excludeInvalidTestEquipmentWhere,
+  isClosedServiceOrder,
   isProgrammedPreventiveOrder
 } from "@/utils/service-order-classification";
 import { calculatePeriodVariation, getPreviousPeriod, toInputDate, type PeriodVariation } from "@/utils/period";
@@ -163,42 +164,92 @@ export async function getDashboardKPIComparisons(
   };
 }
 
-export async function getOpenClosedServiceOrders(
+export type MonthlyOpenClosedResult = {
+  points: OpenClosedServiceOrdersPoint[];
+  /** Aviso técnico quando há OS fechadas sem data de fechamento importada. */
+  note: string | null;
+};
+
+/**
+ * "OS Abertas x Fechadas (por mês)" — fonte oficial ServiceOrder, alinhado à aba
+ * /dashboard/ordens-servico (mesmas exclusões e reconhecimento de status).
+ *
+ *  - ABERTAS: agrupadas pelo mês de ABERTURA (openedAt; fallback createdAt). Nunca
+ *    usam closedAt.
+ *  - FECHADAS: OS reconhecidas como fechadas (isClosedServiceOrder = enum FECHADA
+ *    ou statusSapRaw), agrupadas pelo mês de closedAt. Uma OS aberta em fev e
+ *    fechada em mar conta Abertas+1 em fev e Fechadas+1 em mar (séries independentes).
+ *  - Exclui registros de teste ("Equipamento não informado"); mantém PL/PV (OS gerais).
+ *  - Meses do período são pré-criados (zero-fill). Sem NENHUMA OS, devolve vazio
+ *    para o gráfico exibir o empty state.
+ */
+export async function getMonthlyOpenClosedServiceOrders(
   periodInput: DashboardPeriodInput
-): Promise<OpenClosedServiceOrdersPoint[]> {
+): Promise<MonthlyOpenClosedResult> {
   const period = parsePeriod(periodInput);
   const orders = await prisma.serviceOrder.findMany({
     where: {
       OR: [{ openedAt: withinPeriod(period) }, { closedAt: withinPeriod(period) }],
       ...excludeInvalidTestEquipmentWhere()
     },
-    select: {
-      openedAt: true,
-      closedAt: true,
-      status: true
-    }
+    select: { openedAt: true, closedAt: true, createdAt: true, status: true, statusSapRaw: true }
   });
-  // Agrupado por MÊS (não por dia): abertas x fechadas ao longo do período,
-  // evitando pontos soltos sem contexto. Cada mês do período vira um ponto.
+
+  const periodLabel = `${toInputDate(period.startDate)}→${toInputDate(period.endDate)}`;
+
+  if (orders.length === 0) {
+    console.info(`[dashboard os-abertas-x-fechadas] período ${periodLabel} | 0 OS consideradas no período`);
+    return { points: [], note: null };
+  }
+
   const buckets = createMonthlyBuckets(period);
+  let openedGrouped = 0;
+  let closedGrouped = 0;
+  let closedWithoutDate = 0;
+  let closedByRawOnly = 0;
 
   for (const order of orders) {
-    if (order.openedAt && isWithinPeriod(order.openedAt, period)) {
-      const bucket = buckets.get(monthKey(order.openedAt));
+    // ABERTAS: mês de abertura (openedAt; fallback createdAt) — nunca closedAt.
+    const openedDate = order.openedAt ?? order.createdAt;
+    if (openedDate && isWithinPeriod(openedDate, period)) {
+      const bucket = buckets.get(monthKey(openedDate));
       if (bucket) {
         bucket.abertas += 1;
+        openedGrouped += 1;
       }
     }
 
-    if (order.status === ServiceOrderStatus.FECHADA && order.closedAt && isWithinPeriod(order.closedAt, period)) {
-      const bucket = buckets.get(monthKey(order.closedAt));
-      if (bucket) {
-        bucket.fechadas += 1;
+    // FECHADAS: só OS reconhecidas como fechadas, agrupadas pelo mês de closedAt.
+    if (isClosedServiceOrder(order)) {
+      if (order.status !== ServiceOrderStatus.FECHADA) {
+        closedByRawOnly += 1;
+      }
+      if (order.closedAt && isWithinPeriod(order.closedAt, period)) {
+        const bucket = buckets.get(monthKey(order.closedAt));
+        if (bucket) {
+          bucket.fechadas += 1;
+          closedGrouped += 1;
+        }
+      } else if (!order.closedAt) {
+        closedWithoutDate += 1;
       }
     }
   }
 
-  return Array.from(buckets.values());
+  // TAREFA 11 — auditoria de consistência (logs do servidor).
+  console.info(
+    `[dashboard os-abertas-x-fechadas] período ${periodLabel} | OS consideradas: ${orders.length} | ` +
+      `abertas agrupadas: ${openedGrouped} | fechadas agrupadas: ${closedGrouped} | ` +
+      `fechadas sem closedAt: ${closedWithoutDate} | fechadas reconhecidas só por statusSapRaw: ${closedByRawOnly}`
+  );
+
+  // TAREFA 12 — há OS fechadas, mas nenhuma tem data de fechamento importada.
+  const note =
+    closedGrouped === 0 && closedWithoutDate > 0
+      ? "Existem ordens com status fechado, mas sem data de fechamento importada. Reimporte as Ordens incluindo a coluna de conclusão/encerramento para o gráfico agrupar as fechadas por mês."
+      : null;
+
+  return { points: Array.from(buckets.values()), note };
 }
 
 export async function getCorrectivePreventiveChart(
@@ -368,7 +419,7 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
   const [
     kpis,
     kpiComparisons,
-    openClosedServiceOrders,
+    openClosed,
     correctivePreventiveChart,
     topCriticalEquipments,
     pendingPurchases,
@@ -380,7 +431,7 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
   ] = await Promise.all([
     currentKpis,
     getDashboardKPIComparisons(period, currentKpis),
-    getOpenClosedServiceOrders(period),
+    getMonthlyOpenClosedServiceOrders(period),
     getCorrectivePreventiveChart(period),
     getTopCriticalEquipments(period),
     getPendingPurchases(),
@@ -407,7 +458,8 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     period,
     kpis,
     kpiComparisons,
-    openClosedServiceOrders,
+    openClosedServiceOrders: openClosed.points,
+    openClosedNote: openClosed.note,
     correctivePreventiveChart,
     topCriticalEquipments,
     pendingPurchases,
@@ -524,6 +576,7 @@ export function getEmptyDashboardData(): DashboardData {
     monthlyPurchases: [],
     lubricantConsumption: [],
     topBreakdownMachines: [],
+    openClosedNote: null,
     source: "empty",
     period: null
   };
@@ -728,6 +781,7 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       name: item.equipmentName,
       value: item.correctiveOrders
     })),
+    openClosedNote: data.openClosedNote,
     source: "database",
     period: {
       startDate: data.period.startDate.toISOString(),

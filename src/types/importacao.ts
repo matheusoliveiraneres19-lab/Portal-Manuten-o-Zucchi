@@ -71,6 +71,7 @@ export type LinhaOrdemServicoNormalizada = {
   planningGroup?: unknown;
   planningGroupCode?: unknown;
   openedAt?: unknown;
+  closedAt?: unknown;
   workedHours?: unknown;
   operation?: unknown;
   operationCode?: unknown;

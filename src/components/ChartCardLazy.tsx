@@ -11,6 +11,8 @@ type ChartCardLazyProps = {
   emptyDescription?: string;
   /** Rota da aba oficial para o botão "Ver todas" (com query params de período). */
   href?: string;
+  /** Aviso técnico opcional exibido abaixo do gráfico. */
+  note?: string;
 };
 
 // Recharts só é baixado quando o gráfico monta no cliente.

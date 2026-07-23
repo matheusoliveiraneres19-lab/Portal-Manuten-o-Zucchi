@@ -55,6 +55,7 @@ type NormalizedServiceOrder = {
   planningGroup: string | null;
   planningGroupCode: string | null;
   openedAt: Date | null;
+  closedAt: Date | null;
   workedHours: number | null;
   operation: string | null;
   operationCode: string;
@@ -109,6 +110,7 @@ export async function importServiceOrdersFromNormalizedRows(
           planningGroup: normalized.planningGroup,
           planningGroupCode: normalized.planningGroupCode,
           openedAt: normalized.openedAt,
+          closedAt: normalized.closedAt,
           workedHours: normalized.workedHours,
           operation: normalized.operation,
           operationCode: normalized.operationCode,
@@ -135,6 +137,7 @@ export async function importServiceOrdersFromNormalizedRows(
           planningGroup: normalized.planningGroup,
           planningGroupCode: normalized.planningGroupCode,
           openedAt: normalized.openedAt,
+          closedAt: normalized.closedAt,
           workedHours: normalized.workedHours,
           operation: normalized.operation,
           operationCode: normalized.operationCode,
@@ -252,6 +255,10 @@ function normalizeServiceOrderRow(row: LinhaOrdemServicoNormalizada, line: numbe
   }
 
   const openedAt = converterDataExcel(row.openedAt);
+  // Data de fechamento (quando a coluna de conclusão/encerramento existir no
+  // arquivo). Fica null quando ausente — nunca inventamos data. OS com status
+  // fechado e sem esta data são sinalizadas na auditoria do gráfico do dashboard.
+  const closedAt = converterDataExcel(row.closedAt);
   const workedHours = converterHorasParaDecimal(row.workedHours);
   const responsibleName = limparTexto(row.responsibleName) || "SEM RESPONSÁVEL";
   const title = limparTexto(row.title) || osNumber;
@@ -273,6 +280,7 @@ function normalizeServiceOrderRow(row: LinhaOrdemServicoNormalizada, line: numbe
     planningGroup: optionalText(row.planningGroup),
     planningGroupCode: optionalText(row.planningGroupCode),
     openedAt,
+    closedAt,
     workedHours,
     operation: optionalText(row.operation),
     operationCode,

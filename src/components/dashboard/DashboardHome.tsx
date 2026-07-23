@@ -48,8 +48,9 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
           kind="line"
           title="OS abertas x fechadas (por mês)"
           href={href("/dashboard/ordens-servico")}
-          emptyTitle="Sem ordens no período"
-          emptyDescription="Importe ordens ou ajuste o filtro para visualizar este indicador."
+          note={dashboard.openClosedNote ?? undefined}
+          emptyTitle="Nenhuma Ordem de Manutenção no período"
+          emptyDescription="Ajuste o filtro de período ou importe Ordens de Manutenção para visualizar este indicador."
         />
         <ChartCard
           className="xl:col-span-3"
