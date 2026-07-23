@@ -699,38 +699,50 @@ export type PcFactoryMachinesBelowAverageResult = {
 
 /**
  * "Máquinas Críticas" da aba Início: máquinas com disponibilidade ABAIXO da média
- * geral do PC-Factory no período. Reaproveita a disponibilidade OFICIAL por máquina
- * (getPcFactoryResourceRanking → availabilityPercent), que usa durationHours e já
- * exclui "Fora de Turno"/"Recurso Não Programado" do tempo planejado — sem regra
- * paralela. Só considera máquinas com tempo planejado > 0 (availability != null).
- * Blindado contra NaN/Infinity.
+ * geral do PC-Factory no período.
+ *
+ * DISPONIBILIDADE POR MANUTENÇÃO (mesma visão de disponibilidade da aba PC-Factory):
+ *   disponibilidade = ((tempo planejado − horas de manutenção) / tempo planejado) × 100
+ * Base: durationHours; tempo planejado já EXCLUI "Fora de Turno"/"Recurso Não
+ * Programado" (via getPcFactoryResourceRanking/aggregateHours). Paradas operacionais
+ * e setup NÃO entram como indisponibilidade aqui — só a manutenção — para bater com o
+ * indicador de disponibilidade exibido na aba (≈90%), e não com o de perdas totais.
+ *
+ * A média é a média simples da disponibilidade de TODAS as máquinas com tempo
+ * planejado > 0 (inclui as saudáveis, sem manutenção). Blindado contra NaN/Infinity.
  */
 export async function getPcFactoryMachinesBelowAverage(
   params: PcFactoryQueryParams = {}
 ): Promise<PcFactoryMachinesBelowAverageResult> {
   const rows = await getPcFactoryResourceRanking(params);
-  const valid = rows.filter(
-    (row) => row.availabilityPercent !== null && Number.isFinite(row.availabilityPercent) && row.plannedHours > 0
-  );
+  const round1 = (value: number) => Number(value.toFixed(1));
+  const clampPct = (value: number) => Math.min(100, Math.max(0, value));
+
+  const valid = rows
+    .filter((row) => row.plannedHours > 0)
+    .map((row) => ({
+      row,
+      availability: clampPct(((row.plannedHours - row.maintenanceHours) / row.plannedHours) * 100)
+    }))
+    .filter((item) => Number.isFinite(item.availability));
 
   if (valid.length === 0) {
     return { averageAvailability: null, machinesBelowAverage: [], count: 0, totalMachines: 0 };
   }
 
-  const average = valid.reduce((sum, row) => sum + (row.availabilityPercent as number), 0) / valid.length;
-  const round1 = (value: number) => Number(value.toFixed(1));
+  const average = valid.reduce((sum, item) => sum + item.availability, 0) / valid.length;
 
   const machinesBelowAverage = valid
-    .filter((row) => (row.availabilityPercent as number) < average)
-    .sort((a, b) => (a.availabilityPercent as number) - (b.availabilityPercent as number))
-    .map((row) => ({
+    .filter((item) => item.availability < average)
+    .sort((a, b) => a.availability - b.availability)
+    .map(({ row, availability }) => ({
       machineName: row.resourceName,
       machineCode: row.resourceCode,
-      availability: round1(row.availabilityPercent as number),
+      availability: round1(availability),
       plannedHours: round1(row.plannedHours),
       maintenanceHours: round1(row.maintenanceHours),
-      downtimeHours: round1(row.stoppedHours),
-      gapToAverage: round1(average - (row.availabilityPercent as number))
+      downtimeHours: round1(row.maintenanceHours),
+      gapToAverage: round1(average - availability)
     }));
 
   return {
