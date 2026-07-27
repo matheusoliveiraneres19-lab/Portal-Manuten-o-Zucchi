@@ -15,7 +15,6 @@ import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { getPurchaseRecordReferenceDate, resolvePurchaseValue } from "@/utils/purchases-normalizer";
 import {
-  PURCHASE_OPERATIONAL_STATUS_COLORS,
   PURCHASE_OPERATIONAL_STATUS_LABELS,
   classificationReasonFor,
   reportGroupFor,
@@ -38,15 +37,19 @@ import type {
   PurchaseQueryParams,
   PurchaseRequesterCount,
   PurchaseRow,
-  PurchaseStatusSlice,
   PurchaseSupplierSlice
 } from "@/types/purchases";
 
 const DEFAULT_PAGE_SIZE = 50;
 const OS = PurchaseOperationalStatus;
 
-/** Status que compõem a página de Compras Pendentes (tabela). */
-const PENDING_TABLE_STATUSES: PurchaseOperationalStatus[] = [OS.PENDENTE_COMPRA, OS.ATRASADO];
+/**
+ * Status que compõem a página de Compras Pendentes (tabela).
+ * REGRA OFICIAL: "Pedido de Compra vazio = Pendente de Compra". Portanto a aba
+ * lista APENAS `PENDENTE_COMPRA` (requisição sem pedido). `ATRASADO` foi removido
+ * — todo atrasado já possui pedido de compra, logo não é "pendente de compra".
+ */
+const PENDING_TABLE_STATUSES: PurchaseOperationalStatus[] = [OS.PENDENTE_COMPRA];
 /** Status que compõem a página de Compras Realizadas (tabela). */
 const COMPLETED_TABLE_STATUSES: PurchaseOperationalStatus[] = [OS.COMPRADO, OS.ENTREGUE];
 
@@ -70,6 +73,8 @@ const Y01_BASE: Prisma.PurchaseRecordWhereInput = {
 const DELIVERED: Prisma.PurchaseRecordWhereInput = { isReceiptConfirmed: true, receiptDate: { not: null } };
 /** Ainda não entregue (nega o "entregue"). */
 const NOT_DELIVERED: Prisma.PurchaseRecordWhereInput = { NOT: { isReceiptConfirmed: true, receiptDate: { not: null } } };
+/** Requisição de compra preenchida (só assim é "requisição pendente de compra"). */
+const HAS_REQUISITION: Prisma.PurchaseRecordWhereInput = { requisitionNumber: { not: null } };
 
 /** Cláusula Prisma para cada status operacional (mutuamente exclusivo), com a data atual. */
 function statusWhere(status: PurchaseOperationalStatus, today: Date): Prisma.PurchaseRecordWhereInput {
@@ -93,7 +98,7 @@ function statusWhere(status: PurchaseOperationalStatus, today: Date): Prisma.Pur
         OR: [{ expectedDeliveryDate: null }, { expectedDeliveryDate: { gte: startToday } }]
       };
     case OS.PENDENTE_COMPRA:
-      return { ...Y01_BASE, ...NOT_DELIVERED, hasPurchaseOrder: false };
+      return { ...Y01_BASE, ...NOT_DELIVERED, ...HAS_REQUISITION, hasPurchaseOrder: false };
     default:
       return {};
   }
@@ -109,9 +114,9 @@ function purchasedNotDeliveredWhere(): Prisma.PurchaseRecordWhereInput {
   return { ...Y01_BASE, ...NOT_DELIVERED, hasPurchaseOrder: true };
 }
 
-/** Pendente de compra = base Y01 material sem pedido de compra. */
+/** Pendente de compra = base Y01 material, com requisição e sem pedido de compra. */
 function pendingPurchaseWhere(): Prisma.PurchaseRecordWhereInput {
-  return { ...Y01_BASE, ...NOT_DELIVERED, hasPurchaseOrder: false };
+  return { ...Y01_BASE, ...NOT_DELIVERED, ...HAS_REQUISITION, hasPurchaseOrder: false };
 }
 
 /* ------------------------------------------------------------------ */
@@ -215,9 +220,13 @@ function scopeByKind(
   return { OR: statuses.map((status) => statusWhere(status, today)) };
 }
 
-/** Página Pendentes: PENDENTE_COMPRA + ATRASADO (respeita o filtro "Tipo"). */
+/**
+ * Página Pendentes: SOMENTE `PENDENTE_COMPRA` (requisição sem pedido).
+ * O escopo é fixo — o filtro "Tipo" (serviço/regularização/ignorado) não se
+ * aplica aqui, pois esses registros nunca são pendentes de compra.
+ */
 function pendingWhere(params: PurchaseQueryParams, today: Date): Prisma.PurchaseRecordWhereInput {
-  return mergeWhere(buildFilterWhere(params, today), scopeByKind(params.kinds, PENDING_TABLE_STATUSES, today));
+  return mergeWhere(buildFilterWhere(params, today), statusWhere(OS.PENDENTE_COMPRA, today));
 }
 
 /** Página Realizadas: COMPRADO + ENTREGUE (respeita o filtro "Tipo"). */
@@ -461,8 +470,11 @@ export async function getCompletedPurchasesList(params: PurchaseQueryParams = {}
 const analysisSelect = {
   supplierName: true,
   requester: true,
+  materialCode: true,
+  requisitionNumber: true,
   goodsGroupCode: true,
   goodsGroupDescription: true,
+  requisitionDate: true,
   expectedDeliveryDate: true,
   receiptDate: true,
   netTotal: true,
@@ -539,7 +551,7 @@ function valueOf(record: AnalysisRow): number {
   return resolvePurchaseValue(record.netTotal, record.grossTotal) ?? 0;
 }
 
-function bucketByMonth(records: AnalysisRow[], field: "expectedDeliveryDate" | "receiptDate"): PurchaseMonthlyPoint[] {
+function bucketByMonth(records: AnalysisRow[], field: "expectedDeliveryDate" | "receiptDate" | "requisitionDate"): PurchaseMonthlyPoint[] {
   const totals = new Map<string, { value: number; count: number }>();
   for (const record of records) {
     const date = record[field];
@@ -602,22 +614,6 @@ function topRequesters(records: AnalysisRow[], limit = 7): PurchaseRequesterCoun
     .map(([requester, count]) => ({ requester, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, limit);
-}
-
-function statusDistribution(records: AnalysisRow[], today: Date, statuses: PurchaseOperationalStatus[]): PurchaseStatusSlice[] {
-  const counts = new Map<PurchaseOperationalStatus, number>();
-  for (const record of records) {
-    const status = effStatus(record, today);
-    counts.set(status, (counts.get(status) ?? 0) + 1);
-  }
-  return statuses
-    .map((status) => ({
-      status,
-      label: PURCHASE_OPERATIONAL_STATUS_LABELS[status],
-      count: counts.get(status) ?? 0,
-      color: PURCHASE_OPERATIONAL_STATUS_COLORS[status]
-    }))
-    .filter((slice) => slice.count > 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -780,11 +776,14 @@ export async function getPendingPurchasesPageData(params: PurchaseQueryParams = 
     return {
       period,
       kpis: emptyKpis(),
-      lateByMonth: [],
-      topLateSuppliers: [],
+      pendingByMonth: [],
+      topPendingSuppliers: [],
       pendingByGoodsGroup: [],
-      statusDistribution: [],
       topRequesters: [],
+      pendingValue: 0,
+      materialsPending: 0,
+      requestersPending: 0,
+      oldestPendingDate: null,
       purchases: emptyPage(params),
       filterOptions: emptyFilterOptions(),
       source: "empty"
@@ -798,21 +797,46 @@ export async function getPendingPurchasesPageData(params: PurchaseQueryParams = 
     getPurchaseFilterOptions()
   ]);
 
-  const lateRows = analysisRows.filter((row) => effStatus(row, today) === OS.ATRASADO);
-  const pendingForGroups = analysisRows.filter((row) => {
-    const status = effStatus(row, today);
-    return PENDING_TABLE_STATUSES.includes(status) || status === OS.REGULARIZACAO;
-  });
-  const pendingY01Rows = analysisRows.filter((row) => PENDING_TABLE_STATUSES.includes(effStatus(row, today)));
+  // Conjunto pendente REAL (mesma regra da tabela): Y01 sem pedido, com requisição.
+  const pendingRows = analysisRows.filter(
+    (row) => effStatus(row, today) === OS.PENDENTE_COMPRA && hasRequisitionNumber(row.requisitionNumber)
+  );
+
+  // Agregados dos cards/gráficos — todos sobre o MESMO conjunto filtrado (REGRA 11).
+  const pendingValue = round(pendingRows.reduce((sum, row) => sum + valueOf(row), 0));
+  const materialsPending = new Set(pendingRows.map((row) => row.materialCode).filter(Boolean)).size;
+  const requestersPending = new Set(pendingRows.map((row) => row.requester).filter(Boolean)).size;
+  const oldestPendingDate = pendingRows.reduce<Date | null>(
+    (oldest, row) => (row.requisitionDate && (!oldest || row.requisitionDate < oldest) ? row.requisitionDate : oldest),
+    null
+  );
+
+  // Auditoria de classificação (TAREFA 17) — ajuda a validar por que os números mudaram.
+  if (process.env.NODE_ENV !== "production") {
+    console.debug("[compras-pendentes] auditoria", {
+      totalImportado: total,
+      totalY01: kpis.baseY01,
+      totalComPedido: kpis.purchased,
+      totalSemPedido: kpis.pendingPurchase,
+      totalY04Removido: kpis.regularizations,
+      totalY0008Removido: kpis.services,
+      totalIgnoradoRemovido: kpis.ignored,
+      totalExibidoEmPendentes: purchases.total,
+      valorPendenteFiltrado: pendingValue
+    });
+  }
 
   return {
     period,
     kpis,
-    lateByMonth: bucketByMonth(lateRows, "expectedDeliveryDate"),
-    topLateSuppliers: topSuppliersByCount(lateRows),
-    pendingByGoodsGroup: groupCountByGoodsGroup(pendingForGroups),
-    statusDistribution: statusDistribution(analysisRows, today, PENDING_TABLE_STATUSES),
-    topRequesters: topRequesters(pendingY01Rows),
+    pendingByMonth: bucketByMonth(pendingRows, "requisitionDate"),
+    topPendingSuppliers: topSuppliersByCount(pendingRows),
+    pendingByGoodsGroup: groupCountByGoodsGroup(pendingRows),
+    topRequesters: topRequesters(pendingRows),
+    pendingValue,
+    materialsPending,
+    requestersPending,
+    oldestPendingDate: oldestPendingDate ? oldestPendingDate.toISOString() : null,
     purchases,
     filterOptions,
     source: "database"
@@ -880,6 +904,11 @@ function clampPageSize(value?: number): number {
 
 function toIso(date: Date | null): string | null {
   return date ? date.toISOString() : null;
+}
+
+/** Requisição de compra preenchida (texto não vazio). */
+function hasRequisitionNumber(value: string | null): boolean {
+  return Boolean(value && value.trim());
 }
 
 function round(value: number): number {

@@ -3,6 +3,7 @@
 import { ChevronLeft, ChevronRight, PackageSearch } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { PurchaseStatusBadge } from "@/components/purchases/PurchaseStatusBadge";
+import { formatCurrency } from "@/utils/formatters";
 import type { PaginatedPurchases, PurchaseRow } from "@/types/purchases";
 
 type PurchaseTableProps = {
@@ -49,17 +50,21 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
       ) : (
         <>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1320px] border-collapse text-left text-xs">
+            <table className="w-full min-w-[1120px] border-collapse text-left text-xs">
               <thead>
                 <tr className="border-b border-zinc-200 text-[10px] uppercase tracking-wide text-zinc-500">
                   <th className="px-2 py-2 font-bold">Status</th>
                   <th className="px-2 py-2 font-bold">Requisição</th>
-                  <th className="px-2 py-2 font-bold">Pedido</th>
-                  <th className="px-2 py-2 font-bold">Data pedido</th>
-                  <th className="px-2 py-2 font-bold">Previsão</th>
                   {isPending ? (
-                    <th className="px-2 py-2 text-right font-bold">Atraso (d)</th>
+                    <th className="px-2 py-2 font-bold">Data requisição</th>
                   ) : (
+                    <>
+                      <th className="px-2 py-2 font-bold">Pedido</th>
+                      <th className="px-2 py-2 font-bold">Data pedido</th>
+                    </>
+                  )}
+                  <th className="px-2 py-2 font-bold">Previsão</th>
+                  {!isPending && (
                     <>
                       <th className="px-2 py-2 font-bold">Recebimento</th>
                       <th className="px-2 py-2 text-right font-bold">Atraso receb. (d)</th>
@@ -73,8 +78,14 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
                   <th className="px-2 py-2 font-bold">Requisitante</th>
                   <th className="px-2 py-2 font-bold">Grupo Comp</th>
                   <th className="px-2 py-2 font-bold">Grupo Merc</th>
-                  <th className="px-2 py-2 text-center font-bold">Recbconcl</th>
-                  <th className="px-2 py-2 font-bold">CódElim</th>
+                  {isPending ? (
+                    <th className="px-2 py-2 text-right font-bold">Valor pendente</th>
+                  ) : (
+                    <>
+                      <th className="px-2 py-2 text-center font-bold">Recbconcl</th>
+                      <th className="px-2 py-2 font-bold">CódElim</th>
+                    </>
+                  )}
                   <th className="px-2 py-2 font-bold">Tipo</th>
                 </tr>
               </thead>
@@ -116,21 +127,23 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
 }
 
 function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
-  const showDelay = isPending ? row.operationalStatus === "ATRASADO" : row.operationalStatus === "ENTREGUE";
+  const showDelay = !isPending && row.operationalStatus === "ENTREGUE";
   return (
     <tr className="border-b border-zinc-100 text-zinc-700 transition hover:bg-gold/5">
       <td className="px-2 py-2" title={row.classificationReason}>
         <PurchaseStatusBadge status={row.operationalStatus} />
       </td>
       <td className="px-2 py-2 font-medium text-zinc-900">{row.requisitionNumber ?? "—"}</td>
-      <td className="px-2 py-2">{row.purchaseOrderNumber ?? <span className="text-rose-600">—</span>}</td>
-      <td className="px-2 py-2">{formatIso(row.purchaseOrderDate)}</td>
-      <td className="px-2 py-2">{formatIso(row.expectedDeliveryDate)}</td>
       {isPending ? (
-        <td className="px-2 py-2 text-right tabular-nums">
-          {showDelay && row.delayDays !== null ? <span className="font-semibold text-rose-600">{row.delayDays}</span> : "—"}
-        </td>
+        <td className="px-2 py-2">{formatIso(row.requisitionDate)}</td>
       ) : (
+        <>
+          <td className="px-2 py-2">{row.purchaseOrderNumber ?? <span className="text-rose-600">—</span>}</td>
+          <td className="px-2 py-2">{formatIso(row.purchaseOrderDate)}</td>
+        </>
+      )}
+      <td className="px-2 py-2">{formatIso(row.expectedDeliveryDate)}</td>
+      {!isPending && (
         <>
           <td className="px-2 py-2">{formatIso(row.receiptDate)}</td>
           <td className="px-2 py-2 text-right tabular-nums">
@@ -160,10 +173,18 @@ function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
       <td className="px-2 py-2 max-w-[140px] truncate" title={row.goodsGroupDescription ?? undefined}>
         {row.goodsGroupDescription ?? row.goodsGroupCode ?? "—"}
       </td>
-      <td className="px-2 py-2 text-center">
-        {row.isReceiptConfirmed ? <span className="font-semibold text-emerald-600">X</span> : "—"}
-      </td>
-      <td className="px-2 py-2">{row.deletionCode ?? "—"}</td>
+      {isPending ? (
+        <td className="px-2 py-2 text-right tabular-nums font-medium text-zinc-900">
+          {row.value !== null ? formatCurrency(row.value) : "—"}
+        </td>
+      ) : (
+        <>
+          <td className="px-2 py-2 text-center">
+            {row.isReceiptConfirmed ? <span className="font-semibold text-emerald-600">X</span> : "—"}
+          </td>
+          <td className="px-2 py-2">{row.deletionCode ?? "—"}</td>
+        </>
+      )}
       <td className="px-2 py-2">{kindLabel(row)}</td>
     </tr>
   );

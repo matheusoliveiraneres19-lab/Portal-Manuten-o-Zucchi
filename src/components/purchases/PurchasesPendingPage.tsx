@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { AlarmClock, Ban, FileX2, Repeat2, ShoppingCart, Truck, Upload, Wallet, Wrench } from "lucide-react";
+import { Boxes, CalendarClock, FileX2, ShoppingCart, Upload, Users, Wallet } from "lucide-react";
 import { ChartSkeleton } from "@/components/ChartSkeleton";
 import { PurchaseKpiCards, type PurchaseKpiCard } from "@/components/purchases/PurchaseKpiCards";
 import { PurchaseFilters } from "@/components/purchases/PurchaseFilters";
@@ -28,10 +28,6 @@ const PurchaseMonthlyCountChart = dynamic(
 );
 const PurchaseRankBarChart = dynamic(
   () => import("@/components/purchases/PurchaseInsightCharts").then((m) => m.PurchaseRankBarChart),
-  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-5" /> }
-);
-const PurchaseStatusChart = dynamic(
-  () => import("@/components/purchases/PurchaseInsightCharts").then((m) => m.PurchaseStatusChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-5" /> }
 );
 
@@ -91,15 +87,13 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
     navigate(next);
   }
 
-  const kpis = data.kpis;
+  const pendingCount = data.purchases.total;
   const cards: PurchaseKpiCard[] = [
-    { title: "Pendentes de Compra", value: int(kpis.pendingPurchase), description: "Requisição Y01 sem pedido de compra", icon: FileX2, tone: "gold" },
-    { title: "Comprados não entregues", value: int(kpis.purchasedNotDelivered), description: "Com pedido, sem recebimento concluído", icon: Truck, tone: "blue" },
-    { title: "Atrasados", value: int(kpis.late), description: "Previsão vencida, sem recebimento concluído", icon: AlarmClock, tone: "red" },
-    { title: "Regularizações Y04", value: int(kpis.regularizations), description: "Separadas dos KPIs principais Y01", icon: Repeat2, tone: "red" },
-    { title: "Serviços (Y0008)", value: int(kpis.services), description: "Separados dos materiais Y01", icon: Wrench, tone: "gold" },
-    { title: "Ignorados", value: int(kpis.ignored), description: "Bloqueado, frete, fornecedor eliminado, CódElim “L”", icon: Ban, tone: "blue" },
-    { title: "Valor pendente", value: formatCurrency(kpis.pendingValue), description: "Total sem pedido de compra", icon: Wallet, tone: "gold" }
+    { title: "Requisições Pendentes", value: int(pendingCount), description: "Requisições Y01 sem pedido de compra", icon: FileX2, tone: "gold" },
+    { title: "Valor Pendente", value: formatCurrency(data.pendingValue), description: "Soma do conjunto filtrado (todas as páginas)", icon: Wallet, tone: "green" },
+    { title: "Materiais Pendentes", value: int(data.materialsPending), description: "Materiais distintos sem pedido", icon: Boxes, tone: "blue" },
+    { title: "Requisitantes", value: int(data.requestersPending), description: "Requisitantes com pendências", icon: Users, tone: "blue" },
+    { title: "Mais Antiga", value: oldestLabel(data.oldestPendingDate), description: oldestDescription(data.oldestPendingDate), icon: CalendarClock, tone: "red" }
   ];
 
   const isEmpty = data.source === "empty";
@@ -118,8 +112,8 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
           </div>
           <h1 className="font-serif text-3xl leading-tight text-white sm:text-4xl">Compras Pendentes</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300 sm:text-base">
-            Requisições Y01 sem pedido de compra (pendente de compra), com atrasos, serviços,
-            Regularizações Y04 e itens fora do relatório separados dos indicadores principais.
+            Apenas requisições de compra Y01 que ainda não viraram pedido de compra. Itens com
+            pedido, atrasados, serviços (Y0008), regularizações (Y04) e ignorados não aparecem aqui.
           </p>
         </div>
       </header>
@@ -156,33 +150,28 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
             <PurchaseMonthlyCountChart
               className="xl:col-span-7"
-              title="Atrasos por mês"
-              subtitle="Itens em atraso pela previsão de entrega."
-              color="#f87171"
-              points={data.lateByMonth}
-            />
-            <PurchaseStatusChart
-              className="xl:col-span-5"
-              title="Status das pendências"
-              subtitle="Distribuição por status operacional."
-              slices={data.statusDistribution}
+              title="Requisições pendentes por mês"
+              subtitle="Pela data da requisição."
+              color="#c49a45"
+              points={data.pendingByMonth}
             />
             <PurchaseRankBarChart
-              className="xl:col-span-6"
-              title="Top fornecedores em atraso"
-              subtitle="Fornecedores com mais itens em atraso."
-              color="#f87171"
-              items={suppliersToRank(data.topLateSuppliers)}
+              className="xl:col-span-5"
+              title="Top fornecedores pendentes"
+              subtitle="Fornecedores com mais requisições sem pedido."
+              color="#7b551f"
+              items={suppliersToRank(data.topPendingSuppliers)}
+              emptyDescription="Nenhuma requisição pendente."
             />
             <PurchaseRankBarChart
               className="xl:col-span-6"
               title="Pendências por grupo de mercadoria"
-              subtitle="Pendentes Y01 + Y04 por grupo."
+              subtitle="Requisições pendentes por grupo."
               color="#0f4d68"
               items={goodsGroupsToRank(data.pendingByGoodsGroup)}
             />
             <PurchaseRankBarChart
-              className="xl:col-span-12"
+              className="xl:col-span-6"
               title="Requisitantes com mais pendências"
               color="#7b551f"
               items={requestersToRank(data.topRequesters)}
@@ -200,4 +189,21 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
 
 function int(value: number): string {
   return value.toLocaleString("pt-BR");
+}
+
+/** Data (curta) da requisição pendente mais antiga, ou "—". */
+function oldestLabel(iso: string | null): string {
+  if (!iso) {
+    return "—";
+  }
+  return new Date(iso).toLocaleDateString("pt-BR", { timeZone: "UTC" });
+}
+
+/** Descrição do card "Mais Antiga": há quantos dias a requisição está pendente. */
+function oldestDescription(iso: string | null): string {
+  if (!iso) {
+    return "Sem requisições pendentes";
+  }
+  const days = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
+  return days === 0 ? "Aberta hoje" : `Aberta há ${days.toLocaleString("pt-BR")} dia(s)`;
 }

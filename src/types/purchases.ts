@@ -428,12 +428,19 @@ export type PurchasesPeriodWindow = {
 export type PendingPurchasesPageData = {
   period: PurchasesPeriodWindow;
   kpis: PurchaseKpis;
-  /** Gráficos da REGRA 11. */
-  lateByMonth: PurchaseMonthlyPoint[];
-  topLateSuppliers: PurchaseSupplierSlice[];
+  /** Gráficos da aba — todos restritos a requisições pendentes (sem pedido). */
+  pendingByMonth: PurchaseMonthlyPoint[];
+  topPendingSuppliers: PurchaseSupplierSlice[];
   pendingByGoodsGroup: PurchaseGroupCount[];
-  statusDistribution: PurchaseStatusSlice[];
   topRequesters: PurchaseRequesterCount[];
+  /** Valor pendente somado sobre TODO o conjunto filtrado (não só a página). */
+  pendingValue: number;
+  /** Materiais únicos entre as requisições pendentes filtradas. */
+  materialsPending: number;
+  /** Requisitantes únicos entre as requisições pendentes filtradas. */
+  requestersPending: number;
+  /** Data (ISO) da requisição pendente mais antiga do conjunto filtrado. */
+  oldestPendingDate: string | null;
   purchases: PaginatedPurchases;
   filterOptions: PurchaseFilterOptions;
   source: "database" | "empty";
