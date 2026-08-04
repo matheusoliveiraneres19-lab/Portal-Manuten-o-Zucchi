@@ -341,18 +341,30 @@ export type PcFactoryAvailabilityBucket =
  * confiável usada em MANAGEMENT_GROUP_BY_CODE). Baseado em:
  *   1) Confirmado AO VIVO no Mapa/Andon do PC-Factory em 2026-08-04: "0201-Manutenção
  *      Mecânica" e "0303-Ausência de Operador" aparecem como Parada Não Planejada
- *      (ícone vermelho) — não são inferência, foram observados na tela.
- *   2) Documentação oficial do PC-Factory ("Perdas na Produção"): paradas não
- *      planejadas = Operação (Setup, ajuste, pequenas paradas), Compras, Qualidade
+ *      (ícone/painel VERMELHO, rgb(255,120,117)) — não são inferência, foram
+ *      observados na tela.
+ *   2) Confirmado AO VIVO no Mapa/Andon do PC-Factory em 2026-08-04 (segunda sessão):
+ *      "06120-Setup - Serrad" aparece com o MESMO painel LARANJA (rgb(250,173,20)) de
+ *      "0320-Refeição" — ou seja, Setup é Parada Planejada, e NÃO Parada Não Planejada
+ *      como se assumia antes por analogia à documentação genérica. Isso resolve o
+ *      conflito com o commit 28a44f4 (2026-07-23): a disponibilidade "por manutenção"
+ *      ((planejado − manutenção)/planejado, ~90%) batia com o PC-Factory justamente
+ *      porque Setup NÃO deveria ter sido descontado como parada não planejada. Os
+ *      outros 5 códigos de Setup (06100/06110/06130/06140/06150) são o mesmo grupo
+ *      gerencial "Setup" (ver MANAGEMENT_GROUP_BY_CODE) e foram alterados junto por
+ *      analogia direta ao 06120 confirmado — não são mais "(a confirmar)".
+ *   3) Documentação oficial do PC-Factory ("Perdas na Produção"): paradas não
+ *      planejadas = Operação (ajuste, pequenas paradas), Compras, Qualidade
  *      (aguardando/realizando inspeção), PCP, Movimentação de material, Manutenção
  *      corretiva. Paradas planejadas = Engenharia industrial, Ambiente/Saúde/Segurança
  *      (limpeza do posto, ginástica laboral), Manutenção preventiva, Marketing/Vendas,
  *      Educação programada (treinamentos).
  *
- * ⚠️ Itens marcados "(a confirmar)" foram classificados por analogia à documentação
- * oficial, mas NÃO foram observados ao vivo nem confirmados no cadastro F0024/F0029 do
- * PC-Factory (não fica acessível pela Management View web). Recomenda-se validar esses
- * itens com o administrador do PC-Factory e ajustar aqui se necessário.
+ * ⚠️ Itens ainda marcados "(a confirmar)" foram classificados por analogia à
+ * documentação oficial, mas NÃO foram observados ao vivo nem confirmados no cadastro
+ * F0024/F0029 do PC-Factory (não fica acessível pela Management View web).
+ * Recomenda-se validar esses itens com o administrador do PC-Factory e ajustar aqui se
+ * necessário.
  */
 const AVAILABILITY_BUCKET_BY_CODE: Record<string, PcFactoryAvailabilityBucket> = {
   // Padrão do Sistema (00xx)
@@ -388,15 +400,16 @@ const AVAILABILITY_BUCKET_BY_CODE: Record<string, PcFactoryAvailabilityBucket> =
   "0401": "PARADA_NAO_PLANEJADA", // Falta de Material
   "0403": "PARADA_NAO_PLANEJADA", // Falta de Carrinho p/ cargas
   "00070": "PARADA_NAO_PLANEJADA", // Falta de Utilidades
-  // Setup (06xxx + Medição de Abrasivos) — decisão de negócio confirmada: Setup é
-  // parada operacional não planejada (ver SETUP_COUNTS_AS_LOSS no service).
-  "06100": "PARADA_NAO_PLANEJADA", // Setup - PZs
-  "06110": "PARADA_NAO_PLANEJADA", // Setup - Resina
-  "06120": "PARADA_NAO_PLANEJADA", // Setup - Serrad
-  "06130": "PARADA_NAO_PLANEJADA", // Setup - Tratam
-  "06140": "PARADA_NAO_PLANEJADA", // Setup - Bifios
-  "06150": "PARADA_NAO_PLANEJADA", // Setup - Envelop
-  "0603": "PARADA_PLANEJADA" // Medição de Abrasivos (a confirmar)
+  // Setup (06xxx + Medição de Abrasivos) — CONFIRMADO ao vivo em 2026-08-04: painel
+  // laranja (Parada Planejada), igual a "0320-Refeição". Os demais códigos de Setup
+  // (mesmo grupo gerencial "Setup") seguem por analogia direta.
+  "06100": "PARADA_PLANEJADA", // Setup - PZs
+  "06110": "PARADA_PLANEJADA", // Setup - Resina
+  "06120": "PARADA_PLANEJADA", // Setup - Serrad — CONFIRMADO ao vivo (Mapa/Andon, 2026-08-04)
+  "06130": "PARADA_PLANEJADA", // Setup - Tratam
+  "06140": "PARADA_PLANEJADA", // Setup - Bifios
+  "06150": "PARADA_PLANEJADA", // Setup - Envelop
+  "0603": "PARADA_PLANEJADA" // Medição de Abrasivos (a confirmar, mas mesmo grupo Setup)
 };
 
 /** Fallback por NOME normalizado, para registros sem código (ex.: aba ajustada). */
@@ -412,7 +425,7 @@ const AVAILABILITY_BUCKET_BY_NAME: Record<string, PcFactoryAvailabilityBucket> =
   [KEY.MANUTENCAO_AUTOMACAO]: "PARADA_NAO_PLANEJADA",
   [KEY.MANUTENCAO_PLANEJADA]: "PARADA_PLANEJADA",
   [KEY.MANUTENCAO_TERCEIROS]: "PARADA_NAO_PLANEJADA",
-  [KEY.SETUP]: "PARADA_NAO_PLANEJADA",
+  [KEY.SETUP]: "PARADA_PLANEJADA", // CONFIRMADO ao vivo em 2026-08-04 (ver AVAILABILITY_BUCKET_BY_CODE)
   [KEY.REFEICAO]: "PARADA_PLANEJADA",
   [KEY.FALTA_DE_MATERIAL]: "PARADA_NAO_PLANEJADA",
   [KEY.FALTA_DE_UTILIDADES]: "PARADA_NAO_PLANEJADA"
