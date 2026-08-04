@@ -308,6 +308,141 @@ export function classifyManagementGroup(statusCode: unknown, statusRaw?: unknown
   return byName ?? "OPERACIONAL";
 }
 
+/* ------------------------------------------------------------------ */
+/* Classificação de DISPONIBILIDADE (regra oficial do PC-Factory)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * As 4 classificações que a documentação do PC-Factory exige para QUALQUER status de
+ * Recurso, para formar os indicadores de OEE/Disponibilidade (ver "Composição do Tempo -
+ * Modelo Tradicional" e "Relação Status de Recurso e Indicadores de Desempenho" nos docs
+ * do PC-Factory, e a legenda do Mapa/Andon: Operando / Parada Planejada 1 ou 2 /
+ * Parada Não Planejada / Tempo Fora de Turno).
+ *
+ * Fórmula oficial (idêntica à tela "Indicadores OEE" / Mapa do PC-Factory):
+ *   Tempo de Carga      = Tempo Total − Fora de Turno − Recurso Não Programado
+ *   Tempo Operacional   = Tempo de Carga − Paradas Planejadas (I e II)
+ *   Tempo Trabalhado    = Tempo Operacional − Paradas Não Planejadas
+ *   Disponibilidade (%) = Tempo Trabalhado / Tempo Operacional × 100
+ *
+ * "Recurso Não Programado" fica FORA do Tempo de Carga (mesmo tratamento de Fora de
+ * Turno) — mantém a mesma regra já usada em `EXCLUIR_TEMPO_PLANEJADO` no restante do
+ * serviço; não é reclassificado aqui.
+ */
+export type PcFactoryAvailabilityBucket =
+  | "FORA_DE_TURNO"
+  | "RECURSO_NAO_PROGRAMADO"
+  | "PRODUCAO"
+  | "PARADA_PLANEJADA"
+  | "PARADA_NAO_PLANEJADA";
+
+/**
+ * Mapa status → classificação de disponibilidade, por código RCODSTATUS (mesma fonte
+ * confiável usada em MANAGEMENT_GROUP_BY_CODE). Baseado em:
+ *   1) Confirmado AO VIVO no Mapa/Andon do PC-Factory em 2026-08-04: "0201-Manutenção
+ *      Mecânica" e "0303-Ausência de Operador" aparecem como Parada Não Planejada
+ *      (ícone vermelho) — não são inferência, foram observados na tela.
+ *   2) Documentação oficial do PC-Factory ("Perdas na Produção"): paradas não
+ *      planejadas = Operação (Setup, ajuste, pequenas paradas), Compras, Qualidade
+ *      (aguardando/realizando inspeção), PCP, Movimentação de material, Manutenção
+ *      corretiva. Paradas planejadas = Engenharia industrial, Ambiente/Saúde/Segurança
+ *      (limpeza do posto, ginástica laboral), Manutenção preventiva, Marketing/Vendas,
+ *      Educação programada (treinamentos).
+ *
+ * ⚠️ Itens marcados "(a confirmar)" foram classificados por analogia à documentação
+ * oficial, mas NÃO foram observados ao vivo nem confirmados no cadastro F0024/F0029 do
+ * PC-Factory (não fica acessível pela Management View web). Recomenda-se validar esses
+ * itens com o administrador do PC-Factory e ajustar aqui se necessário.
+ */
+const AVAILABILITY_BUCKET_BY_CODE: Record<string, PcFactoryAvailabilityBucket> = {
+  // Padrão do Sistema (00xx)
+  "0001": "PRODUCAO", // Produção
+  "0002": "PARADA_NAO_PLANEJADA", // Parada não Identificada (a confirmar — tratada como não planejada por padrão)
+  "0004": "FORA_DE_TURNO", // Fora de Turno
+  "0008": "PARADA_NAO_PLANEJADA", // Aguardando lançamento (a confirmar)
+  "0009": "RECURSO_NAO_PROGRAMADO", // Recurso Não Programado
+  // Manutenção (02xx) — só "Planejada" é parada planejada; o resto é corretiva/reativa
+  "0200": "PARADA_NAO_PLANEJADA", // Aguardando Manutenção
+  "0201": "PARADA_NAO_PLANEJADA", // Manutenção Mecânica — CONFIRMADO ao vivo (Mapa/Andon, 2026-08-04)
+  "0202": "PARADA_NAO_PLANEJADA", // Manutenção Elétrica (mesma família de 0201)
+  "0206": "PARADA_NAO_PLANEJADA", // Manutenção Automação (mesma família de 0201)
+  "0207": "PARADA_PLANEJADA", // Manutenção Planejada (preventiva)
+  "0208": "PARADA_NAO_PLANEJADA", // Manutenção de Terceiros (mesma família de 0201)
+  // Operacional (03xx, 05xx + exceções confirmadas no grupo gerencial)
+  "0301": "PARADA_NAO_PLANEJADA", // Acidente
+  "0302": "PARADA_NAO_PLANEJADA", // Aguardando Carro Transportador (movimentação de material)
+  "0303": "PARADA_NAO_PLANEJADA", // Ausência de Operador — CONFIRMADO ao vivo (Mapa/Andon, 2026-08-04)
+  "0312": "PARADA_PLANEJADA", // Limpeza de Setor de Trabalho (Ambiente/Saúde/Segurança)
+  "0314": "PARADA_NAO_PLANEJADA", // Falta de Espaço para Movimentação
+  "0319": "PARADA_NAO_PLANEJADA", // Quebra de Chapa
+  "0320": "PARADA_PLANEJADA", // Refeição (Ambiente/Saúde/Segurança)
+  "0321": "PARADA_PLANEJADA", // Start Check List de Máquina (a confirmar)
+  "0323": "PARADA_NAO_PLANEJADA", // Inspeção de Qualidade
+  "0326": "PARADA_NAO_PLANEJADA", // Resina Mole
+  "0329": "PARADA_NAO_PLANEJADA", // Deslocamento de Operador
+  "0502": "PARADA_PLANEJADA", // Reunião ou treinamento (Educação programada)
+  "0503": "PARADA_PLANEJADA", // Confraternizações (a confirmar)
+  "0612": "PARADA_NAO_PLANEJADA", // Revezamento (a confirmar)
+  "07020": "PARADA_NAO_PLANEJADA", // Quebra de Ferramenta
+  // Materiais (04xx + Falta de Utilidades)
+  "0401": "PARADA_NAO_PLANEJADA", // Falta de Material
+  "0403": "PARADA_NAO_PLANEJADA", // Falta de Carrinho p/ cargas
+  "00070": "PARADA_NAO_PLANEJADA", // Falta de Utilidades
+  // Setup (06xxx + Medição de Abrasivos) — decisão de negócio confirmada: Setup é
+  // parada operacional não planejada (ver SETUP_COUNTS_AS_LOSS no service).
+  "06100": "PARADA_NAO_PLANEJADA", // Setup - PZs
+  "06110": "PARADA_NAO_PLANEJADA", // Setup - Resina
+  "06120": "PARADA_NAO_PLANEJADA", // Setup - Serrad
+  "06130": "PARADA_NAO_PLANEJADA", // Setup - Tratam
+  "06140": "PARADA_NAO_PLANEJADA", // Setup - Bifios
+  "06150": "PARADA_NAO_PLANEJADA", // Setup - Envelop
+  "0603": "PARADA_PLANEJADA" // Medição de Abrasivos (a confirmar)
+};
+
+/** Fallback por NOME normalizado, para registros sem código (ex.: aba ajustada). */
+const AVAILABILITY_BUCKET_BY_NAME: Record<string, PcFactoryAvailabilityBucket> = {
+  [KEY.PRODUCAO]: "PRODUCAO",
+  [KEY.FORA_DE_TURNO]: "FORA_DE_TURNO",
+  [KEY.RECURSO_NAO_PROGRAMADO]: "RECURSO_NAO_PROGRAMADO",
+  [KEY.PARADA_NAO_IDENTIFICADA]: "PARADA_NAO_PLANEJADA",
+  [KEY.AGUARDANDO_LANCAMENTO]: "PARADA_NAO_PLANEJADA",
+  [KEY.AGUARDANDO_MANUTENCAO]: "PARADA_NAO_PLANEJADA",
+  [KEY.MANUTENCAO_MECANICA]: "PARADA_NAO_PLANEJADA",
+  [KEY.MANUTENCAO_ELETRICA]: "PARADA_NAO_PLANEJADA",
+  [KEY.MANUTENCAO_AUTOMACAO]: "PARADA_NAO_PLANEJADA",
+  [KEY.MANUTENCAO_PLANEJADA]: "PARADA_PLANEJADA",
+  [KEY.MANUTENCAO_TERCEIROS]: "PARADA_NAO_PLANEJADA",
+  [KEY.SETUP]: "PARADA_NAO_PLANEJADA",
+  [KEY.REFEICAO]: "PARADA_PLANEJADA",
+  [KEY.FALTA_DE_MATERIAL]: "PARADA_NAO_PLANEJADA",
+  [KEY.FALTA_DE_UTILIDADES]: "PARADA_NAO_PLANEJADA"
+};
+
+/**
+ * Classifica o registro numa das 5 classificações de disponibilidade do PC-Factory.
+ * Usa o CÓDIGO (RCODSTATUS) como fonte primária (igual a `classifyManagementGroup`);
+ * cai no nome quando o código não é conhecido. Desconhecido → PARADA_NAO_PLANEJADA
+ * (conservador: nunca infla a disponibilidade silenciosamente).
+ */
+export function classifyAvailabilityBucket(statusCode: unknown, statusRaw?: unknown): PcFactoryAvailabilityBucket {
+  const code = String(statusCode ?? "").trim();
+  if (code && AVAILABILITY_BUCKET_BY_CODE[code]) return AVAILABILITY_BUCKET_BY_CODE[code];
+
+  const key = normalizePcFactoryStatusName(statusRaw);
+  const byName = AVAILABILITY_BUCKET_BY_NAME[key];
+  if (byName) return byName;
+
+  // Heurística por prefixo para códigos novos ainda não mapeados.
+  if (code) {
+    if (code.startsWith("0004")) return "FORA_DE_TURNO";
+    if (code.startsWith("0009")) return "RECURSO_NAO_PROGRAMADO";
+    if (code === "0001") return "PRODUCAO";
+    if (code === "0207") return "PARADA_PLANEJADA";
+  }
+
+  return "PARADA_NAO_PLANEJADA";
+}
+
 /** Rótulos dos grupos gerenciais (idênticos à tela do PC-Factory). */
 export const PC_FACTORY_MANAGEMENT_GROUP_LABELS: Record<PcFactoryManagementGroup, string> = {
   PADRAO_SISTEMA: "Padrão do Sistema",

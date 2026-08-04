@@ -84,7 +84,7 @@ export function PcFactoryDetailsDrawer({ open, loading, error, details, onClose 
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-gold/10 bg-black/20 px-3 py-2 text-xs">
                       <InlineInfo label="Aguardando manutenção" value={hours(details.waitingHours)} />
                       <InlineInfo label="Eventos de manutenção" value={String(details.maintenanceEvents)} />
-                      <InlineInfo label="Horas paradas (perda)" value={hours(details.stoppedHours)} />
+                      <InlineInfo label="Paradas não planejadas" value={hours(details.stoppedHours)} />
                       <InlineInfo label="Tempo planejado" value={hours(details.plannedHours)} />
                     </div>
                   </Section>

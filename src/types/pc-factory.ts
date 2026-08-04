@@ -78,11 +78,16 @@ export type PcFactoryKpis = {
   setupHours: number;
   /** Perdas operacionais (não-manutenção): Falta de Material, Parada não Identificada e Setup (decisão da empresa). */
   lossHours: number;
-  /** Tempo neutro planejado (Refeição + Outros). */
+  /** Paradas Planejadas (I e II) — regra oficial de Disponibilidade do PC-Factory. */
+  plannedStopHours: number;
+  /** Tempo Operacional = Tempo planejado (Tempo de Carga) − Paradas Planejadas. Base
+   *  oficial usada para calcular `availabilityPercent` (idêntica ao PC-Factory). */
   operationalHours: number;
   /** Fora do tempo planejado (Fora de Turno + Recurso Não Programado). */
   excludedHours: number;
-  /** Tempo de paradas para disponibilidade = manutenção + perdas operacionais. */
+  /** Paradas Não Planejadas — regra oficial de Disponibilidade do PC-Factory (antes era
+   *  só manutenção + perdas operacionais; agora inclui todo status classificado como
+   *  não planejado, ex.: Setup, falta de material, ausência de operador etc.). */
   stoppedHours: number;
   maintenanceEvents: number;
   mechanicalEvents: number;
@@ -192,7 +197,10 @@ export type PcFactoryReliabilityRow = {
 
   /** Alias de maintenanceDowntimeHours (coluna "Paradas"). */
   downtimeHours: number;
-  /** ((plannedHours − paradas de manutenção) / plannedHours) × 100. null = sem tempo planejado. */
+  /** Disponibilidade OFICIAL do PC-Factory: Tempo Trabalhado / Tempo Operacional × 100,
+   *  onde Tempo Operacional = Tempo de Carga − Paradas Planejadas e Tempo Trabalhado =
+   *  Tempo Operacional − Paradas Não Planejadas (classificação completa, não só manutenção).
+   *  null = sem tempo operacional no período. */
   availability: number | null;
 
   /** Aviso de qualidade de dados (ex.: paradas > planejado, sem tempo planejado). */

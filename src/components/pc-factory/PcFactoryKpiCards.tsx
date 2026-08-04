@@ -1,7 +1,7 @@
 "use client";
 
 import { m } from "framer-motion";
-import { CalendarClock, CircleGauge, Cog, Cpu, Crown, Hammer, Timer, Wrench, Zap } from "lucide-react";
+import { CalendarClock, CircleGauge, Cog, Cpu, Crown, Hammer, PauseCircle, Timer, Wrench, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { PcFactoryKpis } from "@/types/pc-factory";
 
@@ -48,11 +48,18 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
     // kpis.mtbf, kpis.mtta, kpis.maintenancePercentOfPlanned) para uso futuro em
     // relatórios técnicos — só não são renderizados aqui.
     {
-      title: "Disponibilidade estimada",
+      title: "Disponibilidade (regra PC-Factory)",
       value: percent(kpis.availabilityPercent),
-      description: "(Planejado − paradas) / planejado.",
+      description: "Trabalhado ÷ Operacional (Carga − paradas planejadas). Igual ao PC-Factory.",
       icon: CircleGauge,
       tone: "green"
+    },
+    {
+      title: "Paradas planejadas",
+      value: hours(kpis.plannedStopHours),
+      description: `Tempo operacional: ${hours(kpis.operationalHours)} (Carga − planejadas).`,
+      icon: PauseCircle,
+      tone: "blue"
     },
     {
       title: "Manutenção Mecânica",
