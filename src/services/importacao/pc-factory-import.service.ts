@@ -694,20 +694,29 @@ type ParsedRow = {
 type IgnoreReason = "noResource" | "noStatus" | "noDuration" | "emptyRow";
 type ParseOutcome = { row: ParsedRow } | { ignore: IgnoreReason };
 
-function parseRow(row: PcFactoryExcelRow, line: number, decimalHours: boolean): ParseOutcome {
+/**
+ * Exportada para validação do parser sem tocar no banco
+ * (`scripts/check-pc-factory-duration-parse.ts`). Recebe a linha JÁ normalizada pelo
+ * mapa de aliases — não o cabeçalho cru da planilha.
+ */
+export function parseRow(row: PcFactoryExcelRow, line: number, decimalHours: boolean): ParseOutcome {
   const resourceName = normalizeResourceName(row.resourceName) || normalizeResourceName(row.resourceCode);
   const statusRaw = optionalText(row.status);
 
   let startDateTime = combineDateAndTime(parsePcFactoryDate(row.startDate), row.startTime);
   let endDateTime = combineDateAndTime(parsePcFactoryDate(row.endDate), row.endTime);
   // Layout de resumo diário: "(R)Data de Produção" → dia começa 00:00:00 e termina 23:59:59.
+  // Esses timestamps são SINTÉTICOS: delimitam o dia do registro, não o evento. O delta
+  // entre eles é sempre 1.439,98 min (≈24 h) e NÃO pode virar duração — ver abaixo.
   const productionDate = parsePcFactoryDate(row.productionDate);
+  let datesAreSynthetic = false;
   if (!startDateTime && productionDate) {
     const y = productionDate.getUTCFullYear();
     const m = productionDate.getUTCMonth();
     const d = productionDate.getUTCDate();
     startDateTime = new Date(Date.UTC(y, m, d, 0, 0, 0));
     if (!endDateTime) endDateTime = new Date(Date.UTC(y, m, d, 23, 59, 59));
+    datesAreSynthetic = true;
   }
   const durationFallback = resolveFallbackMinutes(row, decimalHours);
 
@@ -718,9 +727,18 @@ function parseRow(row: PcFactoryExcelRow, line: number, decimalHours: boolean): 
   const occurrenceParsed = parsePlainNumber(row.occurrence);
   const occurrence = occurrenceParsed !== null && occurrenceParsed > 0 ? Math.round(occurrenceParsed) : 1;
 
-  // Duração-base do registro ("Tempo Decorrido"). Se a planilha só trouxe o Tempo
-  // Decorrido Real, usamos ele como base para não descartar a linha por falta de duração.
-  let durationMinutes = computeDurationMinutes(startDateTime, endDateTime, durationFallback);
+  // Duração-base do registro ("Tempo Decorrido").
+  //
+  // Quando as datas são SINTÉTICAS (resumo diário, sem hora real de início/término), o
+  // delta 00:00:00 → 23:59:59 vale sempre ≈24 h e não descreve o evento. Nesse layout a
+  // coluna "Tempo Decorrido" da planilha é a única fonte de duração, então ela tem
+  // precedência. Sem essa inversão, `computeDurationMinutes` retorna o delta das datas e
+  // descarta o fallback — foi o que gravou durationHours = 24 em 100% dos registros.
+  let durationMinutes = datesAreSynthetic
+    ? (durationFallback !== null && durationFallback > 0
+        ? round(durationFallback)
+        : computeDurationMinutes(startDateTime, endDateTime, durationFallback))
+    : computeDurationMinutes(startDateTime, endDateTime, durationFallback);
   if (durationMinutes <= 0 && realDurationMinutes !== null && realDurationMinutes > 0) {
     durationMinutes = realDurationMinutes;
   }
@@ -793,7 +811,14 @@ function parseRow(row: PcFactoryExcelRow, line: number, decimalHours: boolean): 
       // PC-Factory exporta "0" quando a causa raiz não é preenchida → trata como ausente.
       rootCause: cleanRootCause(row.rootCause),
       occurrence,
-      dataQualityIssue: detectDataQualityIssue(statusCategory, startDateTime, endDateTime, durationMinutes),
+      dataQualityIssue: detectDataQualityIssue(
+        statusCategory,
+        startDateTime,
+        endDateTime,
+        durationMinutes,
+        datesAreSynthetic,
+        durationFallback !== null && durationFallback > 0
+      ),
       // TAREFA 7: usa a technicalKey da planilha quando presente; senão gera uma única por linha.
       technicalKey:
         sheetKey ??
@@ -882,11 +907,18 @@ function detectDataQualityIssue(
   category: PcFactoryStatusCategory,
   start: Date | null,
   end: Date | null,
-  durationMinutes: number
+  durationMinutes: number,
+  datesAreSynthetic = false,
+  hasSheetDuration = true
 ): string | null {
   if (!start && !end) return "Sem data de início/fim (importado pela duração)";
   if (start && end && end.getTime() < start.getTime()) return "Término anterior ao início";
   if (durationMinutes <= 0) return "Duração ausente ou zero";
+  // Resumo diário sem a coluna "Tempo Decorrido": a duração cai no dia inteiro (≈24 h),
+  // que não mede o evento. Sinaliza em vez de gravar 24 h silenciosamente.
+  if (datesAreSynthetic && !hasSheetDuration) {
+    return "Sem 'Tempo Decorrido' na planilha — duração assumida como o dia inteiro (≈24 h)";
+  }
   if (category === PcFactoryStatusCategory.OUTROS) return "Status não reconhecido pela regra do portal";
   return null;
 }
