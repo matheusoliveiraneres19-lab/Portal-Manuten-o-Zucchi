@@ -1,7 +1,7 @@
 "use client";
 
 import { m } from "framer-motion";
-import { CalendarClock, CircleGauge, Cog, Cpu, Crown, Hammer, PauseCircle, Timer, Wrench, Zap } from "lucide-react";
+import { CalendarClock, CircleGauge, Cog, Cpu, Crown, Hammer, Timer, Wrench, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { PcFactoryKpis } from "@/types/pc-factory";
 
@@ -21,25 +21,7 @@ const toneClass: Record<Tone, string> = {
 export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
   const top = kpis.topMaintenanceResource;
 
-  // Decomposição oficial da Disponibilidade (TAREFA 9) — mesma ordem da regra do
-  // Management View, para o gestor conferir número a número contra o PC-Factory.
-  const availabilityTooltip = [
-    `Tempo de carga: ${hours(kpis.loadHours)}`,
-    `− Paradas planejadas: ${hours(kpis.plannedStopHours)}`,
-    `= Tempo operacional: ${hours(kpis.operationalHours)}`,
-    `− Paradas não planejadas: ${hours(kpis.stoppedHours)}`,
-    `= Tempo trabalhado: ${hours(kpis.workedHours)}`,
-    `Disponibilidade: ${percent(kpis.availabilityPercent)}`
-  ].join("\n");
-
-  const cards: Array<{
-    title: string;
-    value: string;
-    description: string;
-    icon: LucideIcon;
-    tone: Tone;
-    tooltip?: string;
-  }> = [
+  const cards: Array<{ title: string; value: string; description: string; icon: LucideIcon; tone: Tone }> = [
     {
       title: "Tempo planejado",
       value: hours(kpis.plannedHours),
@@ -66,19 +48,11 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
     // kpis.mtbf, kpis.mtta, kpis.maintenancePercentOfPlanned) para uso futuro em
     // relatórios técnicos — só não são renderizados aqui.
     {
-      title: "Disponibilidade (regra PC-Factory)",
+      title: "Disponibilidade estimada",
       value: percent(kpis.availabilityPercent),
-      description: "Trabalhado ÷ Operacional (Carga − paradas planejadas). Igual ao PC-Factory.",
+      description: "(Planejado − paradas) / planejado.",
       icon: CircleGauge,
-      tone: "green",
-      tooltip: availabilityTooltip
-    },
-    {
-      title: "Paradas planejadas",
-      value: hours(kpis.plannedStopHours),
-      description: `Tempo operacional: ${hours(kpis.operationalHours)} (Carga − planejadas).`,
-      icon: PauseCircle,
-      tone: "blue"
+      tone: "green"
     },
     {
       title: "Manutenção Mecânica",
@@ -128,7 +102,6 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: index * 0.04, ease: "easeOut" }}
             className="panel flex min-h-[112px] items-center gap-4 rounded-lg p-4 transition hover:-translate-y-0.5 hover:shadow-premium"
-            title={card.tooltip}
           >
             <div className={`grid h-14 w-14 shrink-0 place-items-center rounded-full shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] ${toneClass[card.tone]}`}>
               <Icon className="h-7 w-7" strokeWidth={1.8} />

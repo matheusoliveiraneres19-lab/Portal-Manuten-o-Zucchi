@@ -78,25 +78,11 @@ export type PcFactoryKpis = {
   setupHours: number;
   /** Perdas operacionais (não-manutenção): Falta de Material, Parada não Identificada e Setup (decisão da empresa). */
   lossHours: number;
-  /** Paradas Planejadas (I e II) — regra oficial de Disponibilidade do PC-Factory. */
-  plannedStopHours: number;
-  /** Tempo de Carga = Total − Fora de Turno − Recurso Não Programado. Mesmo valor de
-   *  `plannedHours`, exposto com o nome da regra oficial do Management View. */
-  loadHours: number;
-  /** Tempo Trabalhado = Tempo Operacional − Paradas Não Planejadas (numerador oficial). */
-  workedHours: number;
-  /** Fora de Turno isolado — fora do Tempo de Carga. */
-  outOfShiftHours: number;
-  /** Recurso Não Programado isolado — fora do Tempo de Carga. */
-  unscheduledResourceHours: number;
-  /** Tempo Operacional = Tempo planejado (Tempo de Carga) − Paradas Planejadas. Base
-   *  oficial usada para calcular `availabilityPercent` (idêntica ao PC-Factory). */
+  /** Tempo neutro planejado (Refeição + Outros). */
   operationalHours: number;
   /** Fora do tempo planejado (Fora de Turno + Recurso Não Programado). */
   excludedHours: number;
-  /** Paradas Não Planejadas — regra oficial de Disponibilidade do PC-Factory (antes era
-   *  só manutenção + perdas operacionais; agora inclui todo status classificado como
-   *  não planejado, ex.: Setup, falta de material, ausência de operador etc.). */
+  /** Tempo de paradas para disponibilidade = manutenção + perdas operacionais. */
   stoppedHours: number;
   maintenanceEvents: number;
   mechanicalEvents: number;
@@ -206,10 +192,7 @@ export type PcFactoryReliabilityRow = {
 
   /** Alias de maintenanceDowntimeHours (coluna "Paradas"). */
   downtimeHours: number;
-  /** Disponibilidade OFICIAL do PC-Factory: Tempo Trabalhado / Tempo Operacional × 100,
-   *  onde Tempo Operacional = Tempo de Carga − Paradas Planejadas e Tempo Trabalhado =
-   *  Tempo Operacional − Paradas Não Planejadas (classificação completa, não só manutenção).
-   *  null = sem tempo operacional no período. */
+  /** ((plannedHours − paradas de manutenção) / plannedHours) × 100. null = sem tempo planejado. */
   availability: number | null;
 
   /** Aviso de qualidade de dados (ex.: paradas > planejado, sem tempo planejado). */
@@ -549,24 +532,4 @@ export type PcFactoryExcelRow = {
   shift?: unknown;
   observation?: unknown;
   rootCause?: unknown;
-};
-
-/**
- * Payload técnico de auditoria da Disponibilidade (TAREFA 10) — feito para ser comparado
- * linha a linha com o PC-Factory Management View. Todos os campos em horas, exceto
- * `availabilityPercent` (%). Exposto por `getPcFactoryAvailabilityAudit`.
- */
-export type PcFactoryAvailabilityAuditRow = {
-  machineName: string;
-  /** "YYYY-MM" — null quando o recorte não é mensal (total do período). */
-  month: string | null;
-  totalHours: number;
-  outOfShiftHours: number;
-  unscheduledResourceHours: number;
-  loadHours: number;
-  plannedStopHours: number;
-  operationalHours: number;
-  unplannedStopHours: number;
-  workedHours: number;
-  availabilityPercent: number | null;
 };

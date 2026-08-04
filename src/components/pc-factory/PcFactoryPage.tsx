@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Activity, Factory, Info, RefreshCw, Upload, X } from "lucide-react";
 import { ChartSkeleton } from "@/components/ChartSkeleton";
-import { PcFactoryAvailabilityExplainer } from "@/components/pc-factory/PcFactoryAvailabilityExplainer";
 import { PcFactoryKpiCards } from "@/components/pc-factory/PcFactoryKpiCards";
 import { PcFactoryFilters } from "@/components/pc-factory/PcFactoryFilters";
 import { PcFactoryEmptyState } from "@/components/pc-factory/PcFactoryEmptyState";
@@ -214,8 +213,6 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
       ) : (
         <>
           <PcFactoryKpiCards kpis={data.kpis} />
-
-          <PcFactoryAvailabilityExplainer kpis={data.kpis} />
 
           <PcFactoryQualityPanel quality={data.dataQuality} />
 
