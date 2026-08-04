@@ -43,9 +43,14 @@ import type {
 const DEFAULT_PAGE_SIZE = 50;
 
 /**
- * Decisão de negócio (confirmada): Setup conta como parada/perda operacional e,
- * portanto, reduz a disponibilidade. Para tratar Setup como tempo neutro, basta
- * mudar esta constante para false.
+ * Decisão de negócio (confirmada): Setup entra em `lossHours`, ou seja, na série
+ * "Perdas" do gráfico de composição. Para tratar Setup como tempo neutro nesse
+ * gráfico, basta mudar esta constante para false.
+ *
+ * NÃO afeta a Disponibilidade. Desde a confirmação ao vivo no Mapa/Andon
+ * (2026-08-04), Setup é Parada Planejada em `classifyAvailabilityBucket` — sai do
+ * Tempo Operacional em vez de ser descontado como parada. A fórmula oficial usa
+ * `plannedStopHours`/`stoppedHours` e nunca `lossHours`.
  */
 const SETUP_COUNTS_AS_LOSS = true;
 
