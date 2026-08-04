@@ -1,0 +1,17 @@
+import { chromium } from "playwright";
+const b = await chromium.launch();
+const ctx = await b.newContext({ viewport:{width:1440,height:900} });
+await ctx.addCookies([{ name:"zucchi-auth", value:"mock", domain:"localhost", path:"/" }]);
+await ctx.addInitScript(()=>localStorage.setItem("zucchi-auth-user", JSON.stringify({login:"administrador",name:"Administrador",role:"Administrador"})));
+const p = await ctx.newPage();
+const errs=[]; p.on("pageerror",e=>errs.push(e.message));
+await p.goto("http://localhost:3137/dashboard", { waitUntil:"networkidle", timeout:30000 });
+await p.waitForTimeout(1500);
+const body = await p.locator("body").innerText().catch(()=> "");
+const logo = await p.evaluate(()=>{const i=[...document.images].find(x=>x.src.includes("zucchi-logo-oficial"));return i?{natW:i.naturalWidth,vis:i.getBoundingClientRect().width>0}:null;});
+await p.screenshot({ path:"./.shots/dash.png" });
+await b.close();
+console.log("logo img:", JSON.stringify(logo));
+console.log("Luxury Stones na sidebar:", /Luxury Stones/i.test(body));
+console.log("Stones Luxury (errado) presente:", /Stones Luxury/i.test(body));
+console.log("pageerrors:", errs.length?errs:"nenhum");

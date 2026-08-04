@@ -1,0 +1,10 @@
+import sharp from "sharp";
+const LOGO = process.argv[2];
+const OUT = process.argv[3];
+const logo = sharp(LOGO);
+const { width, height } = await logo.metadata();
+const pad = 40;
+const bg = sharp({ create: { width: width+pad*2, height: height+pad*2, channels: 4, background: { r: 12, g: 18, b: 22, alpha: 1 } } });
+const buf = await logo.toBuffer();
+await bg.composite([{ input: buf, top: pad, left: pad }]).png().toFile(OUT);
+console.log("preview:", OUT);

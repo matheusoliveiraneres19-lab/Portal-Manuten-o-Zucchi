@@ -1,0 +1,20 @@
+import { chromium } from "playwright";
+const BASE = (process.argv[2] || "https://portalzucchimanutencao.netlify.app").replace(/\/$/,"");
+const host = new URL(BASE).hostname;
+const b = await chromium.launch();
+const ctx = await b.newContext({ viewport:{width:1440,height:900}, deviceScaleFactor:2, ignoreHTTPSErrors:true });
+await ctx.addCookies([{ name:"zucchi-auth", value:"mock", domain:host, path:"/", secure:true, sameSite:"Lax" }]);
+await ctx.addInitScript(()=>localStorage.setItem("zucchi-auth-user", JSON.stringify({login:"administrador",name:"Administrador",role:"Administrador"})));
+const p = await ctx.newPage();
+const errs=[], s5=[]; p.on("pageerror",e=>errs.push(e.message)); p.on("response",r=>{if(r.status()>=500)s5.push(r.status()+" "+r.url());});
+let st=0; try{const r=await p.goto(`${BASE}/dashboard`,{waitUntil:"networkidle",timeout:45000});st=r?.status()??0;}catch(e){console.log("NAV:",e.message);}
+await p.waitForTimeout(2000);
+const body = await p.locator("body").innerText().catch(()=> "");
+const logo = await p.evaluate(()=>{const i=[...document.images].find(x=>x.src.includes("zucchi-logo-oficial"));return i?{natW:i.naturalWidth,vis:i.getBoundingClientRect().width>0}:null;});
+await p.screenshot({ path:"./.shots/prod-sidebar.png", clip:{x:0,y:0,width:320,height:240} });
+await b.close();
+console.log("GET /dashboard:", st);
+console.log("logo oficial img:", JSON.stringify(logo));
+console.log("'Luxury Stones' presente:", /Luxury Stones/i.test(body));
+console.log("'Stones Luxury' (errado) presente:", /Stones Luxury/i.test(body));
+console.log("pageerrors:", errs.length?errs:"nenhum", "| 5xx:", s5.length?s5:"nenhum");
