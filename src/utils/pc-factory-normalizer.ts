@@ -141,17 +141,12 @@ const MAINTENANCE_KEYS = new Set<string>([
 ]);
 
 /**
- * Status que saem do Tempo Planejado / Tempo de Carga. "Aguardando lançamento" e
- * "Parada não Identificada" entram aqui por serem tempo NÃO APONTADO (apontamento
- * aberto e parada sem causa) — mantém `excludePlannedTime` coerente com
- * CATEGORY_BY_KEY e com o bucket NAO_APONTADO.
+ * Status que saem do Tempo Planejado / Tempo de Carga — só os dois em que a máquina não
+ * estava programada. "Aguardando lançamento" e "Parada não Identificada" saíram desta
+ * lista em 2026-08-05, quando o tempo não apontado voltou para dentro da Carga
+ * (ver OUT_OF_LOAD_BUCKETS).
  */
-const EXCLUDED_PLANNED_KEYS = new Set<string>([
-  KEY.FORA_DE_TURNO,
-  KEY.RECURSO_NAO_PROGRAMADO,
-  KEY.AGUARDANDO_LANCAMENTO,
-  KEY.PARADA_NAO_IDENTIFICADA
-]);
+const EXCLUDED_PLANNED_KEYS = new Set<string>([KEY.FORA_DE_TURNO, KEY.RECURSO_NAO_PROGRAMADO]);
 
 /**
  * Status de parada/perda operacional (não-manutenção) para o cálculo.
@@ -173,16 +168,14 @@ const CATEGORY_BY_KEY: Record<string, PcFactoryStatusCategory> = {
   [KEY.PRODUCAO]: PcFactoryStatusCategory.PRODUCAO,
   [KEY.SETUP]: PcFactoryStatusCategory.SETUP,
   [KEY.FALTA_DE_MATERIAL]: PcFactoryStatusCategory.PARADA_PERDA,
-  // Sem causa apontada → fora do Tempo Planejado, igual a Aguardando lançamento
-  // (decisão de 2026-08-05). Mantém o card "Tempo planejado" igual ao Tempo de Carga.
-  [KEY.PARADA_NAO_IDENTIFICADA]: PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO,
+  // Sem causa apontada → tempo desconhecido dentro da Carga, igual a Aguardando
+  // lançamento (decisão de 2026-08-05). Não é PARADA_PERDA: não há perda atribuída.
+  [KEY.PARADA_NAO_IDENTIFICADA]: PcFactoryStatusCategory.OUTROS,
   [KEY.REFEICAO]: PcFactoryStatusCategory.OPERACIONAL,
-  // "Aguardando lançamento" é apontamento ABERTO, não tempo medido: sai do Tempo
-  // Planejado igual a Fora de Turno / Recurso Não Programado. Sem isso o card
-  // "Tempo planejado" somaria as 90.688 h não apontadas de jan/2026 e divergiria do
-  // Tempo de Carga oficial. Alinhado ao bucket NAO_APONTADO (decisão de 2026-08-05).
-  // Ver também PARADA_NAO_IDENTIFICADA logo abaixo, pela mesma razão.
-  [KEY.AGUARDANDO_LANCAMENTO]: PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO,
+  // Tempo NÃO APONTADO: fica DENTRO do Tempo Planejado/Carga (decisão de 2026-08-05).
+  // Categoria OUTROS de propósito — não é produção, não é parada medida, não é
+  // manutenção; é tempo desconhecido. Ver o bucket NAO_APONTADO e OUT_OF_LOAD_BUCKETS.
+  [KEY.AGUARDANDO_LANCAMENTO]: PcFactoryStatusCategory.OUTROS,
   [KEY.MANUTENCAO_AUTOMACAO]: PcFactoryStatusCategory.MANUTENCAO,
   [KEY.MANUTENCAO_PLANEJADA]: PcFactoryStatusCategory.MANUTENCAO,
   [KEY.MANUTENCAO_TERCEIROS]: PcFactoryStatusCategory.MANUTENCAO,
@@ -421,17 +414,14 @@ export type PcFactoryAvailabilityBucket =
  * com acentuação e abreviação no export).
  *
  * Decisões de negócio embutidas aqui (gestor, 2026-08-05):
- *  - 0008 "Aguardando lançamento" → NAO_APONTADO, FORA do Tempo de Carga. São
- *    apontamentos abertos/não fechados, não parada medida: no CSV de jan–jul/2026 são
- *    145 linhas somando 90.688 h (≈625 h por linha). Tratá-las como parada não
- *    planejada derruba a disponibilidade para 28% e mede ausência de apontamento, não
- *    a máquina.
- *  - 0002 "Parada não Identificada" → NAO_APONTADO, também FORA do Tempo de Carga.
- *    São 21.129 h sem causa apontada (167 linhas só em janeiro, uma delas de 4.986 h).
- *    Descontá-las como parada não planejada media a falha de apontamento, não a
- *    máquina. Com as duas fora da carga a disponibilidade vai de 54,73% para ~70%,
- *    na direção dos ~85–91% que o commit 28a44f4 registra como aderentes ao
- *    PC-Factory real. O volume continua visível no painel de qualidade.
+ *  - 0008 "Aguardando lançamento" e 0002 "Parada não Identificada" → NAO_APONTADO.
+ *    São 111.818 h no CSV de jan–jul/2026 (90.689 h de apontamentos abertos, alguns com
+ *    625 h numa linha só, + 21.129 h de parada sem causa atribuída).
+ *
+ *    Elas ficam DENTRO do Tempo de Carga (ver OUT_OF_LOAD_BUCKETS): sob a regra G0134 só
+ *    a manutenção é descontada, então esse tempo entra como "disponível" e empurra o
+ *    indicador para cima — 89,60% contra 74,25% se estivesse fora. O bucket existe para
+ *    que o volume continue visível no painel de qualidade em vez de desaparecer na conta.
  *  - Grupo Setup (061xx) e 0603 → PARADA_PLANEJADA, confirmado ao vivo no Mapa/Andon
  *    do PC-Factory em 2026-08-04 (ver commit 84c32fc): "06120-Setup - Serrad" aparece
  *    com o mesmo painel laranja de "0320-Refeição", não com o vermelho de manutenção.
@@ -537,11 +527,20 @@ export function classifyAvailabilityBucket(record: {
   return "PARADA_NAO_PLANEJADA";
 }
 
-/** Buckets que ficam FORA do Tempo de Carga. */
+/**
+ * Buckets que ficam FORA do Tempo de Carga: só os dois em que a máquina não estava
+ * programada para produzir.
+ *
+ * `NAO_APONTADO` NÃO está aqui (decisão do gestor em 2026-08-05): o tempo sem
+ * apontamento voltou para dentro da Carga. Ele continua identificado como bucket próprio
+ * e reportado no painel de qualidade, mas entra no Tempo Operacional. Sob a regra G0134
+ * isso o torna tempo "disponível" — só a manutenção é descontada —, então ele EMPURRA a
+ * disponibilidade para cima. É uma escolha consciente: ver
+ * docs/pc-factory-disponibilidade-oficial.md.
+ */
 export const OUT_OF_LOAD_BUCKETS: ReadonlySet<PcFactoryAvailabilityBucket> = new Set<PcFactoryAvailabilityBucket>([
   "FORA_DE_TURNO",
-  "RECURSO_NAO_PROGRAMADO",
-  "NAO_APONTADO"
+  "RECURSO_NAO_PROGRAMADO"
 ]);
 
 /** Decomposição das horas do recorte (base do Tempo Operacional), em horas. */
@@ -550,9 +549,13 @@ export type PcFactoryAvailabilityBreakdown = {
   totalHours: number;
   outOfShiftHours: number;
   unscheduledResourceHours: number;
-  /** Tempo sem apontamento (0008) — fora da carga, mas rastreado como qualidade. */
+  /**
+   * Tempo sem apontamento ("Aguardando lançamento" + "Parada não Identificada").
+   * DENTRO do Tempo de Carga desde 2026-08-05 — rastreado só como alerta de qualidade,
+   * porque infla a disponibilidade (é tempo desconhecido tratado como disponível).
+   */
   notReportedHours: number;
-  /** Tempo de Carga = total − fora de turno − não programado − não apontado. */
+  /** Tempo de Carga = total − fora de turno − recurso não programado. */
   loadHours: number;
   plannedStopHours: number;
   /** Tempo Operacional = Carga − Paradas Planejadas. Denominador da disponibilidade. */
@@ -605,9 +608,13 @@ export function calculateOfficialPcFactoryAvailability(hoursByBucket: {
 
   const totalHours =
     production + plannedStopHours + unplannedStopHours + outOfShiftHours + unscheduledResourceHours + notReportedHours;
-  const loadHours = totalHours - outOfShiftHours - unscheduledResourceHours - notReportedHours;
+  // Tempo de Carga: sai só o que não estava programado. O tempo NÃO APONTADO permanece
+  // na Carga (decisão de 2026-08-05) — ver OUT_OF_LOAD_BUCKETS.
+  const loadHours = totalHours - outOfShiftHours - unscheduledResourceHours;
   const operationalHours = loadHours - plannedStopHours;
-  const workedHours = operationalHours - unplannedStopHours;
+  // Trabalhado desconta as paradas não planejadas E o tempo não apontado: este último está
+  // na Carga, mas não é tempo trabalhado — sem isso a Utilização o contaria como produção.
+  const workedHours = operationalHours - unplannedStopHours - notReportedHours;
 
   const utilizationPercent =
     operationalHours > 0 ? Math.round(Math.max(0, Math.min(100, (workedHours / operationalHours) * 100)) * 100) / 100 : null;

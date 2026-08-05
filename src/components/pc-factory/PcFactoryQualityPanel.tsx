@@ -46,8 +46,9 @@ export function PcFactoryQualityPanel({ quality }: PcFactoryQualityPanelProps) {
               <strong className="font-semibold">
                 {quality.notReportedHours.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} h sem apontamento
               </strong>{" "}
-              (&quot;Aguardando lançamento&quot; e &quot;Parada não Identificada&quot;). Esse tempo fica FORA do Tempo de
-              Carga: não conta como parada nem entra na Disponibilidade.
+              (&quot;Aguardando lançamento&quot; e &quot;Parada não Identificada&quot;). Esse tempo está DENTRO do Tempo de
+              Carga e, como não é manutenção, entra na Disponibilidade como tempo disponível —{" "}
+              <strong className="font-semibold">o indicador fica melhor do que a realidade medida.</strong>
             </div>
           ) : null}
           {quality.recordsWithoutEndDate > 0 ? (

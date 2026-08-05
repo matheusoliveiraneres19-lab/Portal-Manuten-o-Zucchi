@@ -33,11 +33,30 @@ O equivalente de cada termo:
 Onde o Tempo de Carga é:
 
 ```
-Tempo de Carga = total − Fora de Turno − Recurso Não Programado − Não Apontado
+Tempo de Carga = total − Fora de Turno − Recurso Não Programado
 ```
 
-("Não Apontado" = `Aguardando lançamento` + `Parada não Identificada`, por decisão do
-gestor em 2026-08-05 — tempo sem apontamento não é parada medida.)
+Sai da Carga apenas o tempo em que a máquina não estava programada para produzir.
+
+### O tempo não apontado fica DENTRO da Carga
+
+`Aguardando lançamento` (0008) e `Parada não Identificada` (0002) formam o bucket
+`NAO_APONTADO`: 111.818 h no histórico de jan–jul/2026 (90.689 h de apontamentos abertos
+— alguns com 625 h numa linha só — e 21.129 h de parada sem causa atribuída).
+
+Por decisão do gestor em 2026-08-05 esse tempo **permanece no Tempo de Carga**. A
+consequência precisa estar clara: como a regra G0134 desconta **somente manutenção**,
+esse tempo desconhecido entra na conta como tempo **disponível** e empurra o indicador
+para cima.
+
+| Tempo não apontado | Disponibilidade (jan–jul/2026) |
+|---|---|
+| Dentro da Carga (regra atual) | **89,60 %** |
+| Fora da Carga | 74,25 % |
+
+O bucket continua existindo para que o volume apareça no painel de qualidade e no
+resultado da importação, em vez de desaparecer dentro da conta. Quanto maior essa fatia,
+menos o indicador fala sobre a máquina e mais sobre a falta de apontamento.
 
 **Fonte única:** `calculateG0134BusinessAvailability()` em
 `src/utils/pc-factory-normalizer.ts`. Toda Disponibilidade do módulo passa por ela:
@@ -149,7 +168,8 @@ mensal, para não duplicar. No portal esse caso não existe: a evolução mensal
 | 2026-08-04 (`dc793cf`) | revertido para a anterior | dava 55,91 %, inutilizável; base de tempo estava quebrada (`durationHours = 24` em todos os registros) |
 | 2026-08-05 | base de tempo corrigida | o bug era `converterNumeroBrasileiro("8.3333") → 83333` no import do CSV |
 | 2026-08-05 | `0008` e `0002` fora do Tempo de Carga | tempo sem apontamento não é parada medida |
-| **2026-08-05 (atual)** | **regra da planilha G0134** | o negócio já reportava Disponibilidade por essa fórmula; o portal passou a segui-la |
+| 2026-08-05 | regra da planilha G0134 | o negócio já reportava Disponibilidade por essa fórmula; o portal passou a segui-la |
+| **2026-08-05 (atual)** | **`0008` e `0002` de volta para dentro da Carga** | decisão do gestor. Sob a G0134 só a manutenção é descontada, então o indicador vai de 74,25 % para 89,60 % — perto dos 89,06 % de JAN na planilha e dos ~90 % que o `28a44f4` registra como aderentes ao PC-Factory |
 
 ## Base de tempo
 

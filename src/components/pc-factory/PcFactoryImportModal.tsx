@@ -192,8 +192,8 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
               <p className="mt-2 text-[11px] leading-snug text-amber-200/90">
                 <strong className="font-semibold">Atenção:</strong>{" "}
                 {result.notReportedHours.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} h sem apontamento
-                (&quot;Aguardando lançamento&quot; e &quot;Parada não Identificada&quot;). Ficam FORA do Tempo de Carga e não
-                contam como parada.
+                (&quot;Aguardando lançamento&quot; e &quot;Parada não Identificada&quot;). Ficam DENTRO do Tempo de Carga e,
+                por não serem manutenção, elevam a Disponibilidade.
               </p>
             ) : null}
           </div>

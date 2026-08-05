@@ -382,9 +382,10 @@ export type PcFactoryDataQuality = {
   recordsWithIssue: number;
   /**
    * Horas no bucket NAO_APONTADO ("Aguardando lançamento" + "Parada não Identificada")
-   * no recorte atual — tempo sem apontamento, que fica FORA do Tempo de Carga e não é
-   * contado como parada. Precisa ficar visível: quando é alto, a Disponibilidade cobre
-   * uma fatia menor do calendário do que parece.
+   * no recorte atual. Está DENTRO do Tempo de Carga e, como não é manutenção, conta como
+   * tempo disponível na regra G0134 — ou seja, INFLA a Disponibilidade. Precisa ficar
+   * visível: quando é alto, o indicador reflete menos a máquina e mais a falta de
+   * apontamento.
    */
   notReportedHours: number;
   /** Registros com endDateTime nulo (status abertos / sentinela 01/01/0001 na origem). */

@@ -364,8 +364,11 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
  * Decomposição das horas do recorte até o Tempo Operacional — o equivalente do
  * `G0134.LOADTIME` derivado do histórico de status:
  *
- *   Carga        = total − Fora de Turno − Recurso Não Programado − Não Apontado
+ *   Carga        = total − Fora de Turno − Recurso Não Programado
  *   Operacional  = Carga − Paradas Planejadas          (= G0134.LOADTIME)
+ *
+ * O tempo NÃO APONTADO permanece na Carga (decisão de 2026-08-05) e, por não ser
+ * manutenção, conta como disponível — ver OUT_OF_LOAD_BUCKETS.
  *
  * O `utilizationPercent` que vem daqui é a métrica de UTILIZAÇÃO (Trabalhado ÷
  * Operacional) e NÃO é a Disponibilidade exibida no portal — ver `availability()`.
@@ -537,10 +540,10 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
 
     for (const record of list) {
       const hours = metricHours(record); // Tempo Decorrido (durationHours) — base oficial
-      // Fora de Turno / Recurso Não Programado / Não Apontado saem do tempo planejado —
-      // usa o bucket oficial (mesma regra central da Disponibilidade), não a categoria:
-      // o tempo NÃO APONTADO ("Aguardando lançamento" / "Parada não Identificada")
-      // inflaria plannedHours e, com isso, o MTBF.
+      // Fora de Turno / Recurso Não Programado saem do tempo planejado — usa o bucket
+      // oficial (mesma regra central da Disponibilidade), não a categoria. O tempo NÃO
+      // APONTADO permanece, por decisão de 2026-08-05: ele entra em plannedHours e, com
+      // isso, no MTBF desta tabela.
       const bucket = resolveBucket(record);
       if (OUT_OF_LOAD_BUCKETS.has(bucket)) continue;
       plannedHours += hours;
