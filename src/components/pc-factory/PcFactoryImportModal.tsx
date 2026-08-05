@@ -8,11 +8,15 @@ import type { PcFactoryImportResult, PcFactoryLayoutType } from "@/types/pc-fact
 
 /** Rótulos amigáveis do layout detectado na importação (TAREFA 7/8). */
 const LAYOUT_LABELS: Record<PcFactoryLayoutType, string> = {
+  PC_FACTORY_STATUS_HISTORY_CSV: "CSV histórico de status (normalizado)",
   PC_FACTORY_IMPORT: "Import_PC_FACTORY (ajustada)",
   PC_FACTORY_AG_GRID: "ag-grid (transacional)",
   PC_FACTORY_AG_GRID_DAILY_SUMMARY: "ag-grid diário (resumo)",
   UNKNOWN: "não reconhecido"
 };
+
+/** Extensões aceitas pelo importador (TAREFA 1). */
+const ACCEPTED_EXTENSIONS = /\.(csv|xlsx|xls)$/i;
 
 type PcFactoryImportModalProps = {
   open: boolean;
@@ -24,22 +28,31 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<PcFactoryImportResult | null>(null);
+  // Diagnóstico multi-linha devolvido pela rota quando o layout não é reconhecido
+  // (TAREFA 14) — mostrado no corpo do modal, não só num toast de uma linha.
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
       setFile(null);
       setResult(null);
+      setErrorDetail(null);
       if (inputRef.current) inputRef.current.value = "";
     }
   }, [open]);
 
   async function handleUpload() {
     if (!file) {
-      toast.error("Selecione um arquivo .xlsx.");
+      toast.error("Selecione um arquivo .csv, .xlsx ou .xls.");
+      return;
+    }
+    if (!ACCEPTED_EXTENSIONS.test(file.name)) {
+      toast.error("Formato não suportado. Envie um arquivo .csv, .xlsx ou .xls.");
       return;
     }
     setUploading(true);
+    setErrorDetail(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -55,7 +68,10 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
       );
       onImported();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao importar a planilha.");
+      const message = error instanceof Error ? error.message : "Falha ao importar o arquivo.";
+      setErrorDetail(message);
+      // O toast mostra só a 1ª linha; o diagnóstico completo fica no corpo do modal.
+      toast.error(message.split("\n")[0]);
     } finally {
       setUploading(false);
     }
@@ -65,19 +81,37 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
     <PcFactoryModalShell
       open={open}
       title="Importar relatório do PC-Factory"
-      subtitle='Planilha ajustada (.xlsx) — aba "Import_PC_FACTORY" ou aba bruta "ag-grid"'
+      subtitle="CSV histórico de status (.csv) ou planilha do PC-Factory (.xlsx)"
       onClose={onClose}
     >
       <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gold/35 bg-black/25 px-4 py-8 text-center transition hover:border-gold/55">
         <FileSpreadsheet className="h-8 w-8 text-gold" />
-        <span className="text-sm font-semibold text-champagne">{file ? file.name : "Clique para selecionar o arquivo .xlsx"}</span>
-        <span className="text-[11px] text-zinc-500">
-          Lê preferencialmente a aba <strong className="text-zinc-300">Import_PC_FACTORY</strong> (colunas resourceName,
-          statusRaw, groupPortal...). Se ausente, lê a aba bruta <strong className="text-zinc-300">ag-grid</strong>
-          (Apelido Recurso, Nome Status Recurso, Tempo Decorrido [hr]...).
+        <span className="text-sm font-semibold text-champagne">
+          {file ? file.name : "Clique para selecionar o arquivo (.csv, .xlsx)"}
         </span>
-        <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+        <span className="text-[11px] text-zinc-500">
+          <strong className="text-zinc-300">.csv</strong>: histórico de status normalizado (separador &quot;;&quot;, UTF-8,
+          colunas resourceName, statusCode, startDateTime, durationHours...).{" "}
+          <strong className="text-zinc-300">.xlsx</strong>: aba <strong className="text-zinc-300">Import_PC_FACTORY</strong> ou
+          a aba bruta <strong className="text-zinc-300">ag-grid</strong>.
+        </span>
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          className="hidden"
+          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+        />
       </label>
+
+      {errorDetail ? (
+        <div className="mt-3 rounded-lg border border-danger/40 bg-danger/10 p-3">
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-rose-300">Diagnóstico da falha</p>
+          <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-rose-200">
+            {errorDetail}
+          </pre>
+        </div>
+      ) : null}
 
       <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] leading-snug text-amber-200/90">
         <strong className="font-semibold">Atenção:</strong> a importação <strong>substitui toda a base</strong> do PC-Factory — os
@@ -131,10 +165,68 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
             </dl>
           </div>
 
-          {result.sheetUsed ? (
+          <div className="rounded-lg border border-gold/15 bg-black/25 p-3 text-xs">
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-gold">Qualidade do arquivo lido</p>
+            <dl className="grid grid-cols-2 gap-2">
+              <Summary label="Máquinas detectadas" value={result.resourcesDetected} tone="gold" />
+              <Summary label="Status distintos" value={result.statusDetected.length} tone="gold" />
+              <Summary
+                label="Datas de fim inválidas"
+                value={result.invalidEndDatesCount}
+                tone={result.invalidEndDatesCount > 0 ? "danger" : "default"}
+              />
+              <Summary
+                label="Durações inválidas (=0)"
+                value={result.invalidDurationCount}
+                tone={result.invalidDurationCount > 0 ? "danger" : "default"}
+              />
+              <Summary
+                label="Horas não apontadas"
+                value={result.notReportedHours}
+                suffix=" h"
+                tone={result.notReportedHours > 0 ? "danger" : "default"}
+              />
+              <Summary label="Duplicadas ignoradas" value={result.ignoredReasons.duplicate} />
+            </dl>
+            {result.notReportedHours > 0 ? (
+              <p className="mt-2 text-[11px] leading-snug text-amber-200/90">
+                <strong className="font-semibold">Atenção:</strong>{" "}
+                {result.notReportedHours.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} h em
+                &quot;Aguardando lançamento&quot; — apontamentos abertos. Ficam FORA do Tempo de Carga e não contam como parada.
+              </p>
+            ) : null}
+          </div>
+
+          <p className="text-[11px] text-zinc-500">
+            <span className="font-semibold text-gold">Layout:</span> {LAYOUT_LABELS[result.layoutType] ?? result.layoutType}
+            {result.readAs === "csv" ? (
+              <>
+                <span className="ml-2 font-semibold text-gold">Separador:</span>{" "}
+                <code className="text-zinc-300">{result.delimiterUsed}</code>
+                {result.bomRemoved ? <span className="ml-2 text-zinc-400">· UTF-8 BOM removido</span> : null}
+              </>
+            ) : result.sheetUsed ? (
+              <>
+                <span className="ml-2 font-semibold text-gold">Aba lida:</span> {result.sheetUsed}
+              </>
+            ) : null}
+            {result.periodDetected.start && result.periodDetected.end ? (
+              <>
+                <span className="ml-2 font-semibold text-gold">Período:</span>{" "}
+                {formatPeriod(result.periodDetected.start)} a {formatPeriod(result.periodDetected.end)}
+              </>
+            ) : null}
+          </p>
+          {result.missingRecommendedColumns.length ? (
+            <p className="text-[11px] text-amber-200/80">
+              <span className="font-semibold">Colunas recomendadas ausentes:</span>{" "}
+              {result.missingRecommendedColumns.join(", ")}
+            </p>
+          ) : null}
+          {result.classificationRefsDetected.length ? (
             <p className="text-[11px] text-zinc-500">
-              <span className="font-semibold text-gold">Aba lida:</span> {result.sheetUsed}
-              <span className="ml-2 font-semibold text-gold">Layout:</span> {LAYOUT_LABELS[result.layoutType] ?? result.layoutType}
+              <span className="font-semibold text-gold">Classificações do PC-Factory:</span>{" "}
+              {result.classificationRefsDetected.join(" · ")}
             </p>
           ) : null}
           {result.groupsDetected.length ? (
@@ -171,6 +263,12 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
       </div>
     </PcFactoryModalShell>
   );
+}
+
+/** ISO → dd/mm/aaaa para o resumo de período detectado. */
+function formatPeriod(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("pt-BR", { timeZone: "UTC" });
 }
 
 function Summary({

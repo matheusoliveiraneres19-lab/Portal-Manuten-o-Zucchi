@@ -829,6 +829,15 @@ model PcFactoryRecord {
   /// OPERACIONAL | MATERIAIS | EXTERNO), derivado de statusCode. String para evitar
   /// CREATE TYPE na migration Supabase. Ver classifyManagementGroup().
   managementGroup    String?
+  /// Valor cru de "classificationPcFactoryRef" do CSV histórico (Produção | Parada
+  /// Planejada I | Parada Planejada II | Parada Não Planejada | Tempo Fora de Turno).
+  /// Auditoria + última prioridade em classifyAvailabilityBucket(). Nulo nos layouts XLSX.
+  classificationRef  String?
+  /// Bucket oficial de disponibilidade (PRODUCAO | PARADA_PLANEJADA |
+  /// PARADA_NAO_PLANEJADA | FORA_DE_TURNO | RECURSO_NAO_PROGRAMADO | NAO_APONTADO),
+  /// derivado por statusCode > status > classificationRef. String para evitar CREATE TYPE
+  /// na migration Supabase. Base do cálculo oficial — ver classifyAvailabilityBucket().
+  availabilityBucket String?
   /// Tipo de manutenção derivado (MECANICA | ELETRICA | AUTOMACAO | PLANEJADA | TERCEIROS | AGUARDANDO), ou null.
   maintenanceType    String?
   /// Entra no KPI de manutenção (os 4 status de manutenção). Derivado de statusRaw.
@@ -877,6 +886,7 @@ model PcFactoryRecord {
   @@index([sector])
   @@index([statusCategory])
   @@index([statusKey])
+  @@index([availabilityBucket])
   @@index([maintenanceType])
   @@index([startDateTime])
   @@index([endDateTime])

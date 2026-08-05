@@ -42,6 +42,69 @@ export function normalizePcFactoryStatusName(value: unknown): string {
     .toLowerCase();
 }
 
+/**
+ * Normaliza um CABEÇALHO de arquivo para busca no mapa de colunas: remove BOM
+ * (o export CSV do PC-Factory vem em UTF-8 BOM), acentos, espaços e qualquer
+ * caractere não alfanumérico, e baixa a caixa. Diferente de `normalizarNomeColuna`,
+ * que preserva separadores como "_" — aqui o resultado é sempre uma palavra só.
+ *
+ *   "﻿resourceName"         → "resourcename"
+ *   "resourceName"               → "resourcename"
+ *   "durationHours"              → "durationhours"
+ *   "classificationPcFactoryRef" → "classificationpcfactoryref"
+ *   "Nome Status Recurso"        → "nomestatusrecurso"
+ */
+export function normalizeHeader(header: string): string {
+  return String(header ?? "")
+    .replace(/^﻿/, "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "")
+    .toLowerCase();
+}
+
+/**
+ * Converte um número do PC-Factory para `number`, aceitando as duas convenções que
+ * aparecem nos exports (TAREFA 6):
+ *
+ *   "8.3333"    → 8.3333     (CSV histórico: ponto é separador DECIMAL)
+ *   "8,3333"    → 8.3333     (vírgula decimal)
+ *   "1.234,56"  → 1234.56    (vírgula presente ⇒ pontos são milhar)
+ *   "1.234.567" → 1234567    (vários pontos, sem vírgula ⇒ milhar)
+ *   ""/null     → null
+ *
+ * REGRA: o ponto só é tratado como separador de MILHAR quando há uma vírgula no
+ * texto (aí a vírgula é o decimal) ou quando há mais de um ponto. Um ponto isolado
+ * é sempre DECIMAL. É essa a diferença crítica em relação a
+ * `converterNumeroBrasileiro`, que remove todo ponto e transforma "8.3333" em
+ * 83333 — o erro de mapeamento da coluna "Tempo Decorrido" citado no revert
+ * dc793cf. Aquela função é compartilhada com Compras/Lubrificantes e por isso NÃO
+ * foi alterada; este parser é exclusivo do PC-Factory.
+ */
+export function parsePcFactoryNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (value === undefined || value === null) return null;
+
+  const text = String(value)
+    .replace(/ /g, " ")
+    .trim()
+    .replace(/\s/g, "")
+    .replace(/^R\$/i, "");
+  if (!text) return null;
+
+  const hasComma = text.includes(",");
+  const dotCount = (text.match(/\./g) ?? []).length;
+
+  const normalized = hasComma
+    ? text.replace(/\./g, "").replace(",", ".") // vírgula decimal, pontos = milhar
+    : dotCount > 1
+      ? text.replace(/\./g, "") // vários pontos = milhar
+      : text; // ponto isolado = decimal (ou nenhum ponto)
+
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Chaves normalizadas dos status reais da planilha                   */
 /* ------------------------------------------------------------------ */
@@ -77,7 +140,16 @@ const MAINTENANCE_KEYS = new Set<string>([
   KEY.AGUARDANDO_MANUTENCAO
 ]);
 
-const EXCLUDED_PLANNED_KEYS = new Set<string>([KEY.FORA_DE_TURNO, KEY.RECURSO_NAO_PROGRAMADO]);
+/**
+ * Status que saem do Tempo Planejado / Tempo de Carga. "Aguardando lançamento" entra
+ * aqui por ser apontamento ABERTO (tempo não medido) — mantém `excludePlannedTime`
+ * coerente com CATEGORY_BY_KEY e com o bucket NAO_APONTADO.
+ */
+const EXCLUDED_PLANNED_KEYS = new Set<string>([
+  KEY.FORA_DE_TURNO,
+  KEY.RECURSO_NAO_PROGRAMADO,
+  KEY.AGUARDANDO_LANCAMENTO
+]);
 
 /** Status de parada/perda operacional (não-manutenção) para o cálculo. */
 const OPERATIONAL_LOSS_KEYS = new Set<string>([
@@ -102,7 +174,11 @@ const CATEGORY_BY_KEY: Record<string, PcFactoryStatusCategory> = {
   [KEY.FALTA_DE_MATERIAL]: PcFactoryStatusCategory.PARADA_PERDA,
   [KEY.PARADA_NAO_IDENTIFICADA]: PcFactoryStatusCategory.PARADA_PERDA,
   [KEY.REFEICAO]: PcFactoryStatusCategory.OPERACIONAL,
-  [KEY.AGUARDANDO_LANCAMENTO]: PcFactoryStatusCategory.OUTROS,
+  // "Aguardando lançamento" é apontamento ABERTO, não tempo medido: sai do Tempo
+  // Planejado igual a Fora de Turno / Recurso Não Programado. Sem isso o card
+  // "Tempo planejado" somaria as 90.688 h não apontadas de jan/2026 e divergiria do
+  // Tempo de Carga oficial. Alinhado ao bucket NAO_APONTADO (decisão de 2026-08-05).
+  [KEY.AGUARDANDO_LANCAMENTO]: PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO,
   [KEY.MANUTENCAO_AUTOMACAO]: PcFactoryStatusCategory.MANUTENCAO,
   [KEY.MANUTENCAO_PLANEJADA]: PcFactoryStatusCategory.MANUTENCAO,
   [KEY.MANUTENCAO_TERCEIROS]: PcFactoryStatusCategory.MANUTENCAO,
@@ -117,7 +193,13 @@ const CATEGORY_BY_KEY: Record<string, PcFactoryStatusCategory> = {
  */
 export function classifyPcFactoryStatus(statusRaw: unknown): PcFactoryStatusCategory {
   const key = normalizePcFactoryStatusName(statusRaw);
-  return CATEGORY_BY_KEY[key] ?? PcFactoryStatusCategory.OUTROS;
+  const exact = CATEGORY_BY_KEY[key];
+  if (exact) return exact;
+  // O PC-Factory nomeia o grupo Setup por área ("Setup - Serrad", "Setup - Bifios"...),
+  // então o match exato em "setup" nunca casava e 13,4 mil h caíam em OUTROS — deixando
+  // o card de Setup zerado. O prefixo cobre as variações atuais e futuras.
+  if (key.startsWith("setup")) return PcFactoryStatusCategory.SETUP;
+  return PcFactoryStatusCategory.OUTROS;
 }
 
 /* ------------------------------------------------------------------ */
@@ -308,6 +390,221 @@ export function classifyManagementGroup(statusCode: unknown, statusRaw?: unknown
   return byName ?? "OPERACIONAL";
 }
 
+/* ------------------------------------------------------------------ */
+/* Regra oficial de disponibilidade (TAREFAS 8 e 9)                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Bucket de disponibilidade — como cada registro entra na conta oficial:
+ *
+ *   FORA_DE_TURNO           fora do Tempo de Carga (turno não existe)
+ *   RECURSO_NAO_PROGRAMADO  fora do Tempo de Carga (máquina não programada)
+ *   NAO_APONTADO            fora do Tempo de Carga (tempo sem apontamento — ver abaixo)
+ *   PARADA_PLANEJADA        dentro da Carga, sai do Tempo Operacional
+ *   PARADA_NAO_PLANEJADA    dentro do Operacional, desconta do Tempo Trabalhado
+ *   PRODUCAO                Tempo Trabalhado
+ */
+export type PcFactoryAvailabilityBucket =
+  | "PRODUCAO"
+  | "PARADA_PLANEJADA"
+  | "PARADA_NAO_PLANEJADA"
+  | "FORA_DE_TURNO"
+  | "RECURSO_NAO_PROGRAMADO"
+  | "NAO_APONTADO";
+
+/**
+ * Bucket por CÓDIGO do status (fonte primária — o código é estável, o nome varia
+ * com acentuação e abreviação no export).
+ *
+ * Decisões de negócio embutidas aqui:
+ *  - 0008 "Aguardando lançamento" → NAO_APONTADO, FORA do Tempo de Carga. São
+ *    apontamentos abertos/não fechados, não parada medida: no CSV de jan–jul/2026 são
+ *    145 linhas somando 90.688 h (≈625 h por linha). Tratá-las como parada não
+ *    planejada derruba a disponibilidade para 28% e mede ausência de apontamento, não
+ *    a máquina. Decisão do gestor em 2026-08-05.
+ *  - 0002 "Parada não Identificada" → PARADA_NAO_PLANEJADA. É parada real, ainda que
+ *    sem causa atribuída. Decisão do gestor em 2026-08-05 (mesma conversa).
+ *  - Grupo Setup (061xx) e 0603 → PARADA_PLANEJADA, confirmado ao vivo no Mapa/Andon
+ *    do PC-Factory em 2026-08-04 (ver commit 84c32fc): "06120-Setup - Serrad" aparece
+ *    com o mesmo painel laranja de "0320-Refeição", não com o vermelho de manutenção.
+ */
+const AVAILABILITY_BUCKET_BY_CODE: Record<string, PcFactoryAvailabilityBucket> = {
+  // Padrão do sistema
+  "0001": "PRODUCAO",
+  "0002": "PARADA_NAO_PLANEJADA", // Parada não Identificada — parada real, sem causa
+  "0004": "FORA_DE_TURNO",
+  "0008": "NAO_APONTADO", // Aguardando lançamento — apontamento aberto
+  "0009": "RECURSO_NAO_PROGRAMADO",
+  // Manutenção (02xx)
+  "0200": "PARADA_NAO_PLANEJADA", // Aguardando Manutenção
+  "0201": "PARADA_NAO_PLANEJADA", // Mecânica
+  "0202": "PARADA_NAO_PLANEJADA", // Elétrica
+  "0206": "PARADA_NAO_PLANEJADA", // Automação
+  "0207": "PARADA_PLANEJADA", // Manutenção Planejada (Parada Planejada II na planilha)
+  "0208": "PARADA_NAO_PLANEJADA", // de Terceiros
+  // Operacional planejado
+  "0312": "PARADA_PLANEJADA", // Limpeza de Setor de Trabalho
+  "0320": "PARADA_PLANEJADA", // Refeição
+  // Materiais / quebras — parada não planejada
+  "0319": "PARADA_NAO_PLANEJADA", // Quebra de Chapa
+  "0401": "PARADA_NAO_PLANEJADA", // Falta de Material
+  "00070": "PARADA_NAO_PLANEJADA", // Falta de Utilidades
+  "07020": "PARADA_NAO_PLANEJADA", // Quebra de Ferramenta - Serrad
+  // Setup (confirmado ao vivo — parada PLANEJADA)
+  "06100": "PARADA_PLANEJADA",
+  "06110": "PARADA_PLANEJADA",
+  "06120": "PARADA_PLANEJADA",
+  "06130": "PARADA_PLANEJADA",
+  "06140": "PARADA_PLANEJADA",
+  "06150": "PARADA_PLANEJADA",
+  "0603": "PARADA_PLANEJADA" // Medição de Abrasivos (grupo Setup)
+};
+
+/** Bucket por NOME normalizado — usado quando o código não está mapeado. */
+const AVAILABILITY_BUCKET_BY_NAME: Record<string, PcFactoryAvailabilityBucket> = {
+  [KEY.PRODUCAO]: "PRODUCAO",
+  [KEY.FORA_DE_TURNO]: "FORA_DE_TURNO",
+  [KEY.RECURSO_NAO_PROGRAMADO]: "RECURSO_NAO_PROGRAMADO",
+  [KEY.AGUARDANDO_LANCAMENTO]: "NAO_APONTADO",
+  [KEY.REFEICAO]: "PARADA_PLANEJADA",
+  "limpeza de setor de trabalho": "PARADA_PLANEJADA",
+  [KEY.MANUTENCAO_MECANICA]: "PARADA_NAO_PLANEJADA",
+  [KEY.MANUTENCAO_ELETRICA]: "PARADA_NAO_PLANEJADA",
+  [KEY.MANUTENCAO_AUTOMACAO]: "PARADA_NAO_PLANEJADA",
+  [KEY.MANUTENCAO_TERCEIROS]: "PARADA_NAO_PLANEJADA",
+  [KEY.AGUARDANDO_MANUTENCAO]: "PARADA_NAO_PLANEJADA",
+  [KEY.MANUTENCAO_PLANEJADA]: "PARADA_PLANEJADA",
+  [KEY.FALTA_DE_MATERIAL]: "PARADA_NAO_PLANEJADA",
+  [KEY.FALTA_DE_UTILIDADES]: "PARADA_NAO_PLANEJADA",
+  [KEY.PARADA_NAO_IDENTIFICADA]: "PARADA_NAO_PLANEJADA",
+  "quebra de ferramenta": "PARADA_NAO_PLANEJADA",
+  "quebra de chapa": "PARADA_NAO_PLANEJADA"
+};
+
+/** `classificationPcFactoryRef` da planilha → bucket (última prioridade). */
+const AVAILABILITY_BUCKET_BY_REF: Record<string, PcFactoryAvailabilityBucket> = {
+  producao: "PRODUCAO",
+  "parada planejada i": "PARADA_PLANEJADA",
+  "parada planejada ii": "PARADA_PLANEJADA",
+  "parada nao planejada": "PARADA_NAO_PLANEJADA",
+  "tempo fora de turno": "FORA_DE_TURNO"
+};
+
+/**
+ * Classifica um registro no bucket oficial de disponibilidade (TAREFA 8).
+ *
+ * PRIORIDADE: 1) statusCode · 2) status (nome) · 3) classificationPcFactoryRef.
+ *
+ * A ordem importa: a planilha traz "Recurso Não Programado" com
+ * `classificationPcFactoryRef = "Parada Planejada I"`, mas ele precisa ficar FORA do
+ * Tempo de Carga. Como o código (0009) e o nome vêm antes da ref, a regra por
+ * status/statusCode prevalece — conforme exigido.
+ *
+ * Default quando nada casa: PARADA_NAO_PLANEJADA (conservador — um status novo
+ * aparece descontando a disponibilidade em vez de sumir silenciosamente da conta).
+ */
+export function classifyAvailabilityBucket(record: {
+  statusCode?: unknown;
+  statusRaw?: unknown;
+  classificationRef?: unknown;
+}): PcFactoryAvailabilityBucket {
+  const code = String(record.statusCode ?? "").trim();
+  if (code && AVAILABILITY_BUCKET_BY_CODE[code]) return AVAILABILITY_BUCKET_BY_CODE[code];
+
+  const name = normalizePcFactoryStatusName(record.statusRaw);
+  if (name) {
+    const byName = AVAILABILITY_BUCKET_BY_NAME[name];
+    if (byName) return byName;
+    // Prefixos: "Setup - Serrad", "Quebra de Ferramenta - Serrad" etc.
+    if (name.startsWith("setup")) return "PARADA_PLANEJADA";
+    if (name.startsWith("quebra de ferramenta")) return "PARADA_NAO_PLANEJADA";
+  }
+
+  // Heurística por prefixo de código, para códigos novos ainda não mapeados.
+  if (code.startsWith("061")) return "PARADA_PLANEJADA";
+
+  const ref = normalizePcFactoryStatusName(record.classificationRef);
+  if (ref && AVAILABILITY_BUCKET_BY_REF[ref]) return AVAILABILITY_BUCKET_BY_REF[ref];
+
+  return "PARADA_NAO_PLANEJADA";
+}
+
+/** Buckets que ficam FORA do Tempo de Carga. */
+export const OUT_OF_LOAD_BUCKETS: ReadonlySet<PcFactoryAvailabilityBucket> = new Set<PcFactoryAvailabilityBucket>([
+  "FORA_DE_TURNO",
+  "RECURSO_NAO_PROGRAMADO",
+  "NAO_APONTADO"
+]);
+
+/** Decomposição oficial da disponibilidade, em horas. */
+export type PcFactoryAvailabilityBreakdown = {
+  /** Soma de TODAS as horas do recorte, antes de qualquer exclusão. */
+  totalHours: number;
+  outOfShiftHours: number;
+  unscheduledResourceHours: number;
+  /** Tempo sem apontamento (0008) — fora da carga, mas rastreado como qualidade. */
+  notReportedHours: number;
+  /** Tempo de Carga = total − fora de turno − não programado − não apontado. */
+  loadHours: number;
+  plannedStopHours: number;
+  /** Tempo Operacional = Carga − Paradas Planejadas. Denominador da disponibilidade. */
+  operationalHours: number;
+  unplannedStopHours: number;
+  /** Tempo Trabalhado = Operacional − Paradas Não Planejadas. Numerador. */
+  workedHours: number;
+  /** Trabalhado / Operacional × 100, ou null quando não há Tempo Operacional. */
+  availabilityPercent: number | null;
+};
+
+/**
+ * Fórmula oficial de disponibilidade do PC-Factory (TAREFA 9), a partir das horas
+ * já somadas por bucket. Fonte ÚNICA da verdade — não duplicar esta conta.
+ *
+ * Este CSV histórico não traz a coluna G0134.LOADTIME, então o Tempo de Carga é
+ * derivado dos próprios registros de status.
+ *
+ * Nunca devolve NaN, Infinity ou -Infinity: sem Tempo Operacional (≤ 0) o retorno é
+ * `availabilityPercent = null`, e a UI mostra "—".
+ */
+export function calculateOfficialPcFactoryAvailability(hoursByBucket: {
+  production: number;
+  plannedStop: number;
+  unplannedStop: number;
+  outOfShift: number;
+  unscheduledResource: number;
+  notReported: number;
+}): PcFactoryAvailabilityBreakdown {
+  const safe = (value: number) => (Number.isFinite(value) && value > 0 ? value : 0);
+  const production = safe(hoursByBucket.production);
+  const plannedStopHours = safe(hoursByBucket.plannedStop);
+  const unplannedStopHours = safe(hoursByBucket.unplannedStop);
+  const outOfShiftHours = safe(hoursByBucket.outOfShift);
+  const unscheduledResourceHours = safe(hoursByBucket.unscheduledResource);
+  const notReportedHours = safe(hoursByBucket.notReported);
+
+  const totalHours =
+    production + plannedStopHours + unplannedStopHours + outOfShiftHours + unscheduledResourceHours + notReportedHours;
+  const loadHours = totalHours - outOfShiftHours - unscheduledResourceHours - notReportedHours;
+  const operationalHours = loadHours - plannedStopHours;
+  const workedHours = operationalHours - unplannedStopHours;
+
+  const availabilityPercent =
+    operationalHours > 0 ? Math.round(Math.max(0, Math.min(100, (workedHours / operationalHours) * 100)) * 100) / 100 : null;
+
+  return {
+    totalHours: round(totalHours),
+    outOfShiftHours: round(outOfShiftHours),
+    unscheduledResourceHours: round(unscheduledResourceHours),
+    notReportedHours: round(notReportedHours),
+    loadHours: round(loadHours),
+    plannedStopHours: round(plannedStopHours),
+    operationalHours: round(operationalHours),
+    unplannedStopHours: round(unplannedStopHours),
+    workedHours: round(workedHours),
+    availabilityPercent
+  };
+}
+
 /** Rótulos dos grupos gerenciais (idênticos à tela do PC-Factory). */
 export const PC_FACTORY_MANAGEMENT_GROUP_LABELS: Record<PcFactoryManagementGroup, string> = {
   PADRAO_SISTEMA: "Padrão do Sistema",
@@ -476,13 +773,28 @@ export function resolvePcFactoryStatusColor(
 import { converterDataExcel, converterNumeroBrasileiro, limparTexto } from "@/utils/importacao";
 
 /** Converte data/hora da planilha (serial Excel, dd/mm/aaaa hh:mm, ISO, Date). */
+/**
+ * Ano mínimo aceito. O PC-Factory exporta "01/01/0001 00:00:00" como sentinela de
+ * "sem data" — tipicamente no `endDateTime` de status ainda abertos (ex.: "Aguardando
+ * lançamento"). Sem essa trava o valor NÃO cai em NaN: `Date.UTC(1, …)` entra na regra
+ * de ano 0–99 do JavaScript e vira 1901-01-01, uma data válida que contamina o período
+ * detectado e os filtros. Ver TAREFA 5.
+ */
+const MIN_VALID_YEAR = 2000;
+
+/** Descarta datas-sentinela (01/01/0001) e qualquer ano anterior a 2000 → null. */
+function rejectSentinelDate(date: Date | null): Date | null {
+  if (!date || Number.isNaN(date.getTime())) return null;
+  return date.getUTCFullYear() < MIN_VALID_YEAR ? null : date;
+}
+
 export function parsePcFactoryDate(value: unknown): Date | null {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value;
+    return rejectSentinelDate(value);
   }
 
   if (typeof value === "number" && Number.isFinite(value)) {
-    return converterDataExcel(value);
+    return rejectSentinelDate(converterDataExcel(value));
   }
 
   const text = limparTexto(value);
@@ -490,6 +802,7 @@ export function parsePcFactoryDate(value: unknown): Date | null {
     return null;
   }
 
+  // dd/mm/yyyy [HH:mm[:ss]]
   const br = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
   if (br) {
     const day = Number(br[1]);
@@ -498,11 +811,24 @@ export function parsePcFactoryDate(value: unknown): Date | null {
     const hours = Number(br[4] ?? 0);
     const minutes = Number(br[5] ?? 0);
     const seconds = Number(br[6] ?? 0);
+    // Trava ANTES de montar a data: Date.UTC(1, …) devolveria 1901, não NaN.
+    if (year < MIN_VALID_YEAR) return null;
     const date = new Date(Date.UTC(year, month, day, hours, minutes, seconds));
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
-  return converterDataExcel(text);
+  // yyyy-mm-dd[THH:mm[:ss]] — ISO sem fuso, lido como UTC para não deslocar o dia.
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (iso) {
+    const year = Number(iso[1]);
+    if (year < MIN_VALID_YEAR) return null;
+    const date = new Date(
+      Date.UTC(year, Number(iso[2]) - 1, Number(iso[3]), Number(iso[4] ?? 0), Number(iso[5] ?? 0), Number(iso[6] ?? 0))
+    );
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  return rejectSentinelDate(converterDataExcel(text));
 }
 
 /** Combina uma data (Date) com um horário textual ("HH:MM"/"HH:MM:SS" ou fração Excel). */

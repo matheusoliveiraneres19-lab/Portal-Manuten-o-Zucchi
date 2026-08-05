@@ -39,6 +39,28 @@ export function PcFactoryQualityPanel({ quality }: PcFactoryQualityPanelProps) {
         />
       </div>
 
+      {quality.notReportedHours > 0 || quality.recordsWithoutEndDate > 0 ? (
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {quality.notReportedHours > 0 ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] leading-snug text-amber-200/90">
+              <strong className="font-semibold">
+                {quality.notReportedHours.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} h sem apontamento
+              </strong>{" "}
+              (&quot;Aguardando lançamento&quot;). Esse tempo fica FORA do Tempo de Carga: não conta como parada nem entra na
+              Disponibilidade.
+            </div>
+          ) : null}
+          {quality.recordsWithoutEndDate > 0 ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] leading-snug text-amber-200/90">
+              <strong className="font-semibold">
+                {quality.recordsWithoutEndDate.toLocaleString("pt-BR")} registros sem data de fim
+              </strong>
+              . Status ainda abertos na origem — a duração vem da coluna &quot;durationHours&quot; da planilha.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {quality.groupsDetected.length > 0 ? (
         <p className="mt-3 text-[11px] text-zinc-400">
           <span className="font-semibold text-gold">Grupos:</span> {quality.groupsDetected.join(" · ")}

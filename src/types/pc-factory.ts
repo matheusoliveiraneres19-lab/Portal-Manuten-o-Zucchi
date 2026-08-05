@@ -370,6 +370,15 @@ export type PcFactoryDataQuality = {
   resourcesDetected: number;
   statusDetected: string[];
   recordsWithIssue: number;
+  /**
+   * Horas em "Aguardando lançamento" (bucket NAO_APONTADO) no recorte atual — tempo sem
+   * apontamento, que fica FORA do Tempo de Carga e não é contado como parada.
+   * Precisa ficar visível: quando é alto, a Disponibilidade cobre uma fatia menor do
+   * calendário do que parece.
+   */
+  notReportedHours: number;
+  /** Registros com endDateTime nulo (status abertos / sentinela 01/01/0001 na origem). */
+  recordsWithoutEndDate: number;
 };
 
 /** Resumo enxuto para futura integração com o dashboard principal (TAREFA 12). */
@@ -400,9 +409,14 @@ export type PcFactoryImportError = {
  *    como FRAÇÃO DE DIA → ×24).
  *  - PC_FACTORY_AG_GRID_DAILY_SUMMARY: pivô agregado Recurso × Status (coluna "Ocorrência",
  *    sem Início/Término; "Tempo Decorrido[hr]" já em HORAS DECIMAIS → usado direto, sem ×24).
+ *  - PC_FACTORY_STATUS_HISTORY_CSV: histórico de status já normalizado, exportado como CSV
+ *    (separador ";", UTF-8 BOM, cabeçalhos camelCase, datas dd/mm/yyyy HH:mm:ss e horas
+ *    decimais com ponto). "durationHours" é a base oficial de tempo; "realDurationHours"
+ *    é só auditoria. Ver parsePcFactoryCsv.
  *  - UNKNOWN: layout não reconhecido.
  */
 export type PcFactoryLayoutType =
+  | "PC_FACTORY_STATUS_HISTORY_CSV"
   | "PC_FACTORY_IMPORT"
   | "PC_FACTORY_AG_GRID"
   | "PC_FACTORY_AG_GRID_DAILY_SUMMARY"
@@ -472,6 +486,33 @@ export type PcFactoryImportResult = {
   statusColorsFallback: number;
   statusColors: PcFactoryStatusColorInfo[];
   errors: PcFactoryImportError[];
+
+  /* ---- Diagnóstico do arquivo lido (TAREFAS 13 e 14) ---- */
+  /** Nome do arquivo, quando informado pelo chamador. */
+  fileName: string | null;
+  /** Como o arquivo foi lido: planilha Excel ou CSV. */
+  readAs: "xlsx" | "csv";
+  /** Separador usado no CSV (null para XLSX). */
+  delimiterUsed: ";" | "," | null;
+  /** true quando o CSV veio em UTF-8 BOM e o BOM foi removido do 1º cabeçalho. */
+  bomRemoved: boolean;
+  /** Cabeçalhos CRUS encontrados no arquivo, na ordem — para diagnóstico de layout. */
+  columnsFound: string[];
+  /** Cabeçalhos obrigatórios que NÃO foram encontrados (vazio = layout completo). */
+  missingRequiredColumns: string[];
+  /** Cabeçalhos recomendados ausentes (não bloqueiam a importação). */
+  missingRecommendedColumns: string[];
+  /** Linhas cujo endDateTime era inválido/sentinela (01/01/0001) e virou null. */
+  invalidEndDatesCount: number;
+  /** Linhas cujo durationHours estava vazio/inválido e entrou como 0. */
+  invalidDurationCount: number;
+  /**
+   * Horas em buckets FORA do Tempo de Carga — tempo que não é medido como parada:
+   * "Aguardando lançamento" (apontamento aberto). Alerta de qualidade.
+   */
+  notReportedHours: number;
+  /** Valores distintos de classificationPcFactoryRef vistos no arquivo. */
+  classificationRefsDetected: string[];
 };
 
 /**
@@ -487,6 +528,12 @@ export type PcFactoryExcelRow = {
   statusCode?: unknown;
   status?: unknown;
   statusDetails?: unknown;
+  /**
+   * "classificationPcFactoryRef" — classificação de referência da própria planilha
+   * (Produção · Parada Planejada I · Parada Planejada II · Parada Não Planejada ·
+   * Tempo Fora de Turno). Entra como ÚLTIMA prioridade em classifyAvailabilityBucket.
+   */
+  classificationRef?: unknown;
   /** "Ocorrência" — nº de eventos agregados na linha (layout de resumo diário). */
   occurrence?: unknown;
   /** "(R)Data de Produção" — data do dia agregado (layout de resumo diário). */

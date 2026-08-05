@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { ImportStatus, ImportType, PcFactorySource, PcFactoryStatusCategory, Prisma } from "@prisma/client";
@@ -17,8 +19,12 @@ import {
   isMechanicalMaintenance,
   isWaitingMaintenance,
   maintenanceKind,
+  classifyAvailabilityBucket,
   normalizeExcelColorToHex,
+  normalizeHeader,
+  parsePcFactoryNumber,
   normalizePcFactoryStatusKey,
+  normalizePcFactoryStatusName,
   normalizeProductionLine,
   normalizeResourceName,
   parseAgGridElapsedToMinutes,
@@ -26,6 +32,7 @@ import {
   parsePcFactoryDate,
   resolvePcFactoryStatusColor
 } from "@/utils/pc-factory-normalizer";
+import type { PcFactoryAvailabilityBucket } from "@/utils/pc-factory-normalizer";
 import type {
   PcFactoryExcelRow,
   PcFactoryImportError,
@@ -85,6 +92,12 @@ const COLUMN_MAP: Record<string, keyof PcFactoryExcelRow> = {
   situacao: "status",
   estado: "status",
   statusraw: "status",
+  // Classificação de referência da planilha (CSV histórico): Produção / Parada Planejada I
+  // e II / Parada Não Planejada / Tempo Fora de Turno. Última prioridade no bucket oficial.
+  classificationpcfactoryref: "classificationRef",
+  classificacao_pc_factory: "classificationRef",
+  classificacao_pcfactory: "classificationRef",
+  classificationref: "classificationRef",
   // Detalhes do status
   detalhes_status_recurso: "statusDetails", // ag-grid: "Detalhes Status Recurso"
   detalhes_do_status_recurso: "statusDetails",
@@ -239,7 +252,211 @@ type ImportOptions = {
   replaceAll?: boolean;
 };
 
-type ReadResult = { rows: PcFactoryExcelRow[]; sheetUsed: string | null; layoutType: PcFactoryLayoutType };
+type ReadResult = {
+  rows: PcFactoryExcelRow[];
+  sheetUsed: string | null;
+  layoutType: PcFactoryLayoutType;
+  /** Cabeçalhos CRUS do arquivo, na ordem — usados no diagnóstico de erro (TAREFA 14). */
+  headers: string[];
+  readAs: "xlsx" | "csv";
+  delimiterUsed: ";" | "," | null;
+  bomRemoved: boolean;
+};
+
+/* ------------------------------------------------------------------ */
+/* Leitura de CSV (TAREFA 1)                                          */
+/* ------------------------------------------------------------------ */
+
+/** Cabeçalhos MÍNIMOS do CSV histórico — sem eles a importação não faz sentido. */
+const CSV_REQUIRED_HEADERS = ["resourceName", "resourceCode", "status", "startDateTime", "durationHours"] as const;
+
+/** Cabeçalhos RECOMENDADOS — ausência é reportada, mas não bloqueia. */
+const CSV_RECOMMENDED_HEADERS = [
+  "statusCode",
+  "endDateTime",
+  "realDurationHours",
+  "groupPortal",
+  "classificationPcFactoryRef"
+] as const;
+
+const UTF8_BOM = "﻿";
+
+/**
+ * Decodifica a origem como texto UTF-8, removendo o BOM se presente.
+ *
+ * Convenção do módulo (igual a `readPcFactorySheet`/`XLSX.readFile`): uma `string` é
+ * um CAMINHO de arquivo, não o conteúdo. O portal sempre entrega Buffer (vindo do
+ * formData); o caminho é usado pelos scripts de CLI.
+ */
+function decodeCsvText(source: string | Buffer | ArrayBuffer): { text: string; bomRemoved: boolean } {
+  const buffer =
+    typeof source === "string"
+      ? readFileSync(source)
+      : Buffer.isBuffer(source)
+        ? source
+        : Buffer.from(source as ArrayBuffer);
+  const text = buffer.toString("utf8");
+  const bomRemoved = text.startsWith(UTF8_BOM);
+  return { text: bomRemoved ? text.slice(UTF8_BOM.length) : text, bomRemoved };
+}
+
+/**
+ * Detecta o separador pela PRIMEIRA linha: ";" é o padrão do export do PC-Factory,
+ * com "," como fallback. Ganha o que aparecer mais vezes fora de aspas; empate ou
+ * nenhum → ";".
+ */
+function detectDelimiter(headerLine: string): ";" | "," {
+  let semicolons = 0;
+  let commas = 0;
+  let inQuotes = false;
+  for (let i = 0; i < headerLine.length; i += 1) {
+    const char = headerLine[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (!inQuotes) {
+      if (char === ";") semicolons += 1;
+      else if (char === ",") commas += 1;
+    }
+  }
+  return commas > semicolons ? "," : ";";
+}
+
+/**
+ * Tokeniza o CSV inteiro em uma passada, respeitando o padrão RFC 4180: campos entre
+ * aspas podem conter o separador, quebras de linha e aspas escapadas (""). Necessário
+ * porque um split por linha/`;` corromperia qualquer campo citado.
+ */
+function tokenizeCsv(text: string, delimiter: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i += 1; // aspas escapadas
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+    } else if (char === delimiter) {
+      row.push(field);
+      field = "";
+    } else if (char === "\n") {
+      row.push(field);
+      field = "";
+      rows.push(row);
+      row = [];
+    } else if (char !== "\r") {
+      field += char;
+    }
+  }
+
+  // Última linha sem quebra final.
+  if (field !== "" || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+export type PcFactoryCsvParseResult = {
+  rows: PcFactoryExcelRow[];
+  /** Cabeçalhos crus, já sem BOM. */
+  headers: string[];
+  delimiter: ";" | ",";
+  bomRemoved: boolean;
+};
+
+/**
+ * Lê um CSV do PC-Factory (TAREFA 1). Caminho SEPARADO do XLSX — o `xlsx` community
+ * adivinha o separador e desmonta este arquivo, então o CSV nunca passa por ele.
+ *
+ * Trata: UTF-8 BOM (removido do 1º cabeçalho), separador ";" com fallback ",",
+ * campos entre aspas, CRLF/LF, linhas em branco e linhas com menos colunas que o
+ * cabeçalho (campos faltantes viram "").
+ *
+ * Os cabeçalhos são resolvidos por `normalizeHeader` (sem acento, sem separador,
+ * minúsculo) contra o COLUMN_MAP — é isso que faz o camelCase do arquivo
+ * ("resourceName", "durationHours", "classificationPcFactoryRef") casar.
+ */
+export function parsePcFactoryCsv(source: string | Buffer | ArrayBuffer): PcFactoryCsvParseResult {
+  const { text, bomRemoved } = decodeCsvText(source);
+  if (!text.trim()) {
+    throw new Error("O arquivo CSV está vazio.");
+  }
+
+  const firstBreak = text.indexOf("\n");
+  const headerLine = firstBreak === -1 ? text : text.slice(0, firstBreak);
+  const delimiter = detectDelimiter(headerLine);
+
+  const table = tokenizeCsv(text, delimiter);
+  if (table.length === 0) {
+    throw new Error("Não foi possível ler nenhuma linha do arquivo CSV.");
+  }
+
+  const headers = table[0].map((header) => header.trim());
+  // Cada cabeçalho vira o destino no PcFactoryExcelRow (ou undefined se não mapeado).
+  const targets = headers.map((header) => {
+    const normalized = normalizeHeader(header);
+    return COLUMN_MAP[normalized] ?? COLUMN_MAP[normalizarNomeColuna(header)];
+  });
+
+  const rows: PcFactoryExcelRow[] = [];
+  for (let r = 1; r < table.length; r += 1) {
+    const cells = table[r];
+    // Linha totalmente vazia (só separadores) → descarta antes de virar registro.
+    if (cells.every((cell) => cell.trim() === "")) continue;
+
+    const mapped: PcFactoryExcelRow = {};
+    for (let c = 0; c < targets.length; c += 1) {
+      const target = targets[c];
+      if (!target || mapped[target] !== undefined) continue;
+      mapped[target] = cells[c] ?? "";
+    }
+    rows.push(mapped);
+  }
+
+  return { rows, headers, delimiter, bomRemoved };
+}
+
+/** Confere os cabeçalhos do CSV contra os mínimos/recomendados (TAREFAS 2 e 14). */
+function checkCsvHeaders(headers: string[]): { missingRequired: string[]; missingRecommended: string[] } {
+  const present = new Set(headers.map((header) => normalizeHeader(header)));
+  const missing = (list: readonly string[]) => list.filter((name) => !present.has(normalizeHeader(name)));
+  return { missingRequired: missing(CSV_REQUIRED_HEADERS), missingRecommended: missing(CSV_RECOMMENDED_HEADERS) };
+}
+
+/** true quando a origem é um CSV — por extensão do nome ou por ausência de assinatura XLSX. */
+function looksLikeCsv(source: string | Buffer | ArrayBuffer, fileName?: string): boolean {
+  const name = (fileName ?? (typeof source === "string" ? source : "")).toLowerCase();
+  if (name.endsWith(".csv")) return true;
+  if (name.endsWith(".xlsx") || name.endsWith(".xls")) return false;
+
+  // Sem nome confiável: .xlsx é um ZIP ("PK\x03\x04"); .xls começa com D0 CF 11 E0.
+  if (typeof source !== "string") {
+    const buffer = Buffer.isBuffer(source) ? source : Buffer.from(source as ArrayBuffer);
+    if (buffer.length >= 4) {
+      const isZip = buffer[0] === 0x50 && buffer[1] === 0x4b;
+      const isOle = buffer[0] === 0xd0 && buffer[1] === 0xcf && buffer[2] === 0x11 && buffer[3] === 0xe0;
+      return !isZip && !isOle;
+    }
+  }
+  return false;
+}
 
 /** Lê e mapeia as linhas da planilha a partir de um arquivo ou buffer. */
 export function readPcFactoryRows(source: string | Buffer | ArrayBuffer, sheetName?: string): PcFactoryExcelRow[] {
@@ -247,11 +464,42 @@ export function readPcFactoryRows(source: string | Buffer | ArrayBuffer, sheetNa
 }
 
 /**
+ * Ponto de entrada único da leitura: roteia CSV → parsePcFactoryCsv e XLSX/XLS →
+ * readPcFactorySheet. Um CSV NUNCA passa pelo caminho do `xlsx` (TAREFA 1).
+ */
+export function readPcFactorySource(
+  source: string | Buffer | ArrayBuffer,
+  options: { fileName?: string; sheetName?: string } = {}
+): ReadResult {
+  if (looksLikeCsv(source, options.fileName)) {
+    const { rows, headers, delimiter, bomRemoved } = parsePcFactoryCsv(source);
+    return {
+      rows,
+      sheetUsed: options.fileName ?? null,
+      layoutType: detectLayout(headers, null, true),
+      headers,
+      readAs: "csv",
+      delimiterUsed: delimiter,
+      bomRemoved
+    };
+  }
+  return readPcFactorySheet(source, options.sheetName);
+}
+
+/**
  * Detecta o layout da planilha a partir dos cabeçalhos crus (TAREFA 7). O ponto crítico é
  * distinguir o "Tempo Decorrido[hr]" do resumo diário (HORAS DECIMAIS, usar direto) do
  * "Tempo Decorrido [hr]" do transacional (FRAÇÃO DE DIA, ×24) — ambos normalizam igual.
  */
-function detectLayout(headers: string[], sheetUsed: string | null): PcFactoryLayoutType {
+function detectLayout(headers: string[], sheetUsed: string | null, isCsv = false): PcFactoryLayoutType {
+  // CSV histórico normalizado (TAREFA 2): identificado pelos cabeçalhos MÍNIMOS, não
+  // pelo conjunto completo — colunas opcionais podem faltar sem trocar o layout.
+  if (isCsv) {
+    const { missingRequired } = checkCsvHeaders(headers);
+    if (missingRequired.length === 0) return "PC_FACTORY_STATUS_HISTORY_CSV";
+    return "UNKNOWN";
+  }
+
   if (sheetUsed && sheetUsed.trim().toLowerCase() === "import_pc_factory") return "PC_FACTORY_IMPORT";
 
   const normalized = new Set<string>();
@@ -296,7 +544,15 @@ export function readPcFactorySheet(source: string | Buffer | ArrayBuffer, sheetN
   const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "", raw: true });
   const headers = rawRows.length ? Object.keys(rawRows[0]) : [];
   const layoutType = detectLayout(headers, resolvedName);
-  return { rows: rawRows.map(mapRow), sheetUsed: resolvedName, layoutType };
+  return {
+    rows: rawRows.map(mapRow),
+    sheetUsed: resolvedName,
+    layoutType,
+    headers,
+    readAs: "xlsx",
+    delimiterUsed: null,
+    bomRemoved: false
+  };
 }
 
 /** Resolve a aba a ler: explícita > Import_PC_FACTORY > ag-grid > primeira. Case-insensitive. */
@@ -401,10 +657,16 @@ export async function importPcFactoryRecords(
   options: ImportOptions = {},
   sheetUsed: string | null = null,
   statusColorMap: Map<string, SheetStatusColor> = new Map(),
-  layoutType: PcFactoryLayoutType = "UNKNOWN"
+  layoutType: PcFactoryLayoutType = "UNKNOWN",
+  read?: ReadResult
 ): Promise<PcFactoryImportResult> {
   // No resumo diário, "Tempo Decorrido[hr]" já vem em HORAS DECIMAIS (usar direto, sem ×24).
   const decimalHours = layoutType === "PC_FACTORY_AG_GRID_DAILY_SUMMARY";
+  const isStatusHistoryCsv = layoutType === "PC_FACTORY_STATUS_HISTORY_CSV";
+  const headers = read?.headers ?? [];
+  const headerCheck = isStatusHistoryCsv
+    ? checkCsvHeaders(headers)
+    : { missingRequired: [] as string[], missingRecommended: [] as string[] };
   const result: PcFactoryImportResult = {
     totalRows: rows.length,
     importedRows: 0,
@@ -439,7 +701,18 @@ export async function importPcFactoryRecords(
     statusColorsFromSheet: 0,
     statusColorsFallback: 0,
     statusColors: [],
-    errors: []
+    errors: [],
+    fileName: options.fileName ?? null,
+    readAs: read?.readAs ?? "xlsx",
+    delimiterUsed: read?.delimiterUsed ?? null,
+    bomRemoved: read?.bomRemoved ?? false,
+    columnsFound: headers,
+    missingRequiredColumns: headerCheck.missingRequired,
+    missingRecommendedColumns: headerCheck.missingRecommended,
+    invalidEndDatesCount: 0,
+    invalidDurationCount: 0,
+    notReportedHours: 0,
+    classificationRefsDetected: []
   };
 
   const importBatch = options.importBatch ?? `PC-FACTORY-${new Date().toISOString()}`;
@@ -447,6 +720,7 @@ export async function importPcFactoryRecords(
   const resources = new Set<string>();
   const groups = new Set<string>();
   const statuses = new Set<string>();
+  const classificationRefs = new Set<string>();
   // Acumula uma entrada por status real (statusKey) para o resumo de cores da importação.
   const statusColorAudit = new Map<string, PcFactoryStatusColorInfo>();
   let minDate: Date | null = null;
@@ -459,7 +733,7 @@ export async function importPcFactoryRecords(
     const line = index + 2; // +1 cabeçalho, +1 base 1
 
     try {
-      const outcome = parseRow(rows[index], line, decimalHours);
+      const outcome = parseRow(rows[index], line, decimalHours, isStatusHistoryCsv);
       if ("ignore" in outcome) {
         result.ignoredRows += 1;
         result.ignoredReasons[outcome.ignore] += 1;
@@ -473,11 +747,17 @@ export async function importPcFactoryRecords(
       tallyClassification(result, parsed.statusRaw, parsed.statusCategory);
       if (parsed.dataQualityIssue) result.dataQualityRows += 1;
       if (parsed.realDurationHours === null) result.missingRealDurationRows += 1;
+      if (parsed.hadInvalidEndDate) result.invalidEndDatesCount += 1;
+      if (parsed.hadInvalidDuration) result.invalidDurationCount += 1;
+      if (parsed.availabilityBucket === "NAO_APONTADO") {
+        result.notReportedHours = round(result.notReportedHours + parsed.durationHours);
+      }
       result.totalHours = round(result.totalHours + parsed.durationHours);
       if (parsed.isMaintenanceKpi) result.maintenanceHours = round(result.maintenanceHours + parsed.durationHours);
       resources.add(parsed.resourceName);
       if (parsed.groupPortal) groups.add(parsed.groupPortal);
       if (parsed.statusRaw) statuses.add(parsed.statusRaw);
+      if (parsed.classificationRef) classificationRefs.add(parsed.classificationRef);
       if (parsed.startDateTime) {
         if (!minDate || parsed.startDateTime < minDate) minDate = parsed.startDateTime;
         if (!maxDate || parsed.startDateTime > maxDate) maxDate = parsed.startDateTime;
@@ -523,6 +803,8 @@ export async function importPcFactoryRecords(
         statusDetails: parsed.statusDetails,
         statusCategory: parsed.statusCategory,
         managementGroup: parsed.managementGroup,
+        classificationRef: parsed.classificationRef,
+        availabilityBucket: parsed.availabilityBucket,
         maintenanceType: parsed.maintenanceType,
         isMaintenanceKpi: parsed.isMaintenanceKpi,
         excludePlannedTime: parsed.excludePlannedTime,
@@ -568,6 +850,7 @@ export async function importPcFactoryRecords(
   result.resourcesDetected = resources.size;
   result.groupsDetected = Array.from(groups).sort();
   result.statusDetected = Array.from(statuses).sort();
+  result.classificationRefsDetected = Array.from(classificationRefs).sort((a, b) => a.localeCompare(b, "pt-BR"));
   const statusColors = Array.from(statusColorAudit.values()).sort((a, b) =>
     a.statusRaw.localeCompare(b.statusRaw, "pt-BR")
   );
@@ -644,10 +927,46 @@ export async function importPcFactoryFromExcel(
   source: string | Buffer | ArrayBuffer,
   options: ImportOptions = {}
 ): Promise<PcFactoryImportResult> {
-  const { rows, sheetUsed, layoutType } = readPcFactorySheet(source, options.sheetName);
-  // Lê as cores por status direto do arquivo (exceljs) — best-effort, não bloqueia o import.
-  const statusColorMap = await extractStatusColorsFromExcel(source, sheetUsed);
-  return importPcFactoryRecords(rows, options, sheetUsed, statusColorMap, layoutType);
+  const read = readPcFactorySource(source, { fileName: options.fileName, sheetName: options.sheetName });
+
+  // Layout irreconhecível: falha com diagnóstico completo em vez de "erro no arquivo"
+  // ou de uma importação vazia e silenciosa (TAREFA 14).
+  if (read.layoutType === "UNKNOWN") {
+    throw new Error(buildLayoutDiagnostic(read, options));
+  }
+
+  // Cores por status: só o Excel carrega estilos de célula. CSV não tem — pula o
+  // exceljs (que também não abriria o arquivo) e usa o fallback de cores da UI.
+  const statusColorMap =
+    read.readAs === "csv" ? new Map<string, SheetStatusColor>() : await extractStatusColorsFromExcel(source, read.sheetUsed);
+
+  return importPcFactoryRecords(read.rows, options, read.sheetUsed, statusColorMap, read.layoutType, read);
+}
+
+/**
+ * Mensagem de erro com diagnóstico, em vez de "Erro no arquivo" (TAREFA 14).
+ * Lista layout, arquivo/aba, colunas encontradas e as obrigatórias que faltaram.
+ */
+function buildLayoutDiagnostic(read: ReadResult, options: ImportOptions): string {
+  const { missingRequired } = read.readAs === "csv" ? checkCsvHeaders(read.headers) : { missingRequired: [] as string[] };
+  const lines = [
+    read.readAs === "csv"
+      ? "Não foi possível importar o CSV do PC-Factory."
+      : "Não foi possível importar a planilha do PC-Factory.",
+    `Layout detectado: ${read.layoutType}`,
+    `Arquivo/aba lido: ${options.fileName ?? read.sheetUsed ?? "(desconhecido)"}${
+      read.readAs === "csv" ? ` (CSV, separador "${read.delimiterUsed}"${read.bomRemoved ? ", UTF-8 BOM" : ""})` : ""
+    }`,
+    `Linhas lidas: ${read.rows.length.toLocaleString("pt-BR")}`,
+    `Colunas encontradas (${read.headers.length}): ${read.headers.join(", ") || "(nenhuma)"}`
+  ];
+  if (missingRequired.length > 0) {
+    lines.push(`Colunas obrigatórias ausentes: ${missingRequired.join(", ")}`);
+  }
+  if (read.readAs === "csv") {
+    lines.push(`Colunas obrigatórias esperadas: ${CSV_REQUIRED_HEADERS.join(", ")}`);
+  }
+  return lines.join("\n");
 }
 
 type ParsedRow = {
@@ -664,6 +983,14 @@ type ParsedRow = {
   statusDetails: string | null;
   statusCategory: PcFactoryStatusCategory;
   managementGroup: string;
+  /** Valor cru de classificationPcFactoryRef, quando a planilha traz a coluna. */
+  classificationRef: string | null;
+  /** Bucket oficial de disponibilidade (TAREFA 8). */
+  availabilityBucket: PcFactoryAvailabilityBucket;
+  /** A planilha trouxe endDateTime, mas ele era inválido/sentinela → gravado como null. */
+  hadInvalidEndDate: boolean;
+  /** durationHours vazio/inválido → gravado como 0 (só no CSV, onde 0 é aceito). */
+  hadInvalidDuration: boolean;
   maintenanceType: string | null;
   isMaintenanceKpi: boolean;
   excludePlannedTime: boolean;
@@ -699,12 +1026,28 @@ type ParseOutcome = { row: ParsedRow } | { ignore: IgnoreReason };
  * (`scripts/check-pc-factory-duration-parse.ts`). Recebe a linha JÁ normalizada pelo
  * mapa de aliases — não o cabeçalho cru da planilha.
  */
-export function parseRow(row: PcFactoryExcelRow, line: number, decimalHours: boolean): ParseOutcome {
+export function parseRow(
+  row: PcFactoryExcelRow,
+  line: number,
+  decimalHours: boolean,
+  /**
+   * CSV histórico normalizado. Muda três coisas (TAREFAS 4, 6 e 7):
+   *  - as horas são lidas por `parsePcFactoryNumber` (ponto = decimal), não por
+   *    `converterNumeroBrasileiro` (que leria "8.3333" como 83333);
+   *  - `durationHours` da planilha tem PRECEDÊNCIA sobre o delta das datas — é a base
+   *    oficial de tempo do PC-Factory;
+   *  - linha com duração 0 é ACEITA (com alerta de qualidade) em vez de ignorada.
+   */
+  isStatusHistoryCsv = false
+): ParseOutcome {
   const resourceName = normalizeResourceName(row.resourceName) || normalizeResourceName(row.resourceCode);
   const statusRaw = optionalText(row.status);
 
   let startDateTime = combineDateAndTime(parsePcFactoryDate(row.startDate), row.startTime);
   let endDateTime = combineDateAndTime(parsePcFactoryDate(row.endDate), row.endTime);
+  // Sentinela 01/01/0001 já virou null em parsePcFactoryDate; registramos o fato para
+  // o painel de qualidade e seguimos — endDateTime inválido NUNCA derruba a linha.
+  const hadInvalidEndDate = endDateTime === null && optionalText(row.endDate) !== null;
   // Layout de resumo diário: "(R)Data de Produção" → dia começa 00:00:00 e termina 23:59:59.
   // Esses timestamps são SINTÉTICOS: delimitam o dia do registro, não o evento. O delta
   // entre eles é sempre 1.439,98 min (≈24 h) e NÃO pode virar duração — ver abaixo.
@@ -718,10 +1061,14 @@ export function parseRow(row: PcFactoryExcelRow, line: number, decimalHours: boo
     if (!endDateTime) endDateTime = new Date(Date.UTC(y, m, d, 23, 59, 59));
     datesAreSynthetic = true;
   }
-  const durationFallback = resolveFallbackMinutes(row, decimalHours);
+  const durationFallback = isStatusHistoryCsv
+    ? csvHoursToMinutes(row.durationHours)
+    : resolveFallbackMinutes(row, decimalHours);
 
   // "Tempo Decorrido Real" (auditoria). Pode não existir na planilha.
-  const realDurationMinutes = resolveRealDurationMinutes(row, decimalHours);
+  const realDurationMinutes = isStatusHistoryCsv
+    ? csvHoursToMinutes(row.realDurationHours)
+    : resolveRealDurationMinutes(row, decimalHours);
 
   // "Ocorrência": nº de eventos agregados (resumo diário). Vazio/inválido → 1.
   const occurrenceParsed = parsePlainNumber(row.occurrence);
@@ -734,14 +1081,21 @@ export function parseRow(row: PcFactoryExcelRow, line: number, decimalHours: boo
   // coluna "Tempo Decorrido" da planilha é a única fonte de duração, então ela tem
   // precedência. Sem essa inversão, `computeDurationMinutes` retorna o delta das datas e
   // descarta o fallback — foi o que gravou durationHours = 24 em 100% dos registros.
-  let durationMinutes = datesAreSynthetic
-    ? (durationFallback !== null && durationFallback > 0
-        ? round(durationFallback)
-        : computeDurationMinutes(startDateTime, endDateTime, durationFallback))
-    : computeDurationMinutes(startDateTime, endDateTime, durationFallback);
-  if (durationMinutes <= 0 && realDurationMinutes !== null && realDurationMinutes > 0) {
+  // No CSV histórico "durationHours" é a base OFICIAL de tempo: vence o delta das datas
+  // (que só é usado se a coluna vier vazia). Nos layouts XLSX o comportamento não muda.
+  let durationMinutes = isStatusHistoryCsv
+    ? (durationFallback !== null ? round(durationFallback) : computeDurationMinutes(startDateTime, endDateTime, null))
+    : datesAreSynthetic
+      ? (durationFallback !== null && durationFallback > 0
+          ? round(durationFallback)
+          : computeDurationMinutes(startDateTime, endDateTime, durationFallback))
+      : computeDurationMinutes(startDateTime, endDateTime, durationFallback);
+  // Fallback no Real APENAS fora do CSV: lá o Real é estritamente auditoria e não pode
+  // virar base de tempo (critério de aceite 6).
+  if (!isStatusHistoryCsv && durationMinutes <= 0 && realDurationMinutes !== null && realDurationMinutes > 0) {
     durationMinutes = realDurationMinutes;
   }
+  if (!Number.isFinite(durationMinutes) || durationMinutes < 0) durationMinutes = 0;
   const hasDuration = durationMinutes > 0;
   const hasDates = Boolean(startDateTime || endDateTime);
 
@@ -749,8 +1103,14 @@ export function parseRow(row: PcFactoryExcelRow, line: number, decimalHours: boo
   if (!resourceName && !statusRaw && !hasDuration && !hasDates) return { ignore: "emptyRow" };
   if (!resourceName) return { ignore: "noResource" };
   if (!statusRaw) return { ignore: "noStatus" };
-  if (!hasDuration && !hasDates) return { ignore: "noDuration" }; // sem duração E sem datas
-  if (!hasDuration) return { ignore: "noDuration" }; // duração inválida/zero
+  if (isStatusHistoryCsv) {
+    // TAREFA 7: no CSV a linha só precisa de recurso, status e data inicial válida. Duração
+    // vazia/zero entra como 0 com alerta de qualidade — não é motivo para descartar.
+    if (!startDateTime) return { ignore: "noDuration" };
+  } else {
+    if (!hasDuration && !hasDates) return { ignore: "noDuration" }; // sem duração E sem datas
+    if (!hasDuration) return { ignore: "noDuration" }; // duração inválida/zero
+  }
 
   // Classificação derivada de statusRaw (fonte da verdade). Para status NÃO reconhecido
   // pela regra (OUTROS), aceita os valores pré-calculados da planilha como fallback (TAREFA 5).
@@ -768,6 +1128,9 @@ export function parseRow(row: PcFactoryExcelRow, line: number, decimalHours: boo
   const statusCode = optionalText(row.statusCode);
   // Grupo da Tabela Gerencial — derivado do CÓDIGO (fonte oficial), com fallback no nome.
   const managementGroup = classifyManagementGroup(statusCode, statusRaw);
+  const classificationRef = optionalText(row.classificationRef);
+  // Bucket oficial de disponibilidade: statusCode > status > classificationPcFactoryRef.
+  const availabilityBucket = classifyAvailabilityBucket({ statusCode, statusRaw, classificationRef });
 
   const resourceCode = optionalText(row.resourceCode);
   const orderNumber = optionalText(row.orderNumber);
@@ -788,6 +1151,10 @@ export function parseRow(row: PcFactoryExcelRow, line: number, decimalHours: boo
       statusDetails: optionalText(row.statusDetails),
       statusCategory,
       managementGroup,
+      classificationRef,
+      availabilityBucket,
+      hadInvalidEndDate,
+      hadInvalidDuration: isStatusHistoryCsv && !hasDuration,
       maintenanceType: kind,
       isMaintenanceKpi,
       excludePlannedTime,
@@ -819,19 +1186,66 @@ export function parseRow(row: PcFactoryExcelRow, line: number, decimalHours: boo
         datesAreSynthetic,
         durationFallback !== null && durationFallback > 0
       ),
-      // TAREFA 7: usa a technicalKey da planilha quando presente; senão gera uma única por linha.
+      // Chave de deduplicação (TAREFA 12): usa a da planilha quando presente; no CSV
+      // histórico, hash dos campos de NEGÓCIO (sem o nº da linha) para que reimportar o
+      // mesmo arquivo atualize em vez de duplicar; nos layouts XLSX, a chave legada.
       technicalKey:
         sheetKey ??
-        buildPcFactoryTechnicalKey({
-          resourceName,
-          resourceCode,
-          startDateTime,
-          statusRaw,
-          durationMinutes,
-          orderNumber: [orderNumber ?? operationCode ?? "", endDateTime ? endDateTime.toISOString() : "", String(line)].join("#")
-        })
+        (isStatusHistoryCsv
+          ? buildStatusHistoryKey({
+              resourceCode,
+              resourceName,
+              statusCode,
+              statusRaw,
+              startDateTime,
+              durationHours: Math.round((durationMinutes / 60) * 100) / 100,
+              initialResponsible: optionalText(row.initialResponsible),
+              orderNumber
+            })
+          : buildPcFactoryTechnicalKey({
+              resourceName,
+              resourceCode,
+              startDateTime,
+              statusRaw,
+              durationMinutes,
+              orderNumber: [
+                orderNumber ?? operationCode ?? "",
+                endDateTime ? endDateTime.toISOString() : "",
+                String(line)
+              ].join("#")
+            }))
     }
   };
+}
+
+/**
+ * Chave técnica do CSV histórico (TAREFA 12): hash SHA-1 dos campos de NEGÓCIO da
+ * linha. Não inclui o número da linha — é isso que torna a reimportação do mesmo
+ * arquivo idempotente (atualiza em vez de duplicar), independente da ordem das linhas.
+ *
+ * Verificado no arquivo de jan–jul/2026: 60.921 linhas → 60.921 chaves distintas,
+ * zero colisão. `resourceName` entra como reserva para o caso de resourceCode vazio.
+ */
+function buildStatusHistoryKey(parts: {
+  resourceCode: string | null;
+  resourceName: string;
+  statusCode: string | null;
+  statusRaw: string | null;
+  startDateTime: Date | null;
+  durationHours: number;
+  initialResponsible: string | null;
+  orderNumber: string | null;
+}): string {
+  const payload = [
+    parts.resourceCode || parts.resourceName,
+    parts.statusCode ?? "",
+    normalizePcFactoryStatusName(parts.statusRaw),
+    parts.startDateTime ? parts.startDateTime.toISOString() : "",
+    String(parts.durationHours),
+    parts.initialResponsible ?? "",
+    parts.orderNumber ?? ""
+  ].join("|");
+  return createHash("sha1").update(payload).digest("hex");
 }
 
 /** Converte um texto da planilha para um PcFactoryStatusCategory válido, ou null. */
@@ -894,6 +1308,16 @@ function resolveRealDurationMinutes(row: PcFactoryExcelRow, decimalHours: boolea
   }
 
   return null;
+}
+
+/**
+ * Converte uma coluna de HORAS do CSV histórico para minutos, usando o parser do
+ * PC-Factory (ponto = decimal). Vazio/inválido → null; negativo → 0.
+ */
+function csvHoursToMinutes(value: unknown): number | null {
+  const hours = parsePcFactoryNumber(value);
+  if (hours === null) return null;
+  return hours <= 0 ? 0 : round(hours * 60);
 }
 
 function parsePlainNumber(value: unknown): number | null {
