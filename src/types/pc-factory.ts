@@ -97,7 +97,13 @@ export type PcFactoryKpis = {
   mtta: number | null;
   /** % manutenção sobre o tempo planejado. null = dados insuficientes. */
   maintenancePercentOfPlanned: number | null;
-  /** Disponibilidade estimada (%). null = dados insuficientes. */
+  /**
+   * Disponibilidade (%) — regra da planilha oficial G0134:
+   * (Tempo Operacional − Manutenção) / Tempo Operacional × 100, onde Tempo Operacional =
+   * Tempo de Carga − Paradas Planejadas (= G0134.LOADTIME) e Manutenção inclui Aguardando
+   * Manutenção. Ponderado pelos totais do recorte, nunca média simples de máquinas.
+   * NÃO é Utilização nem o DTM [%] nativo. null = sem Tempo Operacional.
+   */
   availabilityPercent: number | null;
   topMaintenanceResource: PcFactoryTopResource;
 };
@@ -192,7 +198,11 @@ export type PcFactoryReliabilityRow = {
 
   /** Alias de maintenanceDowntimeHours (coluna "Paradas"). */
   downtimeHours: number;
-  /** ((plannedHours − paradas de manutenção) / plannedHours) × 100. null = sem tempo planejado. */
+  /**
+   * Disponibilidade da máquina (%) — MESMA fórmula do card principal (planilha G0134):
+   * ((Tempo Operacional − paradas de manutenção) / Tempo Operacional) × 100, onde
+   * Tempo Operacional = plannedHours − paradas planejadas. null = sem Tempo Operacional.
+   */
   availability: number | null;
 
   /** Aviso de qualidade de dados (ex.: paradas > planejado, sem tempo planejado). */
@@ -379,6 +389,36 @@ export type PcFactoryDataQuality = {
   notReportedHours: number;
   /** Registros com endDateTime nulo (status abertos / sentinela 01/01/0001 na origem). */
   recordsWithoutEndDate: number;
+  /** Auditoria da fórmula de Disponibilidade — para conferir contra a planilha G0134. */
+  availabilityAudit: PcFactoryAvailabilityAudit;
+};
+
+/**
+ * Auditoria da Disponibilidade oficial (TAREFA 11): os números exatos que entram na
+ * fórmula, para comparação linha a linha com a planilha
+ * `disponibilidade mensal exportado.xlsx`:
+ *
+ *   operationalHours        ↔ G0134.LOADTIME
+ *   maintenanceHours        ↔ Tempo de Manutenção + Tempo Ag. Manutenção
+ *   waitingMaintenanceHours ↔ Tempo Ag. Manutenção (isolado)
+ *   availabilityPercent     ↔ coluna Disponibilidade
+ */
+export type PcFactoryAvailabilityAudit = {
+  /** = G0134.LOADTIME. Tempo de Carga − Paradas Planejadas. */
+  operationalHours: number;
+  /** Numerador subtraído: manutenção DENTRO do Tempo Operacional (inclui Aguardando). */
+  maintenanceHours: number;
+  /** Parcela de "Aguardando Manutenção" — o que o DTM [%] nativo NÃO desconta. */
+  waitingMaintenanceHours: number;
+  /** Resultado da fórmula, ou null quando não há Tempo Operacional. */
+  availabilityPercent: number | null;
+  /** A fórmula, em texto, para não haver dúvida sobre qual regra gerou o número. */
+  formula: string;
+  /**
+   * UTILIZAÇÃO (Trabalhado ÷ Operacional) — a fórmula ANTIGA, mantida só para
+   * comparação. NÃO é a Disponibilidade.
+   */
+  utilizationPercent: number | null;
 };
 
 /** Resumo enxuto para futura integração com o dashboard principal (TAREFA 12). */

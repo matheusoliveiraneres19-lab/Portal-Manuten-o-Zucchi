@@ -544,7 +544,7 @@ export const OUT_OF_LOAD_BUCKETS: ReadonlySet<PcFactoryAvailabilityBucket> = new
   "NAO_APONTADO"
 ]);
 
-/** Decomposição oficial da disponibilidade, em horas. */
+/** Decomposição das horas do recorte (base do Tempo Operacional), em horas. */
 export type PcFactoryAvailabilityBreakdown = {
   /** Soma de TODAS as horas do recorte, antes de qualquer exclusão. */
   totalHours: number;
@@ -558,21 +558,34 @@ export type PcFactoryAvailabilityBreakdown = {
   /** Tempo Operacional = Carga − Paradas Planejadas. Denominador da disponibilidade. */
   operationalHours: number;
   unplannedStopHours: number;
-  /** Tempo Trabalhado = Operacional − Paradas Não Planejadas. Numerador. */
+  /** Tempo Trabalhado = Operacional − Paradas Não Planejadas. */
   workedHours: number;
-  /** Trabalhado / Operacional × 100, ou null quando não há Tempo Operacional. */
-  availabilityPercent: number | null;
+  /**
+   * Trabalhado / Operacional × 100 — esta é a **UTILIZAÇÃO**, NÃO a Disponibilidade.
+   *
+   * O PC-Factory expõe as duas métricas separadamente (G0007, aba Indicadores). A
+   * Disponibilidade oficial do portal segue a planilha G0134 e desconta apenas as horas
+   * de MANUTENÇÃO sobre o Tempo Operacional — ver `calculateG0134BusinessAvailability`.
+   * Mantido para leitura/auditoria: NÃO alimenta nenhum card, tabela ou gráfico rotulado
+   * como "Disponibilidade".
+   */
+  utilizationPercent: number | null;
 };
 
 /**
- * Fórmula oficial de disponibilidade do PC-Factory (TAREFA 9), a partir das horas
- * já somadas por bucket. Fonte ÚNICA da verdade — não duplicar esta conta.
+ * Decompõe as horas do recorte por bucket até o Tempo Operacional — que é o
+ * equivalente, derivado do histórico de status, da coluna `G0134.LOADTIME` da planilha
+ * oficial. Fonte ÚNICA dessa decomposição; não duplicar esta conta.
  *
  * Este CSV histórico não traz a coluna G0134.LOADTIME, então o Tempo de Carga é
  * derivado dos próprios registros de status.
  *
+ * NÃO calcula a Disponibilidade: quem faz isso é
+ * `calculateG0134BusinessAvailability`, que consome o `operationalHours` daqui. O
+ * `utilizationPercent` devolvido é a métrica de Utilização (ver o tipo acima).
+ *
  * Nunca devolve NaN, Infinity ou -Infinity: sem Tempo Operacional (≤ 0) o retorno é
- * `availabilityPercent = null`, e a UI mostra "—".
+ * `utilizationPercent = null`, e a UI mostra "—".
  */
 export function calculateOfficialPcFactoryAvailability(hoursByBucket: {
   production: number;
@@ -596,7 +609,7 @@ export function calculateOfficialPcFactoryAvailability(hoursByBucket: {
   const operationalHours = loadHours - plannedStopHours;
   const workedHours = operationalHours - unplannedStopHours;
 
-  const availabilityPercent =
+  const utilizationPercent =
     operationalHours > 0 ? Math.round(Math.max(0, Math.min(100, (workedHours / operationalHours) * 100)) * 100) / 100 : null;
 
   return {
@@ -609,8 +622,52 @@ export function calculateOfficialPcFactoryAvailability(hoursByBucket: {
     operationalHours: round(operationalHours),
     unplannedStopHours: round(unplannedStopHours),
     workedHours: round(workedHours),
-    availabilityPercent
+    utilizationPercent
   };
+}
+
+/**
+ * DISPONIBILIDADE OFICIAL DO PORTAL — regra da planilha do negócio
+ * `disponibilidade mensal exportado.xlsx` (aba `ag-grid`), que replica o relatório nativo
+ * **G0134 — Indicadores de Manutenção OEE** do PC-Factory.
+ *
+ * Fórmulas das próprias células da planilha (linha 2):
+ *
+ *     L = D + E              → Tempo de Manutenção + Tempo Ag. Manutenção
+ *     M = L / C              → ÷ G0134.LOADTIME
+ *     N = M * 100
+ *     O = 100 - N            → Disponibilidade
+ *
+ * Equivalente a:
+ *
+ *     Disponibilidade = (LOADTIME − (Manutenção + Ag. Manutenção)) / LOADTIME × 100
+ *
+ * No portal, lendo o histórico de status:
+ *   `operationalHours`  = Tempo de Carga − Paradas Planejadas  (= G0134.LOADTIME)
+ *   `maintenanceHours`  = horas de manutenção DENTRO do Tempo Operacional (Mecânica +
+ *                         Elétrica + Automação + Terceiros + Aguardando Manutenção)
+ *
+ * NÃO confundir com duas métricas parecidas:
+ *  - **Utilização** (Trabalhado ÷ Operacional): desconta TODAS as paradas não planejadas,
+ *    não só manutenção. É o `utilizationPercent` acima.
+ *  - **DTM [%]** nativo do G0134: desconta só Tempo de Manutenção, SEM o Aguardando
+ *    Manutenção. Na planilha a linha 1 mostra DTM 96,44% contra Disponibilidade 94,83%.
+ *
+ * Nunca devolve NaN/Infinity: sem Tempo Operacional (≤ 0) devolve null e a UI mostra "—".
+ * O resultado é limitado a [0, 100].
+ */
+export function calculateG0134BusinessAvailability(params: {
+  operationalHours: number;
+  maintenanceHours: number;
+}): number | null {
+  const safeNumber = (value: number) => (Number.isFinite(value) && value > 0 ? value : 0);
+  const operational = safeNumber(params.operationalHours);
+  const maintenance = safeNumber(params.maintenanceHours);
+
+  if (operational <= 0) return null;
+
+  const availability = ((operational - maintenance) / operational) * 100;
+  return Math.round(Math.max(0, Math.min(100, availability)) * 100) / 100;
 }
 
 /** Rótulos dos grupos gerenciais (idênticos à tela do PC-Factory). */

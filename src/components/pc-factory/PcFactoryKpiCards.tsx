@@ -21,7 +21,15 @@ const toneClass: Record<Tone, string> = {
 export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
   const top = kpis.topMaintenanceResource;
 
-  const cards: Array<{ title: string; value: string; description: string; icon: LucideIcon; tone: Tone }> = [
+  const cards: Array<{
+    title: string;
+    value: string;
+    description: string;
+    /** Explicação completa da regra, exibida como tooltip nativo (title) no card. */
+    hint?: string;
+    icon: LucideIcon;
+    tone: Tone;
+  }> = [
     {
       title: "Tempo planejado",
       value: hours(kpis.plannedHours),
@@ -48,9 +56,11 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
     // kpis.mtbf, kpis.mtta, kpis.maintenancePercentOfPlanned) para uso futuro em
     // relatórios técnicos — só não são renderizados aqui.
     {
-      title: "Disponibilidade estimada",
+      title: "Disponibilidade",
       value: percent(kpis.availabilityPercent),
-      description: "(Planejado − paradas) / planejado.",
+      description: "Base G0134: (Tempo Operacional − Manutenção) / Tempo Operacional.",
+      hint:
+        "A disponibilidade segue a planilha oficial G0134: desconta Tempo de Manutenção + Tempo Aguardando Manutenção sobre o G0134.LOADTIME (Tempo Operacional = Tempo de Carga − Paradas Planejadas).",
       icon: CircleGauge,
       tone: "green"
     },
@@ -102,6 +112,7 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: index * 0.04, ease: "easeOut" }}
             className="panel flex min-h-[112px] items-center gap-4 rounded-lg p-4 transition hover:-translate-y-0.5 hover:shadow-premium"
+            title={card.hint}
           >
             <div className={`grid h-14 w-14 shrink-0 place-items-center rounded-full shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] ${toneClass[card.tone]}`}>
               <Icon className="h-7 w-7" strokeWidth={1.8} />
@@ -111,7 +122,7 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
               <div className="mt-0.5 truncate text-2xl font-light tracking-normal text-zinc-950" title={card.value}>
                 {card.value}
               </div>
-              <p className="mt-0.5 truncate text-[11px] text-zinc-500" title={card.description}>
+              <p className="mt-0.5 truncate text-[11px] text-zinc-500" title={card.hint ?? card.description}>
                 {card.description}
               </p>
             </div>

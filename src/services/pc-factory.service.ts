@@ -11,6 +11,7 @@ import {
   OUT_OF_LOAD_BUCKETS,
   classifyAvailabilityBucket,
   classifyManagementGroup,
+  calculateG0134BusinessAvailability,
   calculateOfficialPcFactoryAvailability,
   maintenanceKind,
   normalizePcFactoryStatusKey,
@@ -206,6 +207,13 @@ type HoursAggregate = {
   stoppedHours: number;
   /** Horas por bucket oficial de disponibilidade (TAREFAS 8 e 9). */
   bucketHours: Record<PcFactoryAvailabilityBucket, number>;
+  /**
+   * Horas de manutenção que caem DENTRO do Tempo Operacional — numerador da
+   * Disponibilidade G0134. Difere de `maintenanceHours` por excluir "Manutenção
+   * Planejada" (0207), que está no bucket PARADA_PLANEJADA e portanto JÁ foi retirada do
+   * denominador: contá-la de novo aqui subtrairia o mesmo tempo duas vezes.
+   */
+  maintenanceHoursInOperational: number;
   maintenanceEvents: number;
   mechanicalEvents: number;
   electricalEvents: number;
@@ -238,6 +246,7 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
   let planejadaEvents = 0;
   let terceirosEvents = 0;
   let waitingEvents = 0;
+  let maintenanceHoursInOperational = 0;
   const bucketHours: Record<PcFactoryAvailabilityBucket, number> = {
     PRODUCAO: 0,
     PARADA_PLANEJADA: 0,
@@ -250,9 +259,10 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
   for (const record of records) {
     const hours = metricHours(record); // Tempo Decorrido (durationHours) — base oficial da Management View
     const cat = record.statusCategory;
+    const bucket = resolveBucket(record);
     totalHours += hours;
     byCategory.set(cat, (byCategory.get(cat) ?? 0) + hours);
-    bucketHours[resolveBucket(record)] += hours;
+    bucketHours[bucket] += hours;
 
     if (cat === PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO) {
       excludedHours += hours;
@@ -264,6 +274,12 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
     switch (cat) {
       case PcFactoryStatusCategory.MANUTENCAO: {
         maintenanceHours += hours;
+        // Só a manutenção que está DENTRO do Tempo Operacional entra no numerador da
+        // Disponibilidade G0134. "Manutenção Planejada" (0207) é PARADA_PLANEJADA e já saiu
+        // do denominador — somá-la aqui subtrairia o mesmo tempo duas vezes.
+        if (bucket !== "PARADA_PLANEJADA" && !OUT_OF_LOAD_BUCKETS.has(bucket)) {
+          maintenanceHoursInOperational += hours;
+        }
         maintenanceEvents += 1;
         const kind = maintenanceKind(record.statusRaw);
         if (kind === "MECANICA") {
@@ -333,6 +349,7 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
       RECURSO_NAO_PROGRAMADO: round(bucketHours.RECURSO_NAO_PROGRAMADO),
       NAO_APONTADO: round(bucketHours.NAO_APONTADO)
     },
+    maintenanceHoursInOperational: round(maintenanceHoursInOperational),
     maintenanceEvents,
     mechanicalEvents,
     electricalEvents,
@@ -344,13 +361,14 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
 }
 
 /**
- * Decomposição oficial da disponibilidade do recorte (TAREFA 9). Delegada a
- * `calculateOfficialPcFactoryAvailability` — fonte ÚNICA da fórmula:
+ * Decomposição das horas do recorte até o Tempo Operacional — o equivalente do
+ * `G0134.LOADTIME` derivado do histórico de status:
  *
  *   Carga        = total − Fora de Turno − Recurso Não Programado − Não Apontado
- *   Operacional  = Carga − Paradas Planejadas
- *   Trabalhado   = Operacional − Paradas Não Planejadas
- *   Disponib.    = Trabalhado / Operacional × 100   (null se Operacional ≤ 0)
+ *   Operacional  = Carga − Paradas Planejadas          (= G0134.LOADTIME)
+ *
+ * O `utilizationPercent` que vem daqui é a métrica de UTILIZAÇÃO (Trabalhado ÷
+ * Operacional) e NÃO é a Disponibilidade exibida no portal — ver `availability()`.
  */
 function availabilityBreakdown(agg: HoursAggregate) {
   return calculateOfficialPcFactoryAvailability({
@@ -363,9 +381,27 @@ function availabilityBreakdown(agg: HoursAggregate) {
   });
 }
 
-/** Disponibilidade oficial (%) do recorte, ou null quando não há Tempo Operacional. */
+/**
+ * DISPONIBILIDADE OFICIAL (%) do recorte — fonte ÚNICA usada por todos os cards,
+ * tabelas e gráficos do módulo. Segue a planilha do negócio
+ * `disponibilidade mensal exportado.xlsx` (relatório G0134 do PC-Factory):
+ *
+ *   Disponibilidade = (Tempo Operacional − Manutenção) / Tempo Operacional × 100
+ *
+ * Substituiu a fórmula anterior (Trabalhado ÷ Operacional), que na verdade calcula
+ * UTILIZAÇÃO — o PC-Factory expõe as duas separadamente no G0007.
+ *
+ * Agregação: como recebe o `agg` do recorte inteiro (horas já SOMADAS), o resultado é
+ * naturalmente PONDERADO pelos totais. Nunca é média simples das máquinas — é isso que
+ * mantém a evolução mensal coerente com a planilha.
+ *
+ * Retorna null (nunca NaN/Infinity) quando não há Tempo Operacional.
+ */
 function availability(agg: HoursAggregate): number | null {
-  return availabilityBreakdown(agg).availabilityPercent;
+  return calculateG0134BusinessAvailability({
+    operationalHours: availabilityBreakdown(agg).operationalHours,
+    maintenanceHours: agg.maintenanceHoursInOperational
+  });
 }
 
 function mttr(maintenanceHours: number, maintenanceEvents: number): number | null {
@@ -469,16 +505,16 @@ function topByMaintenance(rows: PcFactoryResourceRow[]): PcFactoryTopResource {
  *                             (Fora de Turno, Recurso Não Programado e Não Apontado) —
  *                             mesma regra dos cards principais, sem regra paralela.
  *
- * ATENÇÃO: a "Disponibilidade" desta tabela é SÓ-MANUTENÇÃO por decisão de negócio
- * (ver 28a44f4) e por isso difere da Disponibilidade oficial dos cards, que também
- * desconta paradas planejadas e não planejadas não-manutenção. São métricas distintas
- * de propósito; a base de tempo (Tempo de Carga) é a mesma.
+ * A "Disponibilidade" desta tabela usa EXATAMENTE a mesma fórmula do card principal
+ * (regra da planilha G0134 — ver `availability()`), só calculada por máquina em vez de
+ * agregada: mesmo denominador (Tempo Operacional = Carga − Paradas Planejadas) e mesmo
+ * numerador (paradas de manutenção). Não há regra paralela.
  *
  * Fórmulas:
  *  - MTBF = (plannedHours − paradas) / quebras
  *  - MTTR = repairHours / quebras                 (só tempo de reparo)
  *  - MTTA = waitingHours / quebras
- *  - Disponibilidade = (plannedHours − paradas de manutenção) / plannedHours × 100
+ *  - Disponibilidade = (Tempo Operacional − paradas de manutenção) / Tempo Operacional × 100
  *
  * Toda divisão é protegida → null quando não aplicável (UI mostra "—", nunca 0/NaN/Infinity).
  */
@@ -493,6 +529,7 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
   const rows: PcFactoryReliabilityRow[] = [];
   for (const [machineName, list] of Array.from(groups.entries())) {
     let plannedHours = 0;
+    let plannedStopHours = 0;
     let repairHours = 0;
     let waitingHours = 0;
     let repairEvents = 0;
@@ -504,8 +541,11 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
       // usa o bucket oficial (mesma regra central da Disponibilidade), não a categoria:
       // o tempo NÃO APONTADO ("Aguardando lançamento" / "Parada não Identificada")
       // inflaria plannedHours e, com isso, o MTBF.
-      if (OUT_OF_LOAD_BUCKETS.has(resolveBucket(record))) continue;
+      const bucket = resolveBucket(record);
+      if (OUT_OF_LOAD_BUCKETS.has(bucket)) continue;
       plannedHours += hours;
+      // Paradas planejadas saem do Tempo Operacional (mesmo denominador do card principal).
+      if (bucket === "PARADA_PLANEJADA") plannedStopHours += hours;
 
       const kind = maintenanceKind(record.statusRaw);
       if (kind === "MECANICA" || kind === "ELETRICA" || kind === "AUTOMACAO" || kind === "TERCEIROS") {
@@ -522,10 +562,14 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
     if (failureEvents <= 0) continue; // sem quebras → fora do dashboard de confiabilidade
 
     plannedHours = round(plannedHours);
+    plannedStopHours = round(plannedStopHours);
     repairHours = round(repairHours);
     waitingHours = round(waitingHours);
     const maintenanceDowntimeHours = round(repairHours + waitingHours);
     const operatingHours = round(Math.max(0, plannedHours - maintenanceDowntimeHours));
+    // Tempo Operacional oficial da máquina (= G0134.LOADTIME): Carga − Paradas Planejadas.
+    // É o denominador da Disponibilidade, o mesmo do card principal.
+    const officialOperationalHours = round(Math.max(0, plannedHours - plannedStopHours));
 
     const hasPlanned = plannedHours > 0;
     const sample = list.find((item) => item.resourceCode) ?? list[0];
@@ -545,7 +589,11 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
       mttr: repairHours > 0 ? safeRound(repairHours / failureEvents) : null,
       mtta: waitingHours > 0 ? safeRound(waitingHours / failureEvents) : null,
       downtimeHours: maintenanceDowntimeHours,
-      availability: hasPlanned ? clampPercent(((plannedHours - maintenanceDowntimeHours) / plannedHours) * 100) : null,
+      // Mesma fórmula do card principal (planilha G0134), por máquina — sem regra paralela.
+      availability: calculateG0134BusinessAvailability({
+        operationalHours: officialOperationalHours,
+        maintenanceHours: maintenanceDowntimeHours
+      }),
       dataQualityIssue: !hasPlanned
         ? "Sem tempo planejado no período — MTBF/disponibilidade não calculáveis."
         : maintenanceDowntimeHours > plannedHours
@@ -778,29 +826,27 @@ export type PcFactoryMachinesBelowAverageResult = {
  * "Máquinas Críticas" da aba Início: máquinas com disponibilidade ABAIXO da média
  * geral do PC-Factory no período.
  *
- * DISPONIBILIDADE POR MANUTENÇÃO (mesma visão de disponibilidade da aba PC-Factory):
- *   disponibilidade = ((tempo planejado − horas de manutenção) / tempo planejado) × 100
- * Base: durationHours; tempo planejado já EXCLUI "Fora de Turno"/"Recurso Não
- * Programado" (via getPcFactoryResourceRanking/aggregateHours). Paradas operacionais
- * e setup NÃO entram como indisponibilidade aqui — só a manutenção — para bater com o
- * indicador de disponibilidade exibido na aba (≈90%), e não com o de perdas totais.
+ * Usa a DISPONIBILIDADE OFICIAL já calculada por `buildResourceRanking` →
+ * `availability(agg)` (regra da planilha G0134: (Tempo Operacional − Manutenção) ÷
+ * Tempo Operacional). Antes esta função tinha uma fórmula PRÓPRIA
+ * (`(plannedHours − maintenanceHours) / plannedHours`) que usava o Tempo de Carga como
+ * denominador em vez do Tempo Operacional e por isso divergia do card e da tabela de
+ * confiabilidade. Não recriar regra local aqui.
  *
- * A média é a média simples da disponibilidade de TODAS as máquinas com tempo
- * planejado > 0 (inclui as saudáveis, sem manutenção). Blindado contra NaN/Infinity.
+ * A média é a média simples da disponibilidade oficial de TODAS as máquinas com
+ * disponibilidade calculável (inclui as saudáveis, sem manutenção) — é uma média ENTRE
+ * MÁQUINAS de propósito, porque o objetivo é achar quem está abaixo das pares, não o
+ * indicador global (esse é ponderado, ver `availability()`). Blindado contra NaN/Infinity.
  */
 export async function getPcFactoryMachinesBelowAverage(
   params: PcFactoryQueryParams = {}
 ): Promise<PcFactoryMachinesBelowAverageResult> {
   const rows = await getPcFactoryResourceRanking(params);
   const round1 = (value: number) => Number(value.toFixed(1));
-  const clampPct = (value: number) => Math.min(100, Math.max(0, value));
 
   const valid = rows
-    .filter((row) => row.plannedHours > 0)
-    .map((row) => ({
-      row,
-      availability: clampPct(((row.plannedHours - row.maintenanceHours) / row.plannedHours) * 100)
-    }))
+    .filter((row) => row.availabilityPercent !== null)
+    .map((row) => ({ row, availability: row.availabilityPercent as number }))
     .filter((item) => Number.isFinite(item.availability));
 
   if (valid.length === 0) {
@@ -1275,9 +1321,10 @@ async function buildDataQuality(params: PcFactoryQueryParams): Promise<PcFactory
   ]);
 
   const resourcesDistinct = await prisma.pcFactoryRecord.findMany({ where, select: { resourceName: true }, distinct: ["resourceName"] });
-  // Horas fora do Tempo de Carga por falta de apontamento — reaproveita os registros já
-  // carregados no render (loadRecords é memoizado por params), sem query extra.
-  const notReported = aggregateHours(await loadRecords(params)).bucketHours.NAO_APONTADO;
+  // Reaproveita os registros já carregados no render (loadRecords é memoizado por params),
+  // sem query extra: horas não apontadas + auditoria da fórmula de Disponibilidade.
+  const hoursAgg = aggregateHours(await loadRecords(params));
+  const breakdown = availabilityBreakdown(hoursAgg);
 
   return {
     totalRecords,
@@ -1288,7 +1335,15 @@ async function buildDataQuality(params: PcFactoryQueryParams): Promise<PcFactory
     statusDetected: statuses.map((s) => s.statusRaw).filter((v): v is string => Boolean(v && v.trim())),
     recordsWithIssue,
     recordsWithoutEndDate,
-    notReportedHours: notReported
+    notReportedHours: breakdown.notReportedHours,
+    availabilityAudit: {
+      operationalHours: breakdown.operationalHours,
+      maintenanceHours: hoursAgg.maintenanceHoursInOperational,
+      waitingMaintenanceHours: hoursAgg.waitingHours,
+      availabilityPercent: availability(hoursAgg),
+      formula: "(operationalHours - maintenanceHours) / operationalHours * 100",
+      utilizationPercent: breakdown.utilizationPercent
+    }
   };
 }
 
@@ -1392,7 +1447,15 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
       statusDetected: [],
       recordsWithIssue: 0,
       recordsWithoutEndDate: 0,
-      notReportedHours: 0
+      notReportedHours: 0,
+      availabilityAudit: {
+        operationalHours: 0,
+        maintenanceHours: 0,
+        waitingMaintenanceHours: 0,
+        availabilityPercent: null,
+        formula: "(operationalHours - maintenanceHours) / operationalHours * 100",
+        utilizationPercent: null
+      }
     },
     source: "empty"
   };

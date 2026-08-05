@@ -61,6 +61,47 @@ export function PcFactoryQualityPanel({ quality }: PcFactoryQualityPanelProps) {
         </div>
       ) : null}
 
+      {quality.availabilityAudit.operationalHours > 0 ? (
+        <details className="mt-3 rounded-lg border border-gold/15 bg-black/25 p-3">
+          <summary className="cursor-pointer text-[11px] font-bold uppercase tracking-wide text-gold">
+            Como a Disponibilidade é calculada (base G0134)
+          </summary>
+          <div className="mt-2 space-y-1 text-[11px] text-zinc-300">
+            <p className="font-mono text-[10px] text-zinc-400">{quality.availabilityAudit.formula}</p>
+            <AuditLine
+              label="Tempo Operacional (= G0134.LOADTIME)"
+              value={`${fmt(quality.availabilityAudit.operationalHours)} h`}
+            />
+            <AuditLine
+              label="− Manutenção (inclui Aguardando Manutenção)"
+              value={`${fmt(quality.availabilityAudit.maintenanceHours)} h`}
+            />
+            <AuditLine
+              label="dos quais Aguardando Manutenção"
+              value={`${fmt(quality.availabilityAudit.waitingMaintenanceHours)} h`}
+              muted
+            />
+            <AuditLine
+              label="= Disponibilidade"
+              value={
+                quality.availabilityAudit.availabilityPercent === null
+                  ? "—"
+                  : `${quality.availabilityAudit.availabilityPercent.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`
+              }
+              strong
+            />
+            <p className="pt-1 text-[10px] leading-snug text-zinc-500">
+              Para comparação, a <strong className="text-zinc-400">Utilização</strong> (Tempo Trabalhado ÷ Tempo Operacional,
+              que desconta todas as paradas, não só manutenção) seria{" "}
+              {quality.availabilityAudit.utilizationPercent === null
+                ? "—"
+                : `${quality.availabilityAudit.utilizationPercent.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`}
+              . Não é a Disponibilidade.
+            </p>
+          </div>
+        </details>
+      ) : null}
+
       {quality.groupsDetected.length > 0 ? (
         <p className="mt-3 text-[11px] text-zinc-400">
           <span className="font-semibold text-gold">Grupos:</span> {quality.groupsDetected.join(" · ")}
@@ -72,6 +113,30 @@ export function PcFactoryQualityPanel({ quality }: PcFactoryQualityPanelProps) {
         </p>
       ) : null}
     </section>
+  );
+}
+
+function fmt(value: number): string {
+  return value.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+}
+
+/** Linha da decomposição da fórmula de Disponibilidade. */
+function AuditLine({
+  label,
+  value,
+  strong = false,
+  muted = false
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <div className={`flex items-baseline justify-between gap-3 ${muted ? "text-zinc-500" : ""}`}>
+      <span className={strong ? "font-semibold text-champagne" : ""}>{label}</span>
+      <span className={`shrink-0 font-mono ${strong ? "font-semibold text-gold" : ""}`}>{value}</span>
+    </div>
   );
 }
 
