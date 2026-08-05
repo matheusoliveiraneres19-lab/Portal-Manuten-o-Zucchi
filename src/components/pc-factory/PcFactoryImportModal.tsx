@@ -191,8 +191,9 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
             {result.notReportedHours > 0 ? (
               <p className="mt-2 text-[11px] leading-snug text-amber-200/90">
                 <strong className="font-semibold">Atenção:</strong>{" "}
-                {result.notReportedHours.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} h em
-                &quot;Aguardando lançamento&quot; — apontamentos abertos. Ficam FORA do Tempo de Carga e não contam como parada.
+                {result.notReportedHours.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} h sem apontamento
+                (&quot;Aguardando lançamento&quot; e &quot;Parada não Identificada&quot;). Ficam FORA do Tempo de Carga e não
+                contam como parada.
               </p>
             ) : null}
           </div>

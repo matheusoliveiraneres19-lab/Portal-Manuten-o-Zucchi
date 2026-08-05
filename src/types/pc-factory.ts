@@ -371,10 +371,10 @@ export type PcFactoryDataQuality = {
   statusDetected: string[];
   recordsWithIssue: number;
   /**
-   * Horas em "Aguardando lançamento" (bucket NAO_APONTADO) no recorte atual — tempo sem
-   * apontamento, que fica FORA do Tempo de Carga e não é contado como parada.
-   * Precisa ficar visível: quando é alto, a Disponibilidade cobre uma fatia menor do
-   * calendário do que parece.
+   * Horas no bucket NAO_APONTADO ("Aguardando lançamento" + "Parada não Identificada")
+   * no recorte atual — tempo sem apontamento, que fica FORA do Tempo de Carga e não é
+   * contado como parada. Precisa ficar visível: quando é alto, a Disponibilidade cobre
+   * uma fatia menor do calendário do que parece.
    */
   notReportedHours: number;
   /** Registros com endDateTime nulo (status abertos / sentinela 01/01/0001 na origem). */
@@ -508,7 +508,8 @@ export type PcFactoryImportResult = {
   invalidDurationCount: number;
   /**
    * Horas em buckets FORA do Tempo de Carga — tempo que não é medido como parada:
-   * "Aguardando lançamento" (apontamento aberto). Alerta de qualidade.
+   * "Aguardando lançamento" (apontamento aberto) e "Parada não Identificada" (sem causa
+   * apontada). Alerta de qualidade.
    */
   notReportedHours: number;
   /** Valores distintos de classificationPcFactoryRef vistos no arquivo. */

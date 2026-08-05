@@ -141,23 +141,24 @@ const MAINTENANCE_KEYS = new Set<string>([
 ]);
 
 /**
- * Status que saem do Tempo Planejado / Tempo de Carga. "Aguardando lançamento" entra
- * aqui por ser apontamento ABERTO (tempo não medido) — mantém `excludePlannedTime`
- * coerente com CATEGORY_BY_KEY e com o bucket NAO_APONTADO.
+ * Status que saem do Tempo Planejado / Tempo de Carga. "Aguardando lançamento" e
+ * "Parada não Identificada" entram aqui por serem tempo NÃO APONTADO (apontamento
+ * aberto e parada sem causa) — mantém `excludePlannedTime` coerente com
+ * CATEGORY_BY_KEY e com o bucket NAO_APONTADO.
  */
 const EXCLUDED_PLANNED_KEYS = new Set<string>([
   KEY.FORA_DE_TURNO,
   KEY.RECURSO_NAO_PROGRAMADO,
-  KEY.AGUARDANDO_LANCAMENTO
+  KEY.AGUARDANDO_LANCAMENTO,
+  KEY.PARADA_NAO_IDENTIFICADA
 ]);
 
-/** Status de parada/perda operacional (não-manutenção) para o cálculo. */
-const OPERATIONAL_LOSS_KEYS = new Set<string>([
-  KEY.SETUP,
-  KEY.FALTA_DE_MATERIAL,
-  KEY.PARADA_NAO_IDENTIFICADA,
-  KEY.FALTA_DE_UTILIDADES
-]);
+/**
+ * Status de parada/perda operacional (não-manutenção) para o cálculo.
+ * "Parada não Identificada" saiu daqui em 2026-08-05: sem causa apontada, é tempo
+ * NÃO MEDIDO (bucket NAO_APONTADO), não perda operacional atribuível.
+ */
+const OPERATIONAL_LOSS_KEYS = new Set<string>([KEY.SETUP, KEY.FALTA_DE_MATERIAL, KEY.FALTA_DE_UTILIDADES]);
 
 /* ------------------------------------------------------------------ */
 /* Classificação gerencial                                            */
@@ -172,12 +173,15 @@ const CATEGORY_BY_KEY: Record<string, PcFactoryStatusCategory> = {
   [KEY.PRODUCAO]: PcFactoryStatusCategory.PRODUCAO,
   [KEY.SETUP]: PcFactoryStatusCategory.SETUP,
   [KEY.FALTA_DE_MATERIAL]: PcFactoryStatusCategory.PARADA_PERDA,
-  [KEY.PARADA_NAO_IDENTIFICADA]: PcFactoryStatusCategory.PARADA_PERDA,
+  // Sem causa apontada → fora do Tempo Planejado, igual a Aguardando lançamento
+  // (decisão de 2026-08-05). Mantém o card "Tempo planejado" igual ao Tempo de Carga.
+  [KEY.PARADA_NAO_IDENTIFICADA]: PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO,
   [KEY.REFEICAO]: PcFactoryStatusCategory.OPERACIONAL,
   // "Aguardando lançamento" é apontamento ABERTO, não tempo medido: sai do Tempo
   // Planejado igual a Fora de Turno / Recurso Não Programado. Sem isso o card
   // "Tempo planejado" somaria as 90.688 h não apontadas de jan/2026 e divergiria do
   // Tempo de Carga oficial. Alinhado ao bucket NAO_APONTADO (decisão de 2026-08-05).
+  // Ver também PARADA_NAO_IDENTIFICADA logo abaixo, pela mesma razão.
   [KEY.AGUARDANDO_LANCAMENTO]: PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO,
   [KEY.MANUTENCAO_AUTOMACAO]: PcFactoryStatusCategory.MANUTENCAO,
   [KEY.MANUTENCAO_PLANEJADA]: PcFactoryStatusCategory.MANUTENCAO,
@@ -416,14 +420,18 @@ export type PcFactoryAvailabilityBucket =
  * Bucket por CÓDIGO do status (fonte primária — o código é estável, o nome varia
  * com acentuação e abreviação no export).
  *
- * Decisões de negócio embutidas aqui:
+ * Decisões de negócio embutidas aqui (gestor, 2026-08-05):
  *  - 0008 "Aguardando lançamento" → NAO_APONTADO, FORA do Tempo de Carga. São
  *    apontamentos abertos/não fechados, não parada medida: no CSV de jan–jul/2026 são
  *    145 linhas somando 90.688 h (≈625 h por linha). Tratá-las como parada não
  *    planejada derruba a disponibilidade para 28% e mede ausência de apontamento, não
- *    a máquina. Decisão do gestor em 2026-08-05.
- *  - 0002 "Parada não Identificada" → PARADA_NAO_PLANEJADA. É parada real, ainda que
- *    sem causa atribuída. Decisão do gestor em 2026-08-05 (mesma conversa).
+ *    a máquina.
+ *  - 0002 "Parada não Identificada" → NAO_APONTADO, também FORA do Tempo de Carga.
+ *    São 21.129 h sem causa apontada (167 linhas só em janeiro, uma delas de 4.986 h).
+ *    Descontá-las como parada não planejada media a falha de apontamento, não a
+ *    máquina. Com as duas fora da carga a disponibilidade vai de 54,73% para ~70%,
+ *    na direção dos ~85–91% que o commit 28a44f4 registra como aderentes ao
+ *    PC-Factory real. O volume continua visível no painel de qualidade.
  *  - Grupo Setup (061xx) e 0603 → PARADA_PLANEJADA, confirmado ao vivo no Mapa/Andon
  *    do PC-Factory em 2026-08-04 (ver commit 84c32fc): "06120-Setup - Serrad" aparece
  *    com o mesmo painel laranja de "0320-Refeição", não com o vermelho de manutenção.
@@ -431,7 +439,7 @@ export type PcFactoryAvailabilityBucket =
 const AVAILABILITY_BUCKET_BY_CODE: Record<string, PcFactoryAvailabilityBucket> = {
   // Padrão do sistema
   "0001": "PRODUCAO",
-  "0002": "PARADA_NAO_PLANEJADA", // Parada não Identificada — parada real, sem causa
+  "0002": "NAO_APONTADO", // Parada não Identificada — tempo sem causa apontada
   "0004": "FORA_DE_TURNO",
   "0008": "NAO_APONTADO", // Aguardando lançamento — apontamento aberto
   "0009": "RECURSO_NAO_PROGRAMADO",
@@ -476,7 +484,7 @@ const AVAILABILITY_BUCKET_BY_NAME: Record<string, PcFactoryAvailabilityBucket> =
   [KEY.MANUTENCAO_PLANEJADA]: "PARADA_PLANEJADA",
   [KEY.FALTA_DE_MATERIAL]: "PARADA_NAO_PLANEJADA",
   [KEY.FALTA_DE_UTILIDADES]: "PARADA_NAO_PLANEJADA",
-  [KEY.PARADA_NAO_IDENTIFICADA]: "PARADA_NAO_PLANEJADA",
+  [KEY.PARADA_NAO_IDENTIFICADA]: "NAO_APONTADO",
   "quebra de ferramenta": "PARADA_NAO_PLANEJADA",
   "quebra de chapa": "PARADA_NAO_PLANEJADA"
 };

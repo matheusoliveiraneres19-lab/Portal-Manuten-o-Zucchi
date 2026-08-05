@@ -502,7 +502,8 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
       const hours = metricHours(record); // Tempo Decorrido (durationHours) — base oficial
       // Fora de Turno / Recurso Não Programado / Não Apontado saem do tempo planejado —
       // usa o bucket oficial (mesma regra central da Disponibilidade), não a categoria:
-      // "Aguardando lançamento" é apontamento aberto e inflaria plannedHours e o MTBF.
+      // o tempo NÃO APONTADO ("Aguardando lançamento" / "Parada não Identificada")
+      // inflaria plannedHours e, com isso, o MTBF.
       if (OUT_OF_LOAD_BUCKETS.has(resolveBucket(record))) continue;
       plannedHours += hours;
 
