@@ -52,11 +52,14 @@ export function PcFactoryQualityPanel({ quality }: PcFactoryQualityPanelProps) {
             </div>
           ) : null}
           {quality.recordsWithoutEndDate > 0 ? (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] leading-snug text-amber-200/90">
+            <div className="rounded-lg border border-danger/40 bg-danger/10 p-2.5 text-[11px] leading-snug text-rose-200">
               <strong className="font-semibold">
-                {quality.recordsWithoutEndDate.toLocaleString("pt-BR")} registros sem data de fim
+                {quality.recordsWithoutEndDate.toLocaleString("pt-BR")} status abertos, com{" "}
+                {quality.excludedOpenEndedHours.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} h EXCLUÍDAS dos
+                indicadores
               </strong>
-              . Status ainda abertos na origem — a duração vem da coluna &quot;durationHours&quot; da planilha.
+              . O PC-Factory nunca registrou a mudança seguinte, então essa &quot;duração&quot; é só a distância até o momento
+              do export — não é medição. Os registros seguem visíveis na tabela. Correção: fechar esses status na origem.
             </div>
           ) : null}
         </div>

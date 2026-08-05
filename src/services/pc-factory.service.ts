@@ -104,6 +104,26 @@ function buildWhere(params: PcFactoryQueryParams): Prisma.PcFactoryRecordWhereIn
   return and.length ? { AND: and } : {};
 }
 
+/**
+ * REGISTROS COM DURAÇÃO MENSURÁVEL — filtro aplicado a TODA agregação por horas.
+ *
+ * Um registro sem `endDateTime` é um status ABERTO: o PC-Factory nunca registrou a
+ * mudança seguinte. A "duração" dele não é uma medição, é a distância entre o início e o
+ * momento em que a planilha foi exportada — reexportar amanhã aumenta o número em 24 h.
+ *
+ * No export de jan–jul/2026 são 42 registros (de 60.921) que respondiam por 205.680 h,
+ * quase metade da base, e dominavam os totais por status: 98,9% de "Aguardando
+ * lançamento", 94,1% de "Parada não Identificada", 34,3% de toda a Manutenção Mecânica
+ * (um único registro de 4.986 h na MULTFIO5, que por causa disso aparecia como máquina
+ * mais crítica com 0% de disponibilidade) e 9,3% da Produção.
+ *
+ * Decisão do gestor em 2026-08-05: eles saem das somas de horas. Continuam gravados,
+ * visíveis na tabela de registros e contados no painel de qualidade — o que se perde é
+ * só o peso indevido nos indicadores. A causa raiz é na origem: fechar esses status no
+ * PC-Factory.
+ */
+const MEASURABLE_DURATION: Prisma.PcFactoryRecordWhereInput = { endDateTime: { not: null } };
+
 type AnalyticsRecord = {
   resourceName: string;
   resourceCode: string | null;
@@ -141,7 +161,9 @@ function metricHours(record: { realDurationHours: number | null; durationHours: 
 // cria UM objeto `params` e o repassa a todas as sub-funções.
 const loadRecords = cache(async (params: PcFactoryQueryParams): Promise<AnalyticsRecord[]> => {
   return prisma.pcFactoryRecord.findMany({
-    where: buildWhere(params),
+    // Funil ÚNICO da agregação por horas: o filtro de duração mensurável entra aqui e
+    // vale para KPIs, tendência, confiabilidade, rankings, composição e qualidade.
+    where: { AND: [buildWhere(params), MEASURABLE_DURATION] },
     select: {
       resourceName: true,
       resourceCode: true,
@@ -1002,7 +1024,10 @@ const ROOT_CAUSE_TOP_N = 10;
 export async function getPcFactoryRootCausePareto(params: PcFactoryQueryParams): Promise<PcFactoryRootCauseSlice[]> {
   const grouped = await prisma.pcFactoryRecord.groupBy({
     by: ["rootCause"],
-    where: { AND: [buildWhere(params), { statusCategory: PcFactoryStatusCategory.MANUTENCAO }] },
+    // MEASURABLE_DURATION: soma horas, então exclui os status abertos como o resto.
+    where: {
+      AND: [buildWhere(params), { statusCategory: PcFactoryStatusCategory.MANUTENCAO }, MEASURABLE_DURATION]
+    },
     _sum: { durationHours: true },
     _count: { _all: true }
   });
@@ -1140,7 +1165,10 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
 
   const [analytics, recent, maintenance] = await Promise.all([
     prisma.pcFactoryRecord.findMany({
-      where,
+      // Soma horas → mesmo filtro de duração mensurável dos KPIs, para o drawer não
+      // divergir do card. As listas de registros abaixo NÃO filtram: o usuário precisa
+      // ver o status aberto na máquina dele.
+      where: { AND: [where, MEASURABLE_DURATION] },
       select: {
         resourceName: true,
         resourceCode: true,
@@ -1314,10 +1342,15 @@ export async function getPcFactoryPageData(params: PcFactoryQueryParams = {}): P
 /** Diagnóstico de qualidade da importação refletido nos dados filtrados (TAREFA 8). */
 async function buildDataQuality(params: PcFactoryQueryParams): Promise<PcFactoryDataQuality> {
   const where = buildWhere(params);
-  const [totalRecords, recordsWithIssue, recordsWithoutEndDate, agg, groups, statuses] = await Promise.all([
+  const [totalRecords, recordsWithIssue, openEnded, agg, groups, statuses] = await Promise.all([
     prisma.pcFactoryRecord.count({ where }),
     prisma.pcFactoryRecord.count({ where: { AND: [where, { NOT: { dataQualityIssue: null } }] } }),
-    prisma.pcFactoryRecord.count({ where: { AND: [where, { endDateTime: null }] } }),
+    // Status abertos: contagem + horas que eles declaravam e ficaram fora dos indicadores.
+    prisma.pcFactoryRecord.aggregate({
+      where: { AND: [where, { endDateTime: null }] },
+      _count: { _all: true },
+      _sum: { durationHours: true }
+    }),
     prisma.pcFactoryRecord.aggregate({ where, _min: { startDateTime: true }, _max: { startDateTime: true } }),
     prisma.pcFactoryRecord.findMany({ where, select: { groupPortal: true }, distinct: ["groupPortal"], orderBy: { groupPortal: "asc" } }),
     prisma.pcFactoryRecord.findMany({ where, select: { statusRaw: true }, distinct: ["statusRaw"], orderBy: { statusRaw: "asc" } })
@@ -1337,7 +1370,8 @@ async function buildDataQuality(params: PcFactoryQueryParams): Promise<PcFactory
     resourcesDetected: resourcesDistinct.length,
     statusDetected: statuses.map((s) => s.statusRaw).filter((v): v is string => Boolean(v && v.trim())),
     recordsWithIssue,
-    recordsWithoutEndDate,
+    recordsWithoutEndDate: openEnded._count._all,
+    excludedOpenEndedHours: round(openEnded._sum.durationHours ?? 0),
     notReportedHours: breakdown.notReportedHours,
     availabilityAudit: {
       operationalHours: breakdown.operationalHours,
@@ -1450,6 +1484,7 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
       statusDetected: [],
       recordsWithIssue: 0,
       recordsWithoutEndDate: 0,
+      excludedOpenEndedHours: 0,
       notReportedHours: 0,
       availabilityAudit: {
         operationalHours: 0,

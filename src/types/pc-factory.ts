@@ -388,8 +388,14 @@ export type PcFactoryDataQuality = {
    * apontamento.
    */
   notReportedHours: number;
-  /** Registros com endDateTime nulo (status abertos / sentinela 01/01/0001 na origem). */
+  /**
+   * Registros com endDateTime nulo — status ABERTOS na origem (o PC-Factory nunca
+   * registrou a mudança seguinte). EXCLUÍDOS de todas as somas de horas: a duração deles
+   * é a distância até o momento do export, não uma medição. Seguem visíveis na tabela.
+   */
   recordsWithoutEndDate: number;
+  /** Horas que esses status abertos declaravam e que ficaram FORA dos indicadores. */
+  excludedOpenEndedHours: number;
   /** Auditoria da fórmula de Disponibilidade — para conferir contra a planilha G0134. */
   availabilityAudit: PcFactoryAvailabilityAudit;
 };

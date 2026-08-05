@@ -51,8 +51,14 @@ para cima.
 
 | Tempo não apontado | Disponibilidade (jan–jul/2026) |
 |---|---|
-| Dentro da Carga (regra atual) | **89,60 %** |
-| Fora da Carga | 74,25 % |
+| Dentro da Carga (regra atual) | **78,67 %** |
+| Fora da Carga | 77,95 % |
+
+Depois que os status abertos saíram das somas (ver a seção seguinte), o tempo não apontado
+caiu de 111.818 h para **2.235 h** — 98 % dele eram justamente aqueles registros. Com esse
+volume a diferença virou 0,72 pp, então a escolha de mantê-lo dentro ou fora da Carga
+deixou de ser determinante. Antes da exclusão dos abertos, essa mesma escolha valia
+15 pp (89,61 % contra 74,25 %).
 
 O bucket continua existindo para que o volume apareça no painel de qualidade e no
 resultado da importação, em vez de desaparecer dentro da conta. Quanto maior essa fatia,
@@ -76,6 +82,58 @@ A Disponibilidade de um recorte (mês, linha, grupo, geral) é calculada sobre a
 | Média simples das 33 máquinas | 84,28 % |
 
 Em código isso é automático: `availability(agg)` recebe o agregado já somado.
+
+## Status abertos saem das somas de horas
+
+Um registro sem `endDateTime` é um status **aberto**: o PC-Factory nunca registrou a
+mudança seguinte. A "duração" dele não é uma medição — é a distância entre o início e o
+momento em que o arquivo foi exportado. Reexportar amanhã aumenta o número em 24 h.
+
+Por isso `loadRecords()` aplica `MEASURABLE_DURATION` (`endDateTime is not null`) em
+**toda** agregação por horas: KPIs, tendência, confiabilidade, rankings, composição,
+Pareto de causas e detalhes por máquina. Os registros continuam gravados, aparecem na
+tabela de registros e são contados no painel de qualidade — só não pesam nos indicadores.
+
+No export de jan–jul/2026 eram **42 registros de 60.921 respondendo por 205.679 h**,
+quase metade da base. Todos abriram em 05/01/2026 e nunca fecharam. Eles dominavam os
+totais por status:
+
+| Status | Máquinas | Horas | % do total daquele status |
+|---|---|---|---|
+| Aguardando lançamento | 18 | 89.698 | 98,9 % |
+| Recurso Não Programado | 15 | 74.784 | 57,1 % |
+| Parada não Identificada | 4 | 19.884 | 94,1 % |
+| Fora de Turno | 4 | 13.958 | 16,0 % |
+| **Manutenção Mecânica** | **1** | **4.986** | **34,3 %** |
+| Produção | 1 | 4.928 | 9,3 % |
+
+Efeito da exclusão:
+
+| | antes | depois |
+|---|---|---|
+| Base de horas | 422.111 h | 216.431 h |
+| Tempo de Carga | 204.103 h | 84.607 h |
+| Não apontado | 111.818 h | 2.235 h |
+| Manutenção mecânica | 14.532 h | 9.546 h |
+| Máquina mais crítica | MULTFIO5 (artefato) | Multifio 04 - BM |
+| **Disponibilidade** | 89,61 % | **78,67 %** |
+| Carga de janeiro | 131.932 h | 12.436 h |
+
+O ganho mais importante não é o número global: é que **os meses voltaram a ser
+comparáveis**. Janeiro tinha 131.932 h de carga contra ~13.000 h dos outros porque
+concentrava os status abertos; agora tem 12.436 h e 79,03 %.
+
+**A correção de verdade é na origem:** fechar esses status no PC-Factory. Enquanto isso
+não acontecer, cada novo export traz os mesmos registros com duração ainda maior.
+
+### Máquinas com base de tempo mínima
+
+Excluir os abertos deixa algumas máquinas com muito pouca hora medida, e aí o percentual
+fica extremo sem ser representativo. `MULTFIO5` é o caso claro: fora o registro aberto,
+tudo que existe dela são 12 registros de Manutenção Mecânica somando 96 h — nada de
+produção. A disponibilidade dá 0 %, o que é a leitura correta desses 96 h, e a tabela de
+confiabilidade marca a linha com o aviso "toda a base de tempo é manutenção (sem
+produção) — MTBF/disponibilidade pouco representativos".
 
 ## Não confundir com
 
@@ -169,7 +227,8 @@ mensal, para não duplicar. No portal esse caso não existe: a evolução mensal
 | 2026-08-05 | base de tempo corrigida | o bug era `converterNumeroBrasileiro("8.3333") → 83333` no import do CSV |
 | 2026-08-05 | `0008` e `0002` fora do Tempo de Carga | tempo sem apontamento não é parada medida |
 | 2026-08-05 | regra da planilha G0134 | o negócio já reportava Disponibilidade por essa fórmula; o portal passou a segui-la |
-| **2026-08-05 (atual)** | **`0008` e `0002` de volta para dentro da Carga** | decisão do gestor. Sob a G0134 só a manutenção é descontada, então o indicador vai de 74,25 % para 89,60 % — perto dos 89,06 % de JAN na planilha e dos ~90 % que o `28a44f4` registra como aderentes ao PC-Factory |
+| 2026-08-05 | `0008` e `0002` de volta para dentro da Carga | decisão do gestor |
+| **2026-08-05 (atual)** | **status abertos (`endDateTime` nulo) fora das somas de horas** | 42 registros carregavam 205.679 h — quase metade da base — com duração que era artefato da janela do export. Indicador vai para **78,67 %** e os meses voltam a ser comparáveis |
 
 ## Base de tempo
 
