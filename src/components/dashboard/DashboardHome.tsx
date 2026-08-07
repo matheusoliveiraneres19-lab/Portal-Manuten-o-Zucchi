@@ -23,12 +23,14 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
     <>
       <HeroBanner />
 
+      {/* Fundo desta linha é o gradiente claro da página (não um painel), então usa
+          os tons escuros de superfície clara — gold/champagne aqui ficariam ilegíveis. */}
       {dashboard.period ? (
-        <div className="mt-3 flex items-center justify-end gap-1.5 text-[11px] text-zinc-400">
-          <CalendarRange className="h-3.5 w-3.5 text-gold" />
+        <div className="mt-3 flex items-center justify-end gap-1.5 text-[11px] text-zinc-600">
+          <CalendarRange className="h-3.5 w-3.5 text-[#8a6a20]" />
           <span>
             Período analisado:{" "}
-            <strong className="font-semibold text-champagne">
+            <strong className="font-semibold text-[#5a3d12]">
               {formatPeriodRange(dashboard.period.startDate, dashboard.period.endDate)}
             </strong>
           </span>
