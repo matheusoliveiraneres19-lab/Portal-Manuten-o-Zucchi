@@ -11,7 +11,6 @@ import {
   ClipboardList,
   Droplet,
   FileText,
-  Package,
   ShoppingCart
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -35,7 +34,6 @@ import {
   getPurchasesByMonth
 } from "@/services/purchases.service";
 import { OPEN_SERVICE_ORDER_STATUSES } from "@/services/shared/portal-rules";
-import { getHoursByCollaborator } from "@/services/time-entries.service";
 import type {
   CorrectivePreventiveChartData,
   CriticalAlertData,
@@ -152,18 +150,16 @@ export async function getDashboardKPIComparisons(
   currentKpis?: Promise<DashboardKPIsData> | DashboardKPIsData
 ): Promise<Record<string, PeriodVariation>> {
   const previousPeriod = getPreviousPeriod(period.startDate, period.endDate);
-  // Só os KPIs realmente temporais têm comparativo. Buscamos APENAS eles no período
-  // anterior (lubrificantes + materiais) em vez de recalcular todos os 7 KPIs —
-  // evita repetir a análise pesada de equipamentos críticos para o período anterior.
-  const [current, previousLubricant, previousMaterials] = await Promise.all([
+  // Só os KPIs realmente temporais exibidos na aba Início têm comparativo. Buscamos
+  // APENAS eles no período anterior (lubrificantes) em vez de recalcular todos os 7
+  // KPIs — evita repetir a análise pesada de equipamentos críticos para o anterior.
+  const [current, previousLubricant] = await Promise.all([
     currentKpis ?? getDashboardKPIs(period),
-    getLubricantConsumption(previousPeriod),
-    getMostUsedMaterialsCount(previousPeriod)
+    getLubricantConsumption(previousPeriod)
   ]);
 
   return {
-    lubricantConsumption: calculatePeriodVariation(current.lubricantConsumption, previousLubricant),
-    mostUsedMaterials: calculatePeriodVariation(current.mostUsedMaterials, previousMaterials)
+    lubricantConsumption: calculatePeriodVariation(current.lubricantConsumption, previousLubricant)
   };
 }
 
@@ -427,8 +423,6 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     topCriticalEquipments,
     pendingPurchases,
     criticalAlerts,
-    topMachinesBreakIndex,
-    hoursByCollaborator,
     purchasesByMonth,
     lubricantConsumptionByPeriod,
     pcFactoryCritical
@@ -440,8 +434,6 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     getTopCriticalEquipments(period),
     getPendingPurchases(),
     getDashboardCriticalAlerts(period),
-    getTopMachinesBreakIndex(period),
-    getHoursByCollaborator(period),
     // "Compras por mês" usa o ANO do fim do período (mais recente/relevante).
     getPurchasesByMonth(period.endDate.getUTCFullYear()),
     getLubricantConsumptionByPeriod(period),
@@ -477,8 +469,6 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     topCriticalEquipments,
     pendingPurchases,
     criticalAlerts,
-    topMachinesBreakIndex,
-    hoursByCollaborator,
     purchasesByMonth,
     lubricantConsumptionByPeriod,
     pcFactoryCritical
@@ -558,7 +548,7 @@ export async function resolveDefaultDashboardPeriod(): Promise<DashboardPeriod> 
 
 /**
  * Estado VAZIO do dashboard (sem dados mockados) — usado apenas quando o banco
- * falha. Mostra os 6 KPIs zerados/empty e listas/gráficos vazios, para os
+ * falha. Mostra os 5 KPIs zerados/empty e listas/gráficos vazios, para os
  * componentes renderizarem os empty states oficiais em vez de números falsos.
  */
 export function getEmptyDashboardData(): DashboardData {
@@ -578,7 +568,6 @@ export function getEmptyDashboardData(): DashboardData {
       emptyKpi("Compras Pendentes", "gold", ShoppingCart, "Aguardando importação"),
       emptyKpi("Máquinas Críticas", "red", AlertTriangle, "Aguardando importação PC-Factory"),
       emptyKpi("Consumo Lubrificantes", "blue", Droplet, "Aguardando importação"),
-      emptyKpi("Materiais Mais Utilizados", "gold", Package, "Aguardando integração com materiais"),
       emptyKpi("Procedimentos Ativos", "blue", FileText, "Aguardando importação")
     ],
     openClosedOrders: [],
@@ -586,10 +575,8 @@ export function getEmptyDashboardData(): DashboardData {
     criticalEquipment: [],
     pendingPurchases: [],
     alerts: [],
-    collaboratorHours: [],
     monthlyPurchases: [],
     lubricantConsumption: [],
-    topBreakdownMachines: [],
     openClosedNote: null,
     source: "empty",
     period: null
@@ -775,15 +762,6 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
         emptyHint: "Aguardando importação"
       }),
       buildKpi({
-        title: "Materiais Mais Utilizados",
-        rawValue: data.kpis.mostUsedMaterials,
-        value: String(data.kpis.mostUsedMaterials),
-        tone: "gold",
-        icon: Package,
-        comparison: toComparison(data.kpiComparisons.mostUsedMaterials),
-        emptyHint: "Aguardando integração com materiais"
-      }),
-      buildKpi({
         title: "Procedimentos Ativos",
         rawValue: data.kpis.activeProcedures,
         value: String(data.kpis.activeProcedures),
@@ -817,7 +795,6 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       time: item.title,
       icon: index === 0 ? Bell : AlertTriangle
     })),
-    collaboratorHours: buildCollaboratorHoursChart(data.hoursByCollaborator),
     monthlyPurchases: data.purchasesByMonth
       .filter((item) => item.value > 0)
       .map((item) => ({
@@ -830,10 +807,6 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
         name: monthLabel(item.date),
         value: item.consumption
       })),
-    topBreakdownMachines: data.topMachinesBreakIndex.map((item) => ({
-      name: item.equipmentName,
-      value: item.correctiveOrders
-    })),
     openClosedNote: data.openClosedNote,
     source: "database",
     period: {
@@ -841,50 +814,4 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       endDate: data.period.endDate.toISOString()
     }
   };
-}
-
-/**
- * Monta os dados do gráfico "Horas apontadas por colaborador" (aba Início):
- * - ordena do maior para o menor (a fonte já entrega ordenado, reforçamos aqui);
- * - mantém os TOP 10 e agrega o restante em "Outros (N)";
- * - carrega horas, nº de ordens e média de horas por ordem para o tooltip;
- * - sanitiza valores (sem NaN/Infinity) e descarta linhas zeradas.
- *
- * Mesma fonte da aba Equipe e Horas (getHoursByCollaborator), garantindo que os
- * totais batam entre as duas telas.
- */
-const COLLABORATOR_HOURS_TOP = 10;
-
-function buildCollaboratorHoursChart(rows: import("@/types/dashboard").HoursByCollaboratorData[]) {
-  const safe = rows
-    .map((row) => ({
-      name: row.userName,
-      hours: Number.isFinite(row.hours) && row.hours > 0 ? Number(row.hours.toFixed(2)) : 0,
-      orders: Number.isFinite(row.orders) && row.orders > 0 ? row.orders : 0
-    }))
-    .filter((row) => row.hours > 0)
-    .sort((a, b) => b.hours - a.hours);
-
-  const top = safe.slice(0, COLLABORATOR_HOURS_TOP);
-  const rest = safe.slice(COLLABORATOR_HOURS_TOP);
-
-  const points = top.map((row) => ({
-    name: row.name,
-    value: row.hours,
-    orders: row.orders,
-    avg: row.orders > 0 ? Number((row.hours / row.orders).toFixed(2)) : 0
-  }));
-
-  if (rest.length > 0) {
-    const restHours = Number(rest.reduce((sum, row) => sum + row.hours, 0).toFixed(2));
-    const restOrders = rest.reduce((sum, row) => sum + row.orders, 0);
-    points.push({
-      name: `Outros (${rest.length})`,
-      value: restHours,
-      orders: restOrders,
-      avg: restOrders > 0 ? Number((restHours / restOrders).toFixed(2)) : 0
-    });
-  }
-
-  return points;
 }

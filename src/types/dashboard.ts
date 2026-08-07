@@ -58,10 +58,8 @@ export type DashboardData = {
   criticalEquipment: RankingItem[];
   pendingPurchases: PendingPurchase[];
   alerts: AlertItem[];
-  collaboratorHours: ChartPoint[];
   monthlyPurchases: ChartPoint[];
   lubricantConsumption: ChartPoint[];
-  topBreakdownMachines: RankingItem[];
   /** Aviso técnico do gráfico OS abertas x fechadas (ex.: closedAt não importado). */
   openClosedNote: string | null;
   source: "database" | "empty";
@@ -170,8 +168,6 @@ export type DatabaseDashboardData = {
   topCriticalEquipments: TopCriticalEquipmentData[];
   pendingPurchases: PendingPurchaseData[];
   criticalAlerts: CriticalAlertData[];
-  topMachinesBreakIndex: TopMachineBreakIndexData[];
-  hoursByCollaborator: HoursByCollaboratorData[];
   purchasesByMonth: PurchasesByMonthData[];
   lubricantConsumptionByPeriod: LubricantConsumptionPoint[];
   /** Máquinas abaixo da média de disponibilidade do PC-Factory (card Máquinas Críticas). */
