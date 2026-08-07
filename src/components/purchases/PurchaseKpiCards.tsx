@@ -20,10 +20,17 @@ const toneClass: Record<PurchaseKpiTone, string> = {
   green: "bg-[#3f8f6b] text-white"
 };
 
-/** Grade de cards KPI premium do módulo de Compras (mesmo padrão dos demais módulos). */
-export function PurchaseKpiCards({ cards }: { cards: PurchaseKpiCard[] }) {
+/** Colunas padrão da grade (Compras Pendentes e demais consumidores). */
+const DEFAULT_GRID = "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4";
+
+/**
+ * Grade de cards KPI premium do módulo de Compras (mesmo padrão dos demais módulos).
+ * `className` permite que uma aba com outro número de cards ajuste as colunas sem
+ * afetar as demais telas que usam o padrão.
+ */
+export function PurchaseKpiCards({ cards, className }: { cards: PurchaseKpiCard[]; className?: string }) {
   return (
-    <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <section className={className ?? DEFAULT_GRID}>
       {cards.map((card, index) => {
         const Icon = card.icon;
         return (

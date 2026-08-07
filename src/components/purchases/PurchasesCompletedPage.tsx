@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { AlarmClock, Ban, ClipboardCheck, Repeat2, ShoppingCart, Upload, Wallet, Wrench } from "lucide-react";
+import { ClipboardCheck, Repeat2, ShoppingCart, Upload, Wallet, Wrench } from "lucide-react";
 import { ChartSkeleton } from "@/components/ChartSkeleton";
 import { PurchaseKpiCards, type PurchaseKpiCard } from "@/components/purchases/PurchaseKpiCards";
 import { PurchaseFilters } from "@/components/purchases/PurchaseFilters";
@@ -94,11 +94,12 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
   const kpis = data.kpis;
   const cards: PurchaseKpiCard[] = [
     { title: "Materiais Comprados", value: int(kpis.purchased), description: "Y01 com pedido de compra", icon: ShoppingCart, tone: "gold" },
+    // "Materiais Entregues" já engloba os recebidos com atraso (kpis.deliveredLate é
+    // um subconjunto de kpis.delivered no service) — o card separado de atraso e o de
+    // ignorados saíram da tela, mas os dois KPIs seguem calculados para auditoria.
     { title: "Materiais Entregues", value: int(kpis.delivered), description: "Recebimento lançado + Recbconcl “X”", icon: ClipboardCheck, tone: "green" },
-    { title: "Entregues com atraso", value: int(kpis.deliveredLate), description: "Recebimento após a previsão", icon: AlarmClock, tone: "red" },
     { title: "Regularizações Y04", value: int(kpis.regularizations), description: `${int(kpis.regularizationsDelivered)} já recebidas`, icon: Repeat2, tone: "red" },
     { title: "Serviços (Y0008)", value: int(kpis.services), description: `${int(kpis.servicesDelivered)} já recebidos`, icon: Wrench, tone: "gold" },
-    { title: "Ignorados", value: int(kpis.ignored), description: "Bloqueado, frete, fornecedor eliminado, CódElim “L”", icon: Ban, tone: "blue" },
     { title: "Valor comprado", value: formatCurrency(kpis.purchasedValue), description: "Total com pedido no período", icon: Wallet, tone: "gold" }
   ];
 
@@ -152,7 +153,12 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
         <PurchaseEmptyState onImport={() => setImportOpen(true)} />
       ) : (
         <>
-          <PurchaseKpiCards cards={cards} />
+          {/* 5 cards: linha única só a partir de 2xl — abaixo disso a coluna de texto
+              fica estreita e títulos longos ("Regularizações Y04") estouram o card. */}
+          <PurchaseKpiCards
+            cards={cards}
+            className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5"
+          />
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
             <PurchaseMonthlyCountChart
