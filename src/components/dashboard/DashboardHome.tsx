@@ -35,7 +35,10 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
         </div>
       ) : null}
 
-      <section className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      {/* 5 KPIs: uma linha só a partir de 2xl — abaixo disso a coluna de texto do
+          card fica estreita demais e nomes longos ("Consumo Lubrificantes") encostam
+          na borda, então voltamos para 3 colunas. */}
+      <section className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
         {dashboard.kpis.map((kpi) => (
           <KPICard key={kpi.title} kpi={kpi} />
         ))}
