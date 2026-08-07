@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Boxes, CalendarClock, FileX2, ShoppingCart, Upload, Users, Wallet } from "lucide-react";
+import { Boxes, CalendarClock, FileX2, ShoppingCart, Upload, Users } from "lucide-react";
 import { ChartSkeleton } from "@/components/ChartSkeleton";
 import { PurchaseKpiCards, type PurchaseKpiCard } from "@/components/purchases/PurchaseKpiCards";
 import { PurchaseFilters } from "@/components/purchases/PurchaseFilters";
@@ -19,7 +19,6 @@ import {
 } from "@/components/purchases/filters";
 import { goodsGroupsToRank, requestersToRank, suppliersToRank } from "@/components/purchases/PurchaseInsightCharts";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
-import { formatCurrency } from "@/utils/formatters";
 import type { PendingPurchasesPageData } from "@/types/purchases";
 
 const PurchaseMonthlyCountChart = dynamic(
@@ -89,8 +88,9 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
 
   const pendingCount = data.purchases.total;
   const cards: PurchaseKpiCard[] = [
+    // O card "Valor Pendente" saiu da tela; data.pendingValue continua vindo do
+    // service para o log de auditoria e para os KPIs canônicos de compras.
     { title: "Requisições Pendentes", value: int(pendingCount), description: "Requisições Y01 sem pedido de compra", icon: FileX2, tone: "gold" },
-    { title: "Valor Pendente", value: formatCurrency(data.pendingValue), description: "Soma do conjunto filtrado (todas as páginas)", icon: Wallet, tone: "green" },
     { title: "Materiais Pendentes", value: int(data.materialsPending), description: "Materiais distintos sem pedido", icon: Boxes, tone: "blue" },
     { title: "Requisitantes", value: int(data.requestersPending), description: "Requisitantes com pendências", icon: Users, tone: "blue" },
     { title: "Mais Antiga", value: oldestLabel(data.oldestPendingDate), description: oldestDescription(data.oldestPendingDate), icon: CalendarClock, tone: "red" }
