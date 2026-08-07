@@ -17,7 +17,7 @@ import {
   purchaseFiltersToParams,
   type AppliedPurchaseFilters
 } from "@/components/purchases/filters";
-import { goodsGroupsToRank, suppliersToRank } from "@/components/purchases/PurchaseInsightCharts";
+import { goodsGroupsToRank } from "@/components/purchases/PurchaseInsightCharts";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import { formatCurrency } from "@/utils/formatters";
 import type { CompletedPurchasesPageData } from "@/types/purchases";
@@ -167,19 +167,6 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
               subtitle="Itens recebidos pela data de recebimento."
               color="#4ade80"
               points={data.receivedByMonth}
-            />
-            <PurchaseMonthlyCountChart
-              className="xl:col-span-6"
-              title="Recebidos com atraso por mês"
-              subtitle="Recebimento após a previsão."
-              color="#fb923c"
-              points={data.receivedLateByMonth}
-            />
-            <PurchaseRankBarChart
-              className="xl:col-span-6"
-              title="Top fornecedores com atraso no recebimento"
-              color="#fb923c"
-              items={suppliersToRank(data.topDelayedReceiptSuppliers)}
             />
             <PurchaseRankBarChart
               className="xl:col-span-6"
