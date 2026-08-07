@@ -3,7 +3,6 @@
 import { ChevronLeft, ChevronRight, PackageSearch } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { PurchaseStatusBadge } from "@/components/purchases/PurchaseStatusBadge";
-import { formatCurrency } from "@/utils/formatters";
 import type { PaginatedPurchases, PurchaseRow } from "@/types/purchases";
 
 type PurchaseTableProps = {
@@ -78,9 +77,7 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
                   <th className="px-2 py-2 font-bold">Requisitante</th>
                   <th className="px-2 py-2 font-bold">Grupo Comp</th>
                   <th className="px-2 py-2 font-bold">Grupo Merc</th>
-                  {isPending ? (
-                    <th className="px-2 py-2 text-right font-bold">Valor pendente</th>
-                  ) : (
+                  {!isPending && (
                     <>
                       <th className="px-2 py-2 text-center font-bold">Recbconcl</th>
                       <th className="px-2 py-2 font-bold">CódElim</th>
@@ -173,11 +170,7 @@ function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
       <td className="px-2 py-2 max-w-[140px] truncate" title={row.goodsGroupDescription ?? undefined}>
         {row.goodsGroupDescription ?? row.goodsGroupCode ?? "—"}
       </td>
-      {isPending ? (
-        <td className="px-2 py-2 text-right tabular-nums font-medium text-zinc-900">
-          {row.value !== null ? formatCurrency(row.value) : "—"}
-        </td>
-      ) : (
+      {!isPending && (
         <>
           <td className="px-2 py-2 text-center">
             {row.isReceiptConfirmed ? <span className="font-semibold text-emerald-600">X</span> : "—"}
