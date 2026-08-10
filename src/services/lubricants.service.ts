@@ -450,8 +450,8 @@ async function sumAbsolute(category: LubricantMovementCategory, start: Date, end
 
 /**
  * Consumo (SAÍDA) de lubrificantes em um intervalo arbitrário — fonte única
- * reutilizada pelo KPI "Consumo Lubrificantes" da aba Início, para não replicar
- * a query `aggregate` no dashboard. Mesmo cálculo do módulo de Lubrificantes
+ * reutilizada pelos KPIs consolidados do portal (getDashboardKPIs / analytics),
+ * para não replicar a query `aggregate`. Mesmo cálculo do módulo de Lubrificantes
  * (categoria SAIDA, soma de `absoluteQuantity`).
  */
 export async function getLubricantConsumption(period: { startDate: Date; endDate: Date }): Promise<number> {

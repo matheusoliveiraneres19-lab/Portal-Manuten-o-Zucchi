@@ -9,7 +9,6 @@ import {
   AlertTriangle,
   Bell,
   ClipboardList,
-  Droplet,
   FileText,
   ShoppingCart
 } from "lucide-react";
@@ -28,11 +27,7 @@ import {
 import { getLubricantConsumption } from "@/services/lubricants.service";
 import { getMostUsedMaterialsCount } from "@/services/materials.service";
 import { countPublishedProcedures } from "@/services/procedures.service";
-import {
-  getPendingPurchases,
-  getPendingPurchasesCount,
-  getPurchasesByMonth
-} from "@/services/purchases.service";
+import { getPendingPurchases, getPendingPurchasesCount } from "@/services/purchases.service";
 import { OPEN_SERVICE_ORDER_STATUSES } from "@/services/shared/portal-rules";
 import type {
   CorrectivePreventiveChartData,
@@ -50,7 +45,7 @@ import type {
   TopCriticalEquipmentData,
   TopMachineBreakIndexData
 } from "@/types/dashboard";
-import { formatCurrency, formatDate, formatMonthName, formatPercent, formatVolume } from "@/utils/formatters";
+import { formatCurrency, formatDate, formatMonthName } from "@/utils/formatters";
 import { isWithinPeriod, toEndOfDay, toStartOfDay, withinPeriod } from "@/utils/date-range";
 import { getDefaultPortalPeriod, getTodayDate } from "@/utils/date";
 import {
@@ -58,7 +53,7 @@ import {
   isClosedServiceOrder,
   isProgrammedPreventiveOrder
 } from "@/utils/service-order-classification";
-import { calculatePeriodVariation, getPreviousPeriod, toInputDate, type PeriodVariation } from "@/utils/period";
+import { toInputDate } from "@/utils/period";
 
 /**
  * Período padrão quando não há dados no banco: mês atual → hoje (dinâmico).
@@ -132,34 +127,6 @@ export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promi
     mostUsedMaterials,
     activeProcedures,
     criticalAlerts
-  };
-}
-
-/**
- * Calcula o comparativo com o período imediatamente anterior (mesma duração).
- * Só os KPIs realmente filtrados por período têm comparativo temporal; os demais
- * são contagens "snapshot" e ficam como indisponíveis na camada de apresentação.
- */
-export async function getDashboardKPIComparisons(
-  period: DashboardPeriod,
-  /**
-   * KPIs do período atual já em andamento/calculados. Passe a MESMA promise usada
-   * para montar o dashboard para evitar recalcular os 7 queries do período atual
-   * (o anterior continua sendo buscado em paralelo). Sem isso, recai no cálculo próprio.
-   */
-  currentKpis?: Promise<DashboardKPIsData> | DashboardKPIsData
-): Promise<Record<string, PeriodVariation>> {
-  const previousPeriod = getPreviousPeriod(period.startDate, period.endDate);
-  // Só os KPIs realmente temporais exibidos na aba Início têm comparativo. Buscamos
-  // APENAS eles no período anterior (lubrificantes) em vez de recalcular todos os 7
-  // KPIs — evita repetir a análise pesada de equipamentos críticos para o anterior.
-  const [current, previousLubricant] = await Promise.all([
-    currentKpis ?? getDashboardKPIs(period),
-    getLubricantConsumption(previousPeriod)
-  ]);
-
-  return {
-    lubricantConsumption: calculatePeriodVariation(current.lubricantConsumption, previousLubricant)
   };
 }
 
@@ -411,32 +378,21 @@ export async function getLubricantConsumptionByPeriod(
 
 export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInput): Promise<DatabaseDashboardData> {
   const period = parsePeriod(periodInput);
-  // Calcula os KPIs do período atual UMA vez e reaproveita a mesma promise no
-  // comparativo (que só precisa buscar, além desta, o período anterior). Antes,
-  // o período atual era calculado 2x (aqui + dentro de getDashboardKPIComparisons).
-  const currentKpis = getDashboardKPIs(period);
   const [
     kpis,
-    kpiComparisons,
     openClosed,
     correctivePreventiveChart,
     topCriticalEquipments,
     pendingPurchases,
     criticalAlerts,
-    purchasesByMonth,
-    lubricantConsumptionByPeriod,
     pcFactoryCritical
   ] = await Promise.all([
-    currentKpis,
-    getDashboardKPIComparisons(period, currentKpis),
+    getDashboardKPIs(period),
     getMonthlyOpenClosedServiceOrders(period),
     getCorrectivePreventiveChart(period),
     getTopCriticalEquipments(period),
     getPendingPurchases(),
     getDashboardCriticalAlerts(period),
-    // "Compras por mês" usa o ANO do fim do período (mais recente/relevante).
-    getPurchasesByMonth(period.endDate.getUTCFullYear()),
-    getLubricantConsumptionByPeriod(period),
     // Máquinas abaixo da média de disponibilidade do PC-Factory (card Máquinas Críticas).
     getPcFactoryMachinesBelowAverage({
       startDate: toInputDate(period.startDate),
@@ -462,15 +418,12 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
   return {
     period,
     kpis,
-    kpiComparisons,
     openClosedServiceOrders: openClosed.points,
     openClosedNote: openClosed.note,
     correctivePreventiveChart,
     topCriticalEquipments,
     pendingPurchases,
     criticalAlerts,
-    purchasesByMonth,
-    lubricantConsumptionByPeriod,
     pcFactoryCritical
   };
 }
@@ -548,7 +501,7 @@ export async function resolveDefaultDashboardPeriod(): Promise<DashboardPeriod> 
 
 /**
  * Estado VAZIO do dashboard (sem dados mockados) — usado apenas quando o banco
- * falha. Mostra os 5 KPIs zerados/empty e listas/gráficos vazios, para os
+ * falha. Mostra os 4 KPIs zerados/empty e listas/gráficos vazios, para os
  * componentes renderizarem os empty states oficiais em vez de números falsos.
  */
 export function getEmptyDashboardData(): DashboardData {
@@ -567,7 +520,6 @@ export function getEmptyDashboardData(): DashboardData {
       emptyKpi("OS Abertas", "blue", ClipboardList, "Sem registros"),
       emptyKpi("Compras Pendentes", "gold", ShoppingCart, "Aguardando importação"),
       emptyKpi("Máquinas Críticas", "red", AlertTriangle, "Aguardando importação PC-Factory"),
-      emptyKpi("Consumo Lubrificantes", "blue", Droplet, "Aguardando importação"),
       emptyKpi("Procedimentos Ativos", "blue", FileText, "Aguardando importação")
     ],
     openClosedOrders: [],
@@ -575,8 +527,6 @@ export function getEmptyDashboardData(): DashboardData {
     criticalEquipment: [],
     pendingPurchases: [],
     alerts: [],
-    monthlyPurchases: [],
-    lubricantConsumption: [],
     openClosedNote: null,
     source: "empty",
     period: null
@@ -688,22 +638,6 @@ function monthLabel(date: Date): string {
   return `${formatMonthName(date)}/${String(date.getUTCFullYear()).slice(2)}`;
 }
 
-/** Converte a variação calculada em um comparativo pronto para exibição (com rótulo). */
-function toComparison(variation: PeriodVariation | undefined): KPIComparison {
-  if (!variation || variation.status === "unavailable") {
-    return { status: "unavailable", label: "Sem período anterior para comparar" };
-  }
-
-  const arrow = variation.direction === "up" ? "↑" : variation.direction === "down" ? "↓" : "→";
-
-  return {
-    status: "available",
-    direction: variation.direction,
-    percentage: variation.percentage,
-    label: `${arrow} ${formatPercent(variation.percentage)} vs período anterior`
-  };
-}
-
 /**
  * Monta um KPI tratando estado vazio. Quando o valor atual é zero/ausente, o
  * comparativo é suprimido em favor do texto auxiliar (emptyHint).
@@ -753,15 +687,6 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       }),
       buildMachinesCriticalKpi(data),
       buildKpi({
-        title: "Consumo Lubrificantes",
-        rawValue: data.kpis.lubricantConsumption,
-        value: formatVolume(data.kpis.lubricantConsumption),
-        tone: "blue",
-        icon: Droplet,
-        comparison: toComparison(data.kpiComparisons.lubricantConsumption),
-        emptyHint: "Aguardando importação"
-      }),
-      buildKpi({
         title: "Procedimentos Ativos",
         rawValue: data.kpis.activeProcedures,
         value: String(data.kpis.activeProcedures),
@@ -795,18 +720,6 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       time: item.title,
       icon: index === 0 ? Bell : AlertTriangle
     })),
-    monthlyPurchases: data.purchasesByMonth
-      .filter((item) => item.value > 0)
-      .map((item) => ({
-        name: formatMonthName(new Date(Date.UTC(data.period.endDate.getUTCFullYear(), item.month - 1, 1))),
-        value: Number((item.value / 1000).toFixed(1))
-      })),
-    lubricantConsumption: data.lubricantConsumptionByPeriod
-      .filter((item) => item.consumption > 0)
-      .map((item) => ({
-        name: monthLabel(item.date),
-        value: item.consumption
-      })),
     openClosedNote: data.openClosedNote,
     source: "database",
     period: {

@@ -17,7 +17,6 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
   // aba de destino abrir já filtrada pelo mesmo intervalo do dashboard.
   const periodQuery = buildPeriodQuery(dashboard.period);
   const href = (path: string) => `${path}${periodQuery}`;
-  const purchasesYear = dashboard.period ? new Date(dashboard.period.endDate).getUTCFullYear() : null;
 
   return (
     <>
@@ -37,10 +36,10 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
         </div>
       ) : null}
 
-      {/* 5 KPIs: uma linha só a partir de 2xl — abaixo disso a coluna de texto do
-          card fica estreita demais e nomes longos ("Consumo Lubrificantes") encostam
-          na borda, então voltamos para 3 colunas. */}
-      <section className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+      {/* 4 KPIs: uma linha só a partir de xl — abaixo disso a coluna de texto do
+          card fica estreita demais e nomes longos ("Procedimentos Ativos") encostam
+          na borda, então voltamos para 2 colunas. */}
+      <section className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {dashboard.kpis.map((kpi) => (
           <KPICard key={kpi.title} kpi={kpi} />
         ))}
@@ -74,24 +73,6 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
           href={href("/dashboard/equipamentos-criticos")}
           emptyTitle="Sem equipamentos críticos no período"
           emptyDescription="Importe ordens ou ajuste o filtro para visualizar este indicador."
-        />
-        <ChartCard
-          className="xl:col-span-6"
-          data={dashboard.monthlyPurchases}
-          kind="bar"
-          title={purchasesYear ? `Compras por mês · ${purchasesYear} (R$ mil, Data do Pedido)` : "Compras por mês (R$ mil)"}
-          href={href("/dashboard/compras-realizadas")}
-          emptyTitle="Sem compras no período"
-          emptyDescription="Aguardando importação de compras."
-        />
-        <ChartCard
-          className="xl:col-span-6"
-          data={dashboard.lubricantConsumption}
-          kind="area"
-          title="Consumo de Lubrificantes (L)"
-          href={href("/dashboard/lubrificantes")}
-          emptyTitle="Sem consumo registrado no período"
-          emptyDescription="Aguardando importação de movimentações de lubrificantes."
         />
         <TableCard
           className="xl:col-span-6"

@@ -1,7 +1,6 @@
 import {
   AlertTriangle,
   ClipboardList,
-  Droplet,
   FileText,
   ShoppingCart
 } from "lucide-react";
@@ -23,7 +22,6 @@ export const kpis = [
   { title: "OS Abertas", value: "0", tone: "blue", icon: ClipboardList },
   { title: "Compras Pendentes", value: "0", tone: "gold", icon: ShoppingCart },
   { title: "Máquinas Críticas", value: "0", tone: "red", icon: AlertTriangle },
-  { title: "Consumo Lubrificantes", value: "0 L", tone: "blue", icon: Droplet },
   { title: "Procedimentos Ativos", value: "0", tone: "blue", icon: FileText }
 ] as const;
 
@@ -32,5 +30,3 @@ export const correctivePreventive: ChartPoint[] = [];
 export const criticalEquipment: RankingItem[] = [];
 export const pendingPurchases: PendingPurchase[] = [];
 export const alerts: AlertItem[] = [];
-export const monthlyPurchases: ChartPoint[] = [];
-export const lubricantConsumption: ChartPoint[] = [];

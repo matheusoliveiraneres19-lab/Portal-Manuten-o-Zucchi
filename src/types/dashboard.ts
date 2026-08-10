@@ -1,7 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import type { AlertStatus, AlertType, Criticality, Priority, PurchaseStatus } from "@prisma/client";
 import type { PcFactoryMachinesBelowAverageResult } from "@/services/pc-factory.service";
-import type { PeriodVariation } from "@/utils/period";
 
 export type KPITrendDirection = "up" | "down" | "stable";
 export type KPITone = "blue" | "gold" | "red";
@@ -58,8 +57,6 @@ export type DashboardData = {
   criticalEquipment: RankingItem[];
   pendingPurchases: PendingPurchase[];
   alerts: AlertItem[];
-  monthlyPurchases: ChartPoint[];
-  lubricantConsumption: ChartPoint[];
   /** Aviso técnico do gráfico OS abertas x fechadas (ex.: closedAt não importado). */
   openClosedNote: string | null;
   source: "database" | "empty";
@@ -161,15 +158,12 @@ export type LubricantConsumptionPoint = {
 export type DatabaseDashboardData = {
   period: DashboardPeriod;
   kpis: DashboardKPIsData;
-  kpiComparisons: Record<string, PeriodVariation>;
   openClosedServiceOrders: OpenClosedServiceOrdersPoint[];
   openClosedNote: string | null;
   correctivePreventiveChart: CorrectivePreventiveChartData;
   topCriticalEquipments: TopCriticalEquipmentData[];
   pendingPurchases: PendingPurchaseData[];
   criticalAlerts: CriticalAlertData[];
-  purchasesByMonth: PurchasesByMonthData[];
-  lubricantConsumptionByPeriod: LubricantConsumptionPoint[];
   /** Máquinas abaixo da média de disponibilidade do PC-Factory (card Máquinas Críticas). */
   pcFactoryCritical: PcFactoryMachinesBelowAverageResult;
 };
