@@ -5,6 +5,8 @@
 
 # Next.js
 /.next/
+# distDir alternativo via NEXT_DIST_DIR (ver next.config.mjs)
+/.next-*/
 /out/
 next-env.d.ts
 
