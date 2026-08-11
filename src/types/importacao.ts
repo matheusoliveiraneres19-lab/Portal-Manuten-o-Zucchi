@@ -70,6 +70,12 @@ export type LinhaOrdemServicoNormalizada = {
   technicalObject?: unknown;
   planningGroup?: unknown;
   planningGroupCode?: unknown;
+  /** "Tipo de atividade de manutenção" / "Tipo de atividade" do SAP/Fiori. */
+  planningActivityType?: unknown;
+  /** "Tipo de manutenção" do SAP (texto cru). */
+  maintenanceType?: unknown;
+  /** "Tipo de ordem" do SAP (texto cru, ex.: ZM01). */
+  orderType?: unknown;
   openedAt?: unknown;
   closedAt?: unknown;
   workedHours?: unknown;

@@ -1,7 +1,7 @@
 "use client";
 
 import { m } from "framer-motion";
-import { Activity, AlertTriangle, Boxes, ClipboardList, Clock, TrendingUp } from "lucide-react";
+import { Activity, Boxes, CalendarCheck, ClipboardList, Clock, TrendingUp, Users, Wrench } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { CriticalEquipmentSummary } from "@/types/critical-equipments";
 
@@ -29,17 +29,46 @@ export function CriticalEquipmentKpiCards({ summary }: CriticalEquipmentKpiCards
       tone: "blue"
     },
     {
-      title: "Total de OS corretivas",
+      title: "Total de ordens",
       value: formatInt(summary.totalOrdersInPeriod),
-      description: "Sem PL/PV e sem equip. não informado",
+      description: "No recorte atual, sem equip. não informado",
       icon: ClipboardList,
       tone: "gold"
     },
     {
-      title: "Horas corretivas apontadas",
-      value: formatHours(summary.totalWorkedHours),
-      description: "Esforço total de manutenção",
-      icon: Clock,
+      title: "Ordens corretivas",
+      value: formatInt(summary.totalCorrectiveOrders),
+      description: hasData
+        ? `${formatPercent(summary.totalCorrectiveOrders, summary.totalOrdersInPeriod)} das ordens do período`
+        : "Sem registros no período",
+      icon: Wrench,
+      tone: "red"
+    },
+    {
+      title: "Ordens planejadas",
+      value: formatInt(summary.totalPlannedOrders),
+      description: hasData
+        ? `${formatPercent(summary.totalPlannedOrders, summary.totalOrdersInPeriod)} das ordens do período`
+        : "Sem registros no período",
+      icon: CalendarCheck,
+      tone: "blue"
+    },
+    {
+      title: "Grupo mais acionado",
+      value: hasData ? summary.topPlanningGroupLabel : "—",
+      description: hasData
+        ? `${formatInt(summary.topPlanningGroupOrders)} ordem(ns) no período`
+        : "Sem registros no período",
+      icon: Users,
+      tone: "gold"
+    },
+    {
+      title: "Tipo mais recorrente",
+      value: hasData ? summary.topActivityTypeLabel : "—",
+      description: hasData
+        ? `${formatInt(summary.topActivityTypeOrders)} ordem(ns) no período`
+        : "Sem registros no período",
+      icon: Activity,
       tone: "gold"
     },
     {
@@ -50,23 +79,16 @@ export function CriticalEquipmentKpiCards({ summary }: CriticalEquipmentKpiCards
       tone: "red"
     },
     {
-      title: "OS abertas críticas",
-      value: formatInt(summary.openOrdersOnCriticalEquipments),
-      description: "Ordens abertas em equipamentos críticos",
-      icon: Activity,
-      tone: "red"
-    },
-    {
-      title: "Equipamentos em reincidência",
-      value: formatInt(summary.totalRecurrentEquipments),
-      description: "OS repetidas acima da regra",
-      icon: AlertTriangle,
-      tone: "red"
+      title: "Horas apontadas",
+      value: formatHours(summary.totalWorkedHours),
+      description: "Esforço total de manutenção",
+      icon: Clock,
+      tone: "gold"
     }
   ];
 
   return (
-    <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+    <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {cards.map((card, index) => {
         const Icon = card.icon;
         const isEmpty = !hasData;
@@ -106,4 +128,11 @@ function formatInt(value: number): string {
 
 function formatHours(value: number): string {
   return `${value.toLocaleString("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} H`;
+}
+
+/** Percentual de uma parte sobre o total — nunca devolve NaN/Infinity. */
+function formatPercent(part: number, total: number): string {
+  const percent = total > 0 ? (part / total) * 100 : 0;
+  const safe = Number.isFinite(percent) ? percent : 0;
+  return `${safe.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }

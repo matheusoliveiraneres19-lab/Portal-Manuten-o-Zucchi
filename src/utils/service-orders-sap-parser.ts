@@ -20,6 +20,10 @@ type SapColumn =
   | "objetoTecnico"
   | "responsavel"
   | "grupoPlanejamento"
+  | "grupoPlanejamentoCodigo"
+  | "tipoAtividade"
+  | "tipoManutencao"
+  | "tipoOrdem"
   | "dataInicio"
   | "dataFim"
   | "trabalhoReal";
@@ -35,7 +39,15 @@ function resolveSapColumn(header: string): SapColumn | null {
   if (key === "status_da_ordem" || key === "status_ordem" || key === "status") return "status";
   if (key === "objeto_tecnico") return "objetoTecnico";
   if (key.startsWith("responsavel")) return "responsavel"; // "Responsável (ordem)"
-  if (key.startsWith("grupo_de_planejamento") || key.startsWith("grupo_planejamento")) return "grupoPlanejamento";
+  // Código do grupo de planejamento em coluna PRÓPRIA (quando o export separa
+  // rótulo e código). Verificado ANTES do rótulo para não ser absorvido por ele.
+  if (isPlanningGroupCodeHeader(key)) return "grupoPlanejamentoCodigo";
+  if (isPlanningGroupHeader(key)) return "grupoPlanejamento";
+  // Tipo de atividade de manutenção/planejamento (TAREFA 1).
+  if (isActivityTypeHeader(key)) return "tipoAtividade";
+  // "Tipo de ordem" antes de "Tipo de manutenção": prefixos distintos, sem colisão.
+  if (key === "tipo_de_ordem" || key === "tipo_ordem") return "tipoOrdem";
+  if (key === "tipo_de_manutencao" || key === "tipo_manutencao" || key === "tipo_manut") return "tipoManutencao";
   if (key.startsWith("data_base_do_inicio") || key.startsWith("data_base_inicio")) return "dataInicio";
   // Data de conclusão/encerramento/fim real da OS -> closedAt. Tolerante às
   // variações do SAP/Fiori. Verificado ANTES de dataInicio já ter casado, e nunca
@@ -43,6 +55,48 @@ function resolveSapColumn(header: string): SapColumn | null {
   if (isClosureDateHeader(key)) return "dataFim";
   if (key === "trabalho_real" || key.startsWith("trabalho_real")) return "trabalhoReal";
   return null;
+}
+
+/**
+ * Cabeçalhos do GRUPO DE PLANEJAMENTO (rótulo). Cobre as variações pedidas na
+ * TAREFA 1: "Grupo de planejamento", "Grupo planej.", "Grupo Planej.",
+ * "Grupo de planej." — todas normalizadas para "grupo_..." por
+ * `normalizarNomeColuna` (sem acento, com "_").
+ */
+function isPlanningGroupHeader(key: string): boolean {
+  return (
+    key.startsWith("grupo_de_planejamento") ||
+    key.startsWith("grupo_planejamento") ||
+    key.startsWith("grupo_de_planej") ||
+    key.startsWith("grupo_planej")
+  );
+}
+
+/** Cabeçalhos do CÓDIGO do grupo de planejamento em coluna separada. */
+function isPlanningGroupCodeHeader(key: string): boolean {
+  const codeKeys = [
+    "codigo_grupo_planejamento",
+    "codigo_do_grupo_de_planejamento",
+    "codigo_grupo_de_planejamento",
+    "cod_grupo_planejamento",
+    "grupo_planejamento_codigo",
+    "planninggroupcode"
+  ];
+  return codeKeys.some((codeKey) => key === codeKey || key.startsWith(`${codeKey}_`));
+}
+
+/**
+ * Cabeçalhos do TIPO DE ATIVIDADE de manutenção/planejamento (TAREFA 1):
+ * "Tipo de atividade de manutenção", "Tipo atividade manutenção",
+ * "Tipo de atividade", "Tipo Atividade", "Atividade de planejamento".
+ */
+function isActivityTypeHeader(key: string): boolean {
+  return (
+    key.startsWith("tipo_de_atividade") ||
+    key.startsWith("tipo_atividade") ||
+    key.startsWith("atividade_de_planejamento") ||
+    key.startsWith("atividade_planejamento")
+  );
 }
 
 /**
@@ -116,6 +170,13 @@ export function parseSapRow(row: RawRow): LinhaOrdemServicoNormalizada {
   const objeto = splitLabelCode(cols.objetoTecnico);
   const responsavel = splitLabelCode(cols.responsavel);
   const grupo = splitLabelCode(cols.grupoPlanejamento);
+  // "Tipo de atividade" também costuma vir como "Rótulo (código)" no Fiori —
+  // preservamos o rótulo, que é o que a normalização reconhece.
+  const atividade = splitLabelCode(cols.tipoAtividade);
+  const manutencao = splitLabelCode(cols.tipoManutencao);
+  const tipoOrdem = splitLabelCode(cols.tipoOrdem);
+  // Código do grupo: coluna própria quando existir; senão o código embutido no rótulo.
+  const grupoCodigo = limparTexto(cols.grupoPlanejamentoCodigo) || grupo.code;
 
   const statusRaw = limparTexto(cols.status);
 
@@ -139,8 +200,14 @@ export function parseSapRow(row: RawRow): LinhaOrdemServicoNormalizada {
     responsibleId: responsavel.code,
     // "Grupo de planejamento" -> nome + código + área derivada do código
     planningGroup: grupo.label || null,
-    planningGroupCode: grupo.code,
-    area: deriveAreaFromGroupCode(grupo.code, grupo.label),
+    planningGroupCode: grupoCodigo,
+    area: deriveAreaFromGroupCode(grupoCodigo, grupo.label),
+    // "Tipo de atividade de manutenção" / "Tipo de manutenção" / "Tipo de ordem":
+    // opcionais no export do SAP. Quando ausentes ficam null e a aba Equipamentos
+    // Críticos deriva a classificação (ver utils/service-order-planning).
+    planningActivityType: atividade.label || atividade.code || null,
+    maintenanceType: manutencao.label || manutencao.code || null,
+    orderType: tipoOrdem.code || tipoOrdem.label || null,
     // "Data-base do início" e "Trabalho real"
     openedAt: cols.dataInicio ?? null,
     // Data de conclusão/encerramento -> closedAt (quando a coluna existir no export).

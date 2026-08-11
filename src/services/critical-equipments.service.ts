@@ -22,14 +22,32 @@ import {
   getRootFunctionalLocation,
   type FunctionalLocationLite
 } from "@/utils/functional-location-hierarchy";
+import {
+  PLANNING_ACTIVITY_COLORS,
+  PLANNING_ACTIVITY_LABELS,
+  PLANNING_ACTIVITY_ORDER,
+  PLANNING_GROUP_COLORS,
+  PLANNING_GROUP_LABELS,
+  PLANNING_GROUP_ORDER,
+  matchesOrderClassFilter,
+  resolveOrderClass,
+  resolvePlanningActivityType,
+  resolvePlanningGroup,
+  type OrderClassFilter,
+  type PlanningActivityTypeKey,
+  type PlanningGroupKey
+} from "@/utils/service-order-planning";
 import type {
+  CriticalEquipmentActivitySlice,
   CriticalEquipmentComponent,
+  CriticalEquipmentCorrectivePlannedData,
   CriticalEquipmentDetails,
-  CriticalEquipmentFamilySlice,
+  CriticalEquipmentFieldAvailability,
   CriticalEquipmentFilterOptions,
   CriticalEquipmentFilters,
   CriticalEquipmentHoursPoint,
   CriticalEquipmentItem,
+  CriticalEquipmentPlanningGroupSlice,
   CriticalEquipmentServiceOrder,
   CriticalEquipmentStatusSlice,
   CriticalEquipmentSummary,
@@ -75,11 +93,23 @@ type ServiceOrderRow = {
   responsibleName: string | null;
   planningGroup: string | null;
   planningGroupCode: string | null;
+  planningActivityType: string | null;
+  maintenanceType: string | null;
+  orderType: string | null;
+  type: MaintenanceType | null;
   area: MaintenanceArea | null;
   title: string;
   osNumber: string;
   operation: string | null;
 };
+
+/** Status considerados "em aberto" (backlog) em toda a aba. */
+const OPEN_STATUSES = new Set<ServiceOrderStatusLabel>([
+  "ABERTA",
+  "LIBERADA",
+  "EM_ANDAMENTO",
+  "AGUARDANDO_MATERIAL"
+]);
 
 type ServiceOrderFullRow = ServiceOrderRow & {
   id: string;
@@ -141,10 +171,18 @@ export function getCriticalityLabel(score: number): CriticalityLabel {
 /* Funções públicas                                                   */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Ranking de equipamentos no recorte HISTÓRICO (sem PL/PV) — consumido pelo
+ * dashboard Início (`dashboard.service`). Mantido inalterado de propósito: a
+ * mudança de regra da TAREFA 12 vale para a ABA Equipamentos Críticos.
+ */
 export async function getCriticalEquipmentsByOrders(
   params: Partial<CriticalEquipmentFilters> = {}
 ): Promise<CriticalEquipmentItem[]> {
-  const [rows, lookup] = await Promise.all([fetchRows(params), loadFunctionalLocationLookup()]);
+  const [rows, lookup] = await Promise.all([
+    fetchRowsWithoutProgrammed(params),
+    loadFunctionalLocationLookup()
+  ]);
   const items = analyzeEquipments(rows, params, lookup);
   return items.slice(0, normalizeLimit(params.limit));
 }
@@ -225,7 +263,7 @@ export async function getCriticalEquipmentsSummary(
 ): Promise<CriticalEquipmentSummary> {
   const [rows, lookup] = await Promise.all([fetchRows(params), loadFunctionalLocationLookup()]);
   const items = analyzeEquipments(rows, params, lookup);
-  return buildSummary(items, rows.length, rows.length);
+  return buildSummary(items, rows, rows.length);
 }
 
 export async function getCriticalEquipmentsTrend(
@@ -267,6 +305,8 @@ export async function getCriticalEquipmentDetails(
       workedHours: row.workedHours,
       responsibleName: row.responsibleName,
       planningGroup: row.planningGroup,
+      planningGroupLabel: PLANNING_GROUP_LABELS[resolvePlanningGroup(row)],
+      activityTypeLabel: PLANNING_ACTIVITY_LABELS[resolvePlanningActivityType(row)],
       operation: row.operation,
       equipmentName: row.equipmentName,
       equipmentCode: row.equipmentCode,
@@ -282,6 +322,11 @@ export async function getCriticalEquipmentDetails(
     statusDistribution: buildStatusDistribution(groupRows),
     frequentResponsibles: buildResponsibleStats(groupRows),
     planningGroupBreakdown: topBreakdown(groupRows.map((row) => cleanName(row.planningGroup))),
+    // Detalhamento gerencial do ativo (TAREFA 13): mesmas funções dos dashboards
+    // da página — sem cálculo paralelo.
+    planningGroupDistribution: buildPlanningGroupDistribution(groupRows),
+    activityDistribution: buildActivityDistribution(groupRows),
+    correctivePlanned: buildCorrectivePlanned(groupRows),
     componentBreakdown: buildComponentBreakdown(groupRows, lookup),
     trend: buildTrendForRows(groupRows),
     serviceOrders
@@ -350,6 +395,11 @@ export async function getServiceOrderDetails(osNumber: string): Promise<Critical
         workedHours: true,
         responsibleName: true,
         planningGroup: true,
+        planningGroupCode: true,
+        planningActivityType: true,
+        maintenanceType: true,
+        orderType: true,
+        type: true,
         operation: true,
         equipmentName: true,
         equipmentCode: true,
@@ -376,6 +426,8 @@ export async function getServiceOrderDetails(osNumber: string): Promise<Critical
       workedHours: order.workedHours,
       responsibleName: order.responsibleName,
       planningGroup: order.planningGroup,
+      planningGroupLabel: PLANNING_GROUP_LABELS[resolvePlanningGroup(order)],
+      activityTypeLabel: PLANNING_ACTIVITY_LABELS[resolvePlanningActivityType(order)],
       operation: order.operation,
       equipmentName: order.equipmentName,
       equipmentCode: order.equipmentCode,
@@ -412,17 +464,22 @@ export async function getCriticalEquipmentsPageData(
       loadFunctionalLocationLookup()
     ]);
 
-    // Passo 2: excluir registros de teste sem equipamento ("Equipamento não informado").
+    // Passo 2: única exclusão automática — registros sem equipamento
+    // ("Equipamento não informado"), regra oficial mantida (TAREFA 12).
     const validEquipmentRows = rawRows.filter((row) => !isInvalidTestEquipmentOrder(row));
     const ignoredInvalidEquipment = rawRows.length - validEquipmentRows.length;
 
-    // Passo 3: após período + filtros de tela, excluir PL/PV da criticidade.
-    const rows = validEquipmentRows.filter((row) => !isProgrammedPreventiveOrder(row));
-    const ignoredPreventiveOrders = validEquipmentRows.length - rows.length;
+    // Passo 3: recorte de planejamento ESCOLHIDO PELO USUÁRIO (grupo, tipo de
+    // atividade e corretiva/planejada). PL/PV não são mais excluídas de ofício.
+    const rows = applyPlanningFilters(validEquipmentRows, effective);
+    const ignoredByPlanningFilters = validEquipmentRows.length - rows.length;
+    // Contagem informativa de PL/PV dentro do recorte atual (não é exclusão).
+    const programmedPreventiveOrders = rows.filter((row) => isProgrammedPreventiveOrder(row)).length;
 
-    // Auditoria: totais devem bater com Ordens de Manutenção no mesmo período.
+    // Auditoria: com "Todas as ordens" e mesmo período, `rows.length` deve bater
+    // com o total exibido na aba /dashboard/ordens-servico (TAREFA 14).
     console.info(
-      `[equipamentos-criticos] período ${period.startDate}→${period.endDate} | OS brutas: ${rawRows.length} | equip. não informado ignoradas: ${ignoredInvalidEquipment} | PL/PV ignoradas: ${ignoredPreventiveOrders} | OS consideradas: ${rows.length}`
+      `[equipamentos-criticos] período ${period.startDate}→${period.endDate} | OS brutas: ${rawRows.length} | equip. não informado ignoradas: ${ignoredInvalidEquipment} | fora do recorte de planejamento: ${ignoredByPlanningFilters} | OS consideradas: ${rows.length} (PL/PV incluídas: ${programmedPreventiveOrders})`
     );
 
     const items = analyzeEquipments(rows, effective, lookup);
@@ -440,7 +497,13 @@ export async function getCriticalEquipmentsPageData(
         totalWorkedHours: item.totalWorkedHours
       }));
 
-    const summary = buildSummary(items, rows.length, rawRows.length, ignoredPreventiveOrders, ignoredInvalidEquipment);
+    const summary = buildSummary(
+      items,
+      rows,
+      rawRows.length,
+      programmedPreventiveOrders,
+      ignoredInvalidEquipment
+    );
 
     return {
       period,
@@ -449,13 +512,43 @@ export async function getCriticalEquipmentsPageData(
       hours,
       statusDistribution: buildStatusDistribution(rows),
       trend: buildTrend(rows, items, limit, lookup),
-      familyDistribution: buildFamilyDistribution(items),
+      planningGroupDistribution: buildPlanningGroupDistribution(rows),
+      activityDistribution: buildActivityDistribution(rows),
+      correctivePlanned: buildCorrectivePlanned(rows),
+      // Disponibilidade medida na BASE INTEIRA (não no recorte), para o aviso da
+      // TAREFA 15 não piscar só porque o filtro atual ficou vazio.
+      fieldAvailability: await loadFieldAvailability(),
       filterOptions,
       source: rows.length ? "database" : "empty"
     };
   } catch (error) {
     console.error("Falha ao carregar análise de equipamentos críticos.", error);
     return emptyPageData(period);
+  }
+}
+
+/**
+ * Verifica quais campos do SAP realmente existem NA BASE IMPORTADA (TAREFA 15).
+ * Uma única consulta leve por campo (`findFirst` em coluna não-nula), para a UI
+ * poder trocar um gráfico zerado por um aviso de reimportação.
+ */
+async function loadFieldAvailability(): Promise<CriticalEquipmentFieldAvailability> {
+  try {
+    const [group, activity] = await Promise.all([
+      prisma.serviceOrder.findFirst({
+        where: { OR: [{ planningGroup: { not: null } }, { planningGroupCode: { not: null } }] },
+        select: { id: true }
+      }),
+      prisma.serviceOrder.findFirst({
+        where: { planningActivityType: { not: null } },
+        select: { id: true }
+      })
+    ]);
+
+    return { planningGroup: Boolean(group), planningActivityType: Boolean(activity) };
+  } catch (error) {
+    console.error("Falha ao verificar campos de planejamento na base.", error);
+    return { planningGroup: false, planningActivityType: false };
   }
 }
 
@@ -494,6 +587,12 @@ function analyzeEquipments(
     lastOrderDate: Date | null;
     responsibles: Map<string, number>;
     planningGroups: Map<string, number>;
+    /** Contagem por grupo NORMALIZADO (para "Grupo mais recorrente"). */
+    groupKeys: Map<PlanningGroupKey, number>;
+    /** Contagem por tipo de atividade (para "Tipo mais recorrente"). */
+    activityKeys: Map<PlanningActivityTypeKey, number>;
+    correctiveOrders: number;
+    plannedOrders: number;
     components: Set<string>;
     firstHalfOrders: number;
     secondHalfOrders: number;
@@ -525,6 +624,10 @@ function analyzeEquipments(
         lastOrderDate: null,
         responsibles: new Map(),
         planningGroups: new Map(),
+        groupKeys: new Map(),
+        activityKeys: new Map(),
+        correctiveOrders: 0,
+        plannedOrders: 0,
         components: new Set(),
         firstHalfOrders: 0,
         secondHalfOrders: 0
@@ -566,6 +669,20 @@ function analyzeEquipments(
     const planningGroup = cleanName(row.planningGroup);
     if (planningGroup !== NOT_INFORMED) {
       group.planningGroups.set(planningGroup, (group.planningGroups.get(planningGroup) ?? 0) + 1);
+    }
+
+    // Detalhamento gerencial por planejamento (TAREFAS 3, 5, 6 e 7).
+    const groupKey = resolvePlanningGroup(row);
+    group.groupKeys.set(groupKey, (group.groupKeys.get(groupKey) ?? 0) + 1);
+
+    const activityKey = resolvePlanningActivityType(row);
+    group.activityKeys.set(activityKey, (group.activityKeys.get(activityKey) ?? 0) + 1);
+
+    const orderClass = resolveOrderClass(row);
+    if (orderClass === "CORRETIVA") {
+      group.correctiveOrders += 1;
+    } else if (orderClass === "PLANEJADA") {
+      group.plannedOrders += 1;
     }
   }
 
@@ -610,6 +727,8 @@ function analyzeEquipments(
   let items: CriticalEquipmentItem[] = aggregated.map(({ id, group, backlogOrders }) => {
     const trend = computeTrend(group.firstHalfOrders, group.secondHalfOrders);
     const recurrence = Math.max(0, group.totalOrders - 1);
+    const topGroupKey = pickTopKey(group.groupKeys, "OUTROS");
+    const topActivityKey = pickTopKey(group.activityKeys, "OUTROS");
 
     const score = calculateCriticalityScore({
       totalOrders: group.totalOrders,
@@ -652,6 +771,12 @@ function analyzeEquipments(
       lastOrderDate: group.lastOrderDate?.toISOString() ?? null,
       mainResponsible: pickTop(group.responsibles),
       mainPlanningGroup: pickTop(group.planningGroups),
+      topPlanningGroup: topGroupKey,
+      topPlanningGroupLabel: PLANNING_GROUP_LABELS[topGroupKey],
+      topActivityType: topActivityKey,
+      topActivityTypeLabel: PLANNING_ACTIVITY_LABELS[topActivityKey],
+      correctiveOrders: group.correctiveOrders,
+      plannedOrders: group.plannedOrders,
       criticalityScore: score,
       criticalityLabel: getCriticalityLabel(score)
     };
@@ -672,12 +797,22 @@ function analyzeEquipments(
 
 function buildSummary(
   items: CriticalEquipmentItem[],
-  totalOrders: number,
+  rows: ServiceOrderRow[],
   rawOrders: number,
   ignoredPreventiveOrders = 0,
   ignoredInvalidEquipment = 0
 ): CriticalEquipmentSummary {
+  const totalOrders = rows.length;
   const totalEquipmentsAnalyzed = items.length;
+  const correctivePlanned = buildCorrectivePlanned(rows);
+  const topGroup = buildPlanningGroupDistribution(rows).reduce<CriticalEquipmentPlanningGroupSlice | null>(
+    (best, slice) => (!best || slice.totalOrders > best.totalOrders ? slice : best),
+    null
+  );
+  const topActivity = buildActivityDistribution(rows).reduce<CriticalEquipmentActivitySlice | null>(
+    (best, slice) => (!best || slice.totalOrders > best.totalOrders ? slice : best),
+    null
+  );
   // "Equipamento com mais ordens": prioriza o ativo IDENTIFICADO (com raiz),
   // evitando exibir o bucket genérico como líder.
   const top = items.find((item) => !item.dataQualityIssue) ?? items[0];
@@ -710,7 +845,14 @@ function buildSummary(
       .reduce((sum, item) => sum + item.totalOrders, 0),
     ignoredPreventiveOrders,
     ignoredInvalidEquipment,
-    rawOrdersInPeriod: rawOrders
+    rawOrdersInPeriod: rawOrders,
+    totalCorrectiveOrders: correctivePlanned.correctiveOrders,
+    totalPlannedOrders: correctivePlanned.plannedOrders,
+    // Cards só aparecem com dado real: sem ordens, ficam como "Não informado"/0.
+    topPlanningGroupLabel: topGroup?.label ?? NOT_INFORMED,
+    topPlanningGroupOrders: topGroup?.totalOrders ?? 0,
+    topActivityTypeLabel: topActivity?.label ?? NOT_INFORMED,
+    topActivityTypeOrders: topActivity?.totalOrders ?? 0
   };
 }
 
@@ -759,33 +901,120 @@ function buildTrendForRows(rows: Array<{ openedAt: Date | null }>): CriticalEqui
 }
 
 /**
- * Distribuição de OS por família de equipamento (gráfico de família). Agrupa pelo
- * RÓTULO desambiguado (não pelo código cru), evitando misturar máquinas que
- * reutilizam o mesmo código de família (ex.: PT = Pórtico vs. Plataforma).
+ * Dashboard "Ordens por Grupo de Planejamento" (TAREFA 3). Usa a normalização
+ * central — Mecânica, Elétrica, Serviço Terceiro, Lubrificação, Usinagem e
+ * Outros — e devolve os grupos na ordem oficial, omitindo os zerados.
  */
-function buildFamilyDistribution(items: CriticalEquipmentItem[]): CriticalEquipmentFamilySlice[] {
-  const byFamily = new Map<string, CriticalEquipmentFamilySlice>();
-  for (const item of items) {
-    const label = item.familyLabel || "Não informado";
-    const key = label.toUpperCase();
-    const slice =
-      byFamily.get(key) ??
-      {
-        familyCode: item.familyCode || "",
-        familyLabel: label,
-        totalOrders: 0,
-        totalEquipments: 0,
-        totalWorkedHours: 0
-      };
-    slice.totalOrders += item.totalOrders;
-    slice.totalEquipments += 1;
-    slice.totalWorkedHours += item.totalWorkedHours;
-    byFamily.set(key, slice);
+function buildPlanningGroupDistribution(rows: ServiceOrderRow[]): CriticalEquipmentPlanningGroupSlice[] {
+  const byGroup = new Map<PlanningGroupKey, CriticalEquipmentPlanningGroupSlice>();
+
+  for (const key of PLANNING_GROUP_ORDER) {
+    byGroup.set(key, {
+      group: key,
+      label: PLANNING_GROUP_LABELS[key],
+      color: PLANNING_GROUP_COLORS[key],
+      totalOrders: 0,
+      openOrders: 0,
+      closedOrders: 0,
+      correctiveOrders: 0,
+      plannedOrders: 0
+    });
   }
 
-  return Array.from(byFamily.values())
-    .map((slice) => ({ ...slice, totalWorkedHours: Number(slice.totalWorkedHours.toFixed(3)) }))
-    .sort((a, b) => b.totalOrders - a.totalOrders);
+  for (const row of rows) {
+    const slice = byGroup.get(resolvePlanningGroup(row));
+    if (!slice) {
+      continue;
+    }
+    slice.totalOrders += 1;
+    if (OPEN_STATUSES.has(row.status as ServiceOrderStatusLabel)) {
+      slice.openOrders += 1;
+    } else if (row.status === ServiceOrderStatus.FECHADA) {
+      slice.closedOrders += 1;
+    }
+    const orderClass = resolveOrderClass(row);
+    if (orderClass === "CORRETIVA") {
+      slice.correctiveOrders += 1;
+    } else if (orderClass === "PLANEJADA") {
+      slice.plannedOrders += 1;
+    }
+  }
+
+  return PLANNING_GROUP_ORDER.map((key) => byGroup.get(key)!).filter((slice) => slice.totalOrders > 0);
+}
+
+/**
+ * Dashboard "Ordens por Tipo de Atividade" (TAREFA 5) — responde qual serviço
+ * está sendo mais executado pelas ordens no recorte atual.
+ */
+function buildActivityDistribution(rows: ServiceOrderRow[]): CriticalEquipmentActivitySlice[] {
+  const byActivity = new Map<PlanningActivityTypeKey, CriticalEquipmentActivitySlice>();
+
+  for (const key of PLANNING_ACTIVITY_ORDER) {
+    byActivity.set(key, {
+      activity: key,
+      label: PLANNING_ACTIVITY_LABELS[key],
+      color: PLANNING_ACTIVITY_COLORS[key],
+      totalOrders: 0,
+      openOrders: 0,
+      closedOrders: 0
+    });
+  }
+
+  for (const row of rows) {
+    const slice = byActivity.get(resolvePlanningActivityType(row));
+    if (!slice) {
+      continue;
+    }
+    slice.totalOrders += 1;
+    if (OPEN_STATUSES.has(row.status as ServiceOrderStatusLabel)) {
+      slice.openOrders += 1;
+    } else if (row.status === ServiceOrderStatus.FECHADA) {
+      slice.closedOrders += 1;
+    }
+  }
+
+  return PLANNING_ACTIVITY_ORDER.map((key) => byActivity.get(key)!).filter((slice) => slice.totalOrders > 0);
+}
+
+/**
+ * Dashboard "Ordens Corretivas x Planejadas" (TAREFA 6).
+ * Percentuais calculados sobre corretivas + planejadas (as não classificadas
+ * ficam de fora do rateio, mas são reportadas). Blindado contra divisão por zero.
+ */
+function buildCorrectivePlanned(rows: ServiceOrderRow[]): CriticalEquipmentCorrectivePlannedData {
+  let corrective = 0;
+  let planned = 0;
+  let unclassified = 0;
+
+  for (const row of rows) {
+    const orderClass = resolveOrderClass(row);
+    if (orderClass === "CORRETIVA") {
+      corrective += 1;
+    } else if (orderClass === "PLANEJADA") {
+      planned += 1;
+    } else {
+      unclassified += 1;
+    }
+  }
+
+  const classified = corrective + planned;
+  return {
+    totalOrders: rows.length,
+    correctiveOrders: corrective,
+    plannedOrders: planned,
+    unclassifiedOrders: unclassified,
+    correctivePercent: classified > 0 ? roundPercent((corrective / classified) * 100) : 0,
+    plannedPercent: classified > 0 ? roundPercent((planned / classified) * 100) : 0
+  };
+}
+
+/** Arredonda para 1 casa, nunca devolvendo NaN/Infinity. */
+function roundPercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.round(value * 10) / 10;
 }
 
 /** Ramificações/componentes com mais OS dentro de um ativo raiz (drill-down). */
@@ -794,12 +1023,6 @@ function buildComponentBreakdown(
   lookup: Map<string, FunctionalLocationLite>
 ): CriticalEquipmentComponent[] {
   const byComponent = new Map<string, ComponentAccumulator>();
-  const openStatuses = new Set<ServiceOrderStatusLabel>([
-    "ABERTA",
-    "LIBERADA",
-    "EM_ANDAMENTO",
-    "AGUARDANDO_MATERIAL"
-  ]);
 
   for (const row of rows) {
     const root = getRootFunctionalLocation(row, lookup);
@@ -819,7 +1042,7 @@ function buildComponentBreakdown(
       { tag, description, familyLabel, totalOrders: 0, openOrders: 0, workedHours: 0 };
     acc.totalOrders += 1;
     acc.workedHours += row.workedHours ?? 0;
-    if (openStatuses.has(row.status as ServiceOrderStatusLabel)) {
+    if (OPEN_STATUSES.has(row.status as ServiceOrderStatusLabel)) {
       acc.openOrders += 1;
     }
     byComponent.set(tag, acc);
@@ -912,6 +1135,10 @@ async function fetchRowsRaw(params: Partial<CriticalEquipmentFilters>): Promise<
       responsibleName: true,
       planningGroup: true,
       planningGroupCode: true,
+      planningActivityType: true,
+      maintenanceType: true,
+      orderType: true,
+      type: true,
       area: true,
       title: true,
       osNumber: true,
@@ -921,12 +1148,59 @@ async function fetchRowsRaw(params: Partial<CriticalEquipmentFilters>): Promise<
 }
 
 /**
- * Ordens de Manutenção VÁLIDAS para criticidade: exclui as preventivas
- * programadas (PL/PV) e os registros de teste sem equipamento.
+ * Ordens de Manutenção VÁLIDAS para a análise de criticidade da ABA.
+ *
+ * TAREFA 12 — mudança de regra: PL/PV NÃO são mais excluídas automaticamente
+ * (precisamos enxergar Lubrificação e Preventivas/Planejadas dentro da análise).
+ * O recorte passa a ser escolha do usuário, via filtro `orderClass`
+ * (Todas / Somente corretivas / Somente planejadas).
+ *
+ * Continua valendo a regra oficial: "Equipamento não informado = ignorar".
  */
 async function fetchRows(params: Partial<CriticalEquipmentFilters>): Promise<ServiceOrderRow[]> {
   const rows = await fetchRowsRaw(params);
+  return applyPlanningFilters(rows.filter((row) => !isInvalidTestEquipmentOrder(row)), params);
+}
+
+/**
+ * Ordens elegíveis para os consumidores LEGADOS do dashboard Início
+ * (`getCriticalEquipmentsByOrders` e afins), que seguem trabalhando com o
+ * recorte histórico "sem PL/PV". Preserva o comportamento da aba Início — que
+ * está fora do escopo desta tarefa — sem duplicar a regra.
+ */
+async function fetchRowsWithoutProgrammed(
+  params: Partial<CriticalEquipmentFilters>
+): Promise<ServiceOrderRow[]> {
+  const rows = await fetchRowsRaw(params);
   return rows.filter((row) => !isInvalidTestEquipmentOrder(row) && !isProgrammedPreventiveOrder(row));
+}
+
+/**
+ * Filtros de PLANEJAMENTO aplicados em memória (grupo normalizado, tipo de
+ * atividade e classe corretiva/planejada). Ficam fora do SQL porque dependem da
+ * normalização central — fonte única da regra, sem cálculo paralelo.
+ */
+function applyPlanningFilters<T extends ServiceOrderRow>(
+  rows: T[],
+  params: Partial<CriticalEquipmentFilters>
+): T[] {
+  const groupKeys = new Set(params.planningGroupKeys ?? []);
+  const activityTypes = new Set(params.activityTypes ?? []);
+  const orderClass: OrderClassFilter = params.orderClass ?? "TODAS";
+
+  if (!groupKeys.size && !activityTypes.size && orderClass === "TODAS") {
+    return rows;
+  }
+
+  return rows.filter((row) => {
+    if (groupKeys.size && !groupKeys.has(resolvePlanningGroup(row))) {
+      return false;
+    }
+    if (activityTypes.size && !activityTypes.has(resolvePlanningActivityType(row))) {
+      return false;
+    }
+    return matchesOrderClassFilter(row, orderClass);
+  });
 }
 
 /** Versão com todos os campos exibíveis no detalhe (usada sob demanda no drill-down). */
@@ -946,6 +1220,10 @@ async function fetchRowsFull(params: Partial<CriticalEquipmentFilters>): Promise
       responsibleName: true,
       planningGroup: true,
       planningGroupCode: true,
+      planningActivityType: true,
+      maintenanceType: true,
+      orderType: true,
+      type: true,
       area: true,
       title: true,
       osNumber: true,
@@ -959,7 +1237,8 @@ async function fetchRowsFull(params: Partial<CriticalEquipmentFilters>): Promise
     }
   })) as ServiceOrderFullRow[];
 
-  return rows.filter((row) => !isInvalidTestEquipmentOrder(row) && !isProgrammedPreventiveOrder(row));
+  // Mesmo recorte da aba (TAREFA 12): sem exclusão automática de PL/PV.
+  return applyPlanningFilters(rows.filter((row) => !isInvalidTestEquipmentOrder(row)), params);
 }
 
 function buildWhere(params: Partial<CriticalEquipmentFilters>): Prisma.ServiceOrderWhereInput {
@@ -1141,13 +1420,29 @@ function emptyPageData(period: { startDate: string; endDate: string }): Critical
       ordersWithoutTechnicalCode: 0,
       ignoredPreventiveOrders: 0,
       ignoredInvalidEquipment: 0,
-      rawOrdersInPeriod: 0
+      rawOrdersInPeriod: 0,
+      totalCorrectiveOrders: 0,
+      totalPlannedOrders: 0,
+      topPlanningGroupLabel: NOT_INFORMED,
+      topPlanningGroupOrders: 0,
+      topActivityTypeLabel: NOT_INFORMED,
+      topActivityTypeOrders: 0
     },
     ranking: [],
     hours: [],
     statusDistribution: [],
     trend: [],
-    familyDistribution: [],
+    planningGroupDistribution: [],
+    activityDistribution: [],
+    correctivePlanned: {
+      totalOrders: 0,
+      correctiveOrders: 0,
+      plannedOrders: 0,
+      unclassifiedOrders: 0,
+      correctivePercent: 0,
+      plannedPercent: 0
+    },
+    fieldAvailability: { planningGroup: false, planningActivityType: false },
     filterOptions: { statuses: [], areas: [], planningGroups: [], responsibles: [], families: [], costCenters: [], sectors: [] },
     source: "empty"
   };
@@ -1192,6 +1487,19 @@ function extractComponentFamily(componentTag: string): string {
 
 function normalizeSet(values?: string[]): Set<string> {
   return new Set((values ?? []).filter(Boolean).map((value) => value.toUpperCase()));
+}
+
+/** Chave mais frequente de um Map tipado; devolve `fallback` quando vazio. */
+function pickTopKey<Key extends string>(counts: Map<Key, number>, fallback: Key): Key {
+  let topKey = fallback;
+  let topCount = 0;
+  for (const [key, count] of Array.from(counts.entries())) {
+    if (count > topCount) {
+      topCount = count;
+      topKey = key;
+    }
+  }
+  return topKey;
 }
 
 function pickTop(counts: Map<string, number>): string {

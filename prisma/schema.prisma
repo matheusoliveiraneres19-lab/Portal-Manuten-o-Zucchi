@@ -279,6 +279,13 @@ model ServiceOrder {
   technicalObjectRaw String?
   planningGroup      String?
   planningGroupCode  String?
+  /// Tipo de atividade de manutenção do SAP/Fiori (texto cru, ex.: "Corretiva", "PM02").
+  /// Normalizado para análise por `resolvePlanningActivityType` (utils/service-order-planning).
+  planningActivityType String?
+  /// Tipo de manutenção do SAP (texto cru), quando a coluna existir no export.
+  maintenanceType    String?
+  /// Tipo de ordem do SAP (ex.: "ZM01"), quando a coluna existir no export.
+  orderType          String?
   openedAt           DateTime?
   closedAt           DateTime?
   workedHours        Float?
@@ -304,6 +311,7 @@ model ServiceOrder {
   @@index([equipmentId])
   @@index([equipmentCode])
   @@index([planningGroup])
+  @@index([planningActivityType])
 }
 
 model Purchase {

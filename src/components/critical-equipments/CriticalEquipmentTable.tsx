@@ -25,7 +25,7 @@ export function CriticalEquipmentTable({ items, onSelect }: CriticalEquipmentTab
       </div>
 
       <div className="max-h-[60vh] overflow-auto">
-        <table className="w-full min-w-[1320px] border-collapse text-left text-xs">
+        <table className="w-full min-w-[1620px] border-collapse text-left text-xs">
           <thead className="sticky top-0 z-10 bg-[#efe7d8] text-[10px] uppercase tracking-wide text-[#5a3d12]">
             <tr className="border-b border-zinc-300">
               <th className="px-3 py-2.5 font-bold">#</th>
@@ -34,6 +34,10 @@ export function CriticalEquipmentTable({ items, onSelect }: CriticalEquipmentTab
               <th className="px-3 py-2.5 font-bold">Família</th>
               <th className="px-3 py-2.5 font-bold">Centro de custo</th>
               <th className="px-3 py-2.5 text-right font-bold">Total OS</th>
+              <th className="px-3 py-2.5 text-right font-bold">OS corretivas</th>
+              <th className="px-3 py-2.5 text-right font-bold">OS planejadas</th>
+              <th className="px-3 py-2.5 font-bold">Grupo mais recorrente</th>
+              <th className="px-3 py-2.5 font-bold">Tipo mais recorrente</th>
               <th className="px-3 py-2.5 text-right font-bold">Abertas</th>
               <th className="px-3 py-2.5 text-right font-bold">Fechadas</th>
               <th className="px-3 py-2.5 text-right font-bold">Horas</th>
@@ -65,6 +69,10 @@ export function CriticalEquipmentTable({ items, onSelect }: CriticalEquipmentTab
                 <td className="px-3 py-2.5 text-zinc-700">{text(item.familyLabel)}</td>
                 <td className="px-3 py-2.5 text-zinc-600">{text(item.costCenter)}</td>
                 <td className="px-3 py-2.5 text-right font-semibold text-zinc-900">{int(item.totalOrders)}</td>
+                <td className="px-3 py-2.5 text-right font-semibold text-danger">{int(item.correctiveOrders)}</td>
+                <td className="px-3 py-2.5 text-right font-semibold text-emerald-700">{int(item.plannedOrders)}</td>
+                <td className="px-3 py-2.5 text-zinc-700">{text(item.topPlanningGroupLabel)}</td>
+                <td className="px-3 py-2.5 text-zinc-700">{text(item.topActivityTypeLabel)}</td>
                 <td className="px-3 py-2.5 text-right text-zinc-700">{int(item.backlogOrders)}</td>
                 <td className="px-3 py-2.5 text-right text-zinc-700">{int(item.closedOrders)}</td>
                 <td className="px-3 py-2.5 text-right font-medium text-zinc-900">{hours(item.totalWorkedHours)}</td>

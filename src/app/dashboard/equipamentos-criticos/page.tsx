@@ -1,5 +1,12 @@
 import { CriticalEquipmentsPage, type AppliedCriticalEquipmentFilters } from "@/components/critical-equipments/CriticalEquipmentsPage";
 import { getCriticalEquipmentsPageData } from "@/services/critical-equipments.service";
+import {
+  PLANNING_ACTIVITY_ORDER,
+  PLANNING_GROUP_ORDER,
+  parseOrderClassFilter,
+  type PlanningActivityTypeKey,
+  type PlanningGroupKey
+} from "@/utils/service-order-planning";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +25,9 @@ export default async function EquipamentosCriticosPage({ searchParams = {} }: Cr
     statuses: params.statuses,
     responsibleNames: params.responsibleNames,
     planningGroups: params.planningGroups,
+    planningGroupKeys: params.planningGroupKeys,
+    activityTypes: params.activityTypes,
+    orderClass: params.orderClass,
     areas: params.areas,
     families: params.families,
     costCenters: params.costCenters,
@@ -46,6 +56,14 @@ function parseParams(searchParams: SearchParams): AppliedCriticalEquipmentFilter
     statuses: toArray(searchParams.status) as ServiceOrderStatusLabel[],
     responsibleNames: toArray(searchParams.responsavel),
     planningGroups: toArray(searchParams.grupo),
+    // Valores normalizados: só aceitamos chaves conhecidas (evita filtro inválido vindo da URL).
+    planningGroupKeys: toArray(searchParams.grupoPlan).filter((value): value is PlanningGroupKey =>
+      (PLANNING_GROUP_ORDER as string[]).includes(value)
+    ),
+    activityTypes: toArray(searchParams.atividade).filter((value): value is PlanningActivityTypeKey =>
+      (PLANNING_ACTIVITY_ORDER as string[]).includes(value)
+    ),
+    orderClass: parseOrderClassFilter(firstParam(searchParams.classe)),
     areas: toArray(searchParams.area),
     families: toArray(searchParams.familia),
     costCenters: toArray(searchParams.cc),

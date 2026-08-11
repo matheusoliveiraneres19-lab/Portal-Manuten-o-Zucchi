@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, m } from "framer-motion";
 import { Boxes, Clock, Layers, Loader2, Repeat, Search, Wrench, X } from "lucide-react";
 import { CRITICALITY_COLORS } from "@/components/critical-equipments/criticality";
+import { CriticalEquipmentCorrectivePlannedChart } from "@/components/critical-equipments/CriticalEquipmentCorrectivePlannedChart";
 import { EquipmentOrderDetailModal } from "@/components/critical-equipments/EquipmentOrderDetailModal";
 import type { CriticalEquipmentDetails, CriticalEquipmentServiceOrder } from "@/types/critical-equipments";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
@@ -160,9 +161,56 @@ export function CriticalEquipmentDetailsDrawer({
                 <InlineInfo label="Centro de custo" value={text(item.costCenter)} />
                 <InlineInfo label="Setor / Galpão" value={text(item.sector)} />
                 <InlineInfo label="Grupo principal" value={item.mainPlanningGroup} />
+                <InlineInfo label="Grupo mais recorrente" value={item.topPlanningGroupLabel} />
+                <InlineInfo label="Tipo mais recorrente" value={item.topActivityTypeLabel} />
                 <InlineInfo label="Responsável principal" value={item.mainResponsible} />
                 <InlineInfo label="Última OS" value={date(item.lastOrderDate)} />
               </div>
+
+              {/* Corretivas x planejadas do ativo (TAREFA 13) */}
+              <Section title="Corretivas x planejadas">
+                <CriticalEquipmentCorrectivePlannedChart data={details.correctivePlanned} compact />
+              </Section>
+
+              {/* Ordens por grupo de planejamento (TAREFA 13) */}
+              <Section title="Ordens por grupo de planejamento">
+                {details.planningGroupDistribution.length ? (
+                  <div className="space-y-1.5">
+                    {details.planningGroupDistribution.map((slice) => (
+                      <BreakdownRow
+                        key={slice.group}
+                        color={slice.color}
+                        label={slice.label}
+                        value={slice.totalOrders}
+                        total={item.totalOrders}
+                        hint={`${int(slice.correctiveOrders)} corretivas · ${int(slice.plannedOrders)} planejadas`}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-zinc-500">Não informado.</p>
+                )}
+              </Section>
+
+              {/* Ordens por tipo de atividade (TAREFA 13) */}
+              <Section title="Ordens por tipo de atividade">
+                {details.activityDistribution.length ? (
+                  <div className="space-y-1.5">
+                    {details.activityDistribution.map((slice) => (
+                      <BreakdownRow
+                        key={slice.activity}
+                        color={slice.color}
+                        label={slice.label}
+                        value={slice.totalOrders}
+                        total={item.totalOrders}
+                        hint={`${int(slice.openOrders)} abertas · ${int(slice.closedOrders)} fechadas`}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-zinc-500">Não informado.</p>
+                )}
+              </Section>
 
               {/* Distribuição por status */}
               <Section title="Distribuição por status">
@@ -283,7 +331,7 @@ export function CriticalEquipmentDetailsDrawer({
                             {responsible(order.responsibleName)}
                           </span>
                           <span className="shrink-0 truncate" title={text(order.planningGroup)}>
-                            {text(order.planningGroup)}
+                            {order.planningGroupLabel} · {order.activityTypeLabel}
                           </span>
                         </div>
                       </button>
@@ -317,6 +365,41 @@ function Metric({ icon: Icon, label, value }: { icon: typeof Clock; label: strin
       <p className="mt-1 truncate text-lg font-light text-white" title={value}>
         {value}
       </p>
+    </div>
+  );
+}
+
+/** Linha de breakdown com barra proporcional (grupo / tipo de atividade). */
+function BreakdownRow({
+  color,
+  label,
+  value,
+  total,
+  hint
+}: {
+  color: string;
+  label: string;
+  value: number;
+  total: number;
+  hint?: string;
+}) {
+  // Blindado contra divisão por zero (nunca gera NaN/Infinity na largura).
+  const ratio = total > 0 ? Math.min(100, Math.max(0, (value / total) * 100)) : 0;
+  const width = Number.isFinite(ratio) ? ratio : 0;
+
+  return (
+    <div className="rounded-md border border-gold/10 bg-black/20 px-2.5 py-1.5">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: color }} />
+        <span className="flex-1 truncate text-zinc-300" title={label}>
+          {label}
+        </span>
+        <span className="shrink-0 font-semibold text-champagne">{int(value)}</span>
+      </div>
+      <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/5">
+        <div className="h-full rounded-full" style={{ width: `${width}%`, backgroundColor: color }} />
+      </div>
+      {hint ? <p className="mt-1 text-[10px] text-zinc-500">{hint}</p> : null}
     </div>
   );
 }

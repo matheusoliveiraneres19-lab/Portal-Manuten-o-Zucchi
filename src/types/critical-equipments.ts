@@ -1,4 +1,9 @@
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
+import type {
+  OrderClassFilter,
+  PlanningActivityTypeKey,
+  PlanningGroupKey
+} from "@/utils/service-order-planning";
 
 export type CriticalityLabel = "Normal" | "Monitorado" | "Atenção" | "Crítico";
 
@@ -12,6 +17,12 @@ export type CriticalEquipmentFilters = {
   statuses: ServiceOrderStatusLabel[];
   responsibleNames: string[];
   planningGroups: string[];
+  /** Grupos de planejamento NORMALIZADOS (MEC, ELE, SERVICO_TERCEIRO, ...). */
+  planningGroupKeys: PlanningGroupKey[];
+  /** Tipos de atividade normalizados (CORRETIVA, PREVENTIVA, ...). */
+  activityTypes: PlanningActivityTypeKey[];
+  /** Corretivas / Planejadas / Todas (TAREFA 12). */
+  orderClass: OrderClassFilter;
   areas: string[];
   /** Famílias de equipamento (código, ex.: MF, PZ). */
   families: string[];
@@ -72,8 +83,62 @@ export type CriticalEquipmentItem = {
   lastOrderDate: string | null;
   mainResponsible: string;
   mainPlanningGroup: string;
+  /** Grupo de planejamento normalizado MAIS RECORRENTE no ativo. */
+  topPlanningGroup: PlanningGroupKey;
+  topPlanningGroupLabel: string;
+  /** Tipo de atividade MAIS RECORRENTE no ativo. */
+  topActivityType: PlanningActivityTypeKey;
+  topActivityTypeLabel: string;
+  /** OS classificadas como corretivas neste ativo. */
+  correctiveOrders: number;
+  /** OS planejadas (preventiva + melhoria + inspeção + lubrificação + preditiva + planejada). */
+  plannedOrders: number;
   criticalityScore: number;
   criticalityLabel: CriticalityLabel;
+};
+
+/** Fatia do dashboard "Ordens por Grupo de Planejamento" (TAREFA 3). */
+export type CriticalEquipmentPlanningGroupSlice = {
+  group: PlanningGroupKey;
+  label: string;
+  color: string;
+  totalOrders: number;
+  openOrders: number;
+  closedOrders: number;
+  correctiveOrders: number;
+  plannedOrders: number;
+};
+
+/** Fatia do dashboard "Ordens por Tipo de Atividade" (TAREFA 5). */
+export type CriticalEquipmentActivitySlice = {
+  activity: PlanningActivityTypeKey;
+  label: string;
+  color: string;
+  totalOrders: number;
+  openOrders: number;
+  closedOrders: number;
+};
+
+/** Dados do dashboard "Ordens Corretivas x Planejadas" (TAREFA 6). */
+export type CriticalEquipmentCorrectivePlannedData = {
+  totalOrders: number;
+  correctiveOrders: number;
+  plannedOrders: number;
+  /** OS cujo tipo de atividade veio preenchido mas não reconhecido. */
+  unclassifiedOrders: number;
+  correctivePercent: number;
+  plannedPercent: number;
+};
+
+/**
+ * Disponibilidade dos campos do SAP na base importada (TAREFA 15). Quando falso,
+ * a aba mostra o aviso de reimportação em vez de um gráfico zerado sem explicação.
+ */
+export type CriticalEquipmentFieldAvailability = {
+  /** `planningGroup`/`planningGroupCode` preenchidos em ao menos uma OS do período. */
+  planningGroup: boolean;
+  /** `planningActivityType` preenchido em ao menos uma OS do período. */
+  planningActivityType: boolean;
 };
 
 export type CriticalEquipmentSummary = {
@@ -101,6 +166,16 @@ export type CriticalEquipmentSummary = {
   ignoredInvalidEquipment: number;
   /** Total bruto de OS no período (antes das exclusões). */
   rawOrdersInPeriod: number;
+  /** Total de OS corretivas no período filtrado. */
+  totalCorrectiveOrders: number;
+  /** Total de OS planejadas no período filtrado. */
+  totalPlannedOrders: number;
+  /** Grupo de planejamento mais acionado no período. */
+  topPlanningGroupLabel: string;
+  topPlanningGroupOrders: number;
+  /** Tipo de atividade mais recorrente no período. */
+  topActivityTypeLabel: string;
+  topActivityTypeOrders: number;
 };
 
 export type CriticalEquipmentTrendPoint = {
@@ -125,14 +200,9 @@ export type CriticalEquipmentHoursPoint = {
   totalWorkedHours: number;
 };
 
-/** Fatia da distribuição por família de equipamento. */
-export type CriticalEquipmentFamilySlice = {
-  familyCode: string;
-  familyLabel: string;
-  totalOrders: number;
-  totalEquipments: number;
-  totalWorkedHours: number;
-};
+/* O dashboard "Distribuição por família de equipamento" foi removido (TAREFA 9).
+   A regra de família CONTINUA viva em `familyCode`/`familyLabel` dos itens e no
+   filtro "Família" — ela segue sendo usada para agrupamento técnico. */
 
 /** Componente/ramificação de um equipamento raiz (drill-down). */
 export type CriticalEquipmentComponent = {
@@ -156,6 +226,10 @@ export type CriticalEquipmentServiceOrder = {
   workedHours: number | null;
   responsibleName: string | null;
   planningGroup: string | null;
+  /** Rótulo do grupo de planejamento normalizado (ex.: "Mecânica"). */
+  planningGroupLabel: string;
+  /** Rótulo do tipo de atividade resolvido (ex.: "Corretiva"). */
+  activityTypeLabel: string;
   operation: string | null;
   equipmentName: string | null;
   equipmentCode: string | null;
@@ -177,6 +251,12 @@ export type CriticalEquipmentDetails = {
   statusDistribution: CriticalEquipmentStatusSlice[];
   frequentResponsibles: CriticalEquipmentResponsibleStat[];
   planningGroupBreakdown: Array<{ name: string; count: number }>;
+  /** Drill-down: ordens por grupo de planejamento normalizado (TAREFA 13). */
+  planningGroupDistribution: CriticalEquipmentPlanningGroupSlice[];
+  /** Drill-down: ordens por tipo de atividade (TAREFA 13). */
+  activityDistribution: CriticalEquipmentActivitySlice[];
+  /** Drill-down: corretivas x planejadas do equipamento (TAREFA 13). */
+  correctivePlanned: CriticalEquipmentCorrectivePlannedData;
   /** Ramificações/componentes com mais OS dentro do ativo raiz. */
   componentBreakdown: CriticalEquipmentComponent[];
   /** Evolução mensal das OS deste equipamento. */
@@ -220,8 +300,14 @@ export type CriticalEquipmentsPageData = {
   hours: CriticalEquipmentHoursPoint[];
   statusDistribution: CriticalEquipmentStatusSlice[];
   trend: CriticalEquipmentTrendPoint[];
-  /** Distribuição de OS por família de equipamento. */
-  familyDistribution: CriticalEquipmentFamilySlice[];
+  /** Dashboard "Ordens por Grupo de Planejamento" (TAREFA 3). */
+  planningGroupDistribution: CriticalEquipmentPlanningGroupSlice[];
+  /** Dashboard "Ordens por Tipo de Atividade" (TAREFA 5). */
+  activityDistribution: CriticalEquipmentActivitySlice[];
+  /** Dashboard "Ordens Corretivas x Planejadas" (TAREFA 6). */
+  correctivePlanned: CriticalEquipmentCorrectivePlannedData;
+  /** Campos do SAP presentes na base importada (TAREFA 15). */
+  fieldAvailability: CriticalEquipmentFieldAvailability;
   filterOptions: CriticalEquipmentFilterOptions;
   source: "database" | "empty";
 };

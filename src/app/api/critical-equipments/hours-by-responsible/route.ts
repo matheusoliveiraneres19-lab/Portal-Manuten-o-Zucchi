@@ -1,5 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getEquipmentHoursByResponsible } from "@/services/critical-equipments.service";
+import {
+  PLANNING_ACTIVITY_ORDER,
+  PLANNING_GROUP_ORDER,
+  parseOrderClassFilter,
+  type PlanningActivityTypeKey,
+  type PlanningGroupKey
+} from "@/utils/service-order-planning";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +26,13 @@ export async function GET(request: NextRequest) {
       statuses: params.getAll("status") as ServiceOrderStatusLabel[],
       responsibleNames: params.getAll("responsavel"),
       planningGroups: params.getAll("grupo"),
+      planningGroupKeys: params.getAll("grupoPlan").filter((value): value is PlanningGroupKey =>
+        (PLANNING_GROUP_ORDER as string[]).includes(value)
+      ),
+      activityTypes: params.getAll("atividade").filter((value): value is PlanningActivityTypeKey =>
+        (PLANNING_ACTIVITY_ORDER as string[]).includes(value)
+      ),
+      orderClass: parseOrderClassFilter(params.get("classe")),
       areas: params.getAll("area"),
       families: params.getAll("familia"),
       costCenters: params.getAll("cc"),

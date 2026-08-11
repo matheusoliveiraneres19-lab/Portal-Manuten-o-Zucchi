@@ -5,6 +5,16 @@ import { MultiSelectFilter } from "@/components/service-orders/filters/MultiSele
 import { DateRangeFilter } from "@/components/service-orders/filters/DateRangeFilter";
 import type { AppliedCriticalEquipmentFilters } from "@/components/critical-equipments/CriticalEquipmentsPage";
 import type { CriticalEquipmentFilterOptions } from "@/types/critical-equipments";
+import {
+  ORDER_CLASS_LABELS,
+  PLANNING_ACTIVITY_LABELS,
+  PLANNING_ACTIVITY_ORDER,
+  PLANNING_GROUP_LABELS,
+  PLANNING_GROUP_ORDER,
+  type OrderClassFilter,
+  type PlanningActivityTypeKey,
+  type PlanningGroupKey
+} from "@/utils/service-order-planning";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
 
 const STATUS_OPTIONS: ServiceOrderStatusLabel[] = [
@@ -26,6 +36,20 @@ export const AREA_LABELS: Record<string, string> = {
 
 const AREA_OPTIONS = Object.entries(AREA_LABELS).map(([value, label]) => ({ value, label }));
 const TOP_OPTIONS = [5, 10, 20, 50];
+
+/** Grupos normalizados (TAREFA 2) na ordem oficial do dashboard. */
+const PLANNING_GROUP_OPTIONS = PLANNING_GROUP_ORDER.map((value) => ({
+  value,
+  label: PLANNING_GROUP_LABELS[value]
+}));
+
+/** Tipos de atividade normalizados (TAREFA 4) na ordem oficial do dashboard. */
+const ACTIVITY_OPTIONS = PLANNING_ACTIVITY_ORDER.map((value) => ({
+  value,
+  label: PLANNING_ACTIVITY_LABELS[value]
+}));
+
+const ORDER_CLASS_OPTIONS: OrderClassFilter[] = ["TODAS", "CORRETIVA", "PLANEJADA"];
 
 type CriticalEquipmentFiltersProps = {
   draft: AppliedCriticalEquipmentFilters;
@@ -76,10 +100,45 @@ export function CriticalEquipmentFilters({
 
         <MultiSelectFilter
           label="Grupo de planejamento"
+          options={PLANNING_GROUP_OPTIONS}
+          selected={draft.planningGroupKeys}
+          onChange={(next) => onChange("planningGroupKeys", next as PlanningGroupKey[])}
+          placeholder="Todos os grupos"
+          searchable={false}
+        />
+
+        <MultiSelectFilter
+          label="Tipo de atividade"
+          options={ACTIVITY_OPTIONS}
+          selected={draft.activityTypes}
+          onChange={(next) => onChange("activityTypes", next as PlanningActivityTypeKey[])}
+          placeholder="Todos os tipos"
+          searchable={false}
+        />
+
+        <label className="block">
+          <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+            Corretiva / Planejada
+          </span>
+          <select
+            value={draft.orderClass}
+            onChange={(event) => onChange("orderClass", event.target.value as OrderClassFilter)}
+            className="h-10 w-full rounded-lg border border-gold/15 bg-black/35 px-3 text-sm text-zinc-100 outline-none transition [color-scheme:dark] focus:border-gold/55 focus:bg-black/50"
+          >
+            {ORDER_CLASS_OPTIONS.map((value) => (
+              <option key={value} value={value}>
+                {ORDER_CLASS_LABELS[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <MultiSelectFilter
+          label="Grupo (rótulo SAP)"
           options={options.planningGroups.map((value) => ({ value, label: value }))}
           selected={draft.planningGroups}
           onChange={(next) => onChange("planningGroups", next)}
-          placeholder="Todos os grupos"
+          placeholder="Todos os rótulos"
         />
 
         <MultiSelectFilter

@@ -54,6 +54,9 @@ type NormalizedServiceOrder = {
   technicalObjectRaw: string | null;
   planningGroup: string | null;
   planningGroupCode: string | null;
+  planningActivityType: string | null;
+  maintenanceType: string | null;
+  orderType: string | null;
   openedAt: Date | null;
   closedAt: Date | null;
   workedHours: number | null;
@@ -109,6 +112,9 @@ export async function importServiceOrdersFromNormalizedRows(
           technicalObjectRaw: normalized.technicalObjectRaw,
           planningGroup: normalized.planningGroup,
           planningGroupCode: normalized.planningGroupCode,
+          planningActivityType: normalized.planningActivityType,
+          maintenanceType: normalized.maintenanceType,
+          orderType: normalized.orderType,
           openedAt: normalized.openedAt,
           closedAt: normalized.closedAt,
           workedHours: normalized.workedHours,
@@ -136,6 +142,9 @@ export async function importServiceOrdersFromNormalizedRows(
           technicalObjectRaw: normalized.technicalObjectRaw,
           planningGroup: normalized.planningGroup,
           planningGroupCode: normalized.planningGroupCode,
+          planningActivityType: normalized.planningActivityType,
+          maintenanceType: normalized.maintenanceType,
+          orderType: normalized.orderType,
           openedAt: normalized.openedAt,
           closedAt: normalized.closedAt,
           workedHours: normalized.workedHours,
@@ -280,6 +289,11 @@ function normalizeServiceOrderRow(row: LinhaOrdemServicoNormalizada, line: numbe
     technicalObjectRaw: optionalText(row.technicalObject),
     planningGroup: optionalText(row.planningGroup),
     planningGroupCode: optionalText(row.planningGroupCode),
+    // Campos OPCIONAIS do SAP/Fiori: ficam null quando a coluna não existe na
+    // planilha. A aba Equipamentos Críticos detecta a ausência e avisa o usuário.
+    planningActivityType: optionalText(row.planningActivityType),
+    maintenanceType: optionalText(row.maintenanceType),
+    orderType: optionalText(row.orderType),
     openedAt,
     closedAt,
     workedHours,

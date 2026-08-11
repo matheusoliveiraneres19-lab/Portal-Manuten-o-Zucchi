@@ -35,12 +35,38 @@ const CriticalEquipmentTrendChart = dynamic(
   () => import("@/components/critical-equipments/CriticalEquipmentTrendChart").then((m) => m.CriticalEquipmentTrendChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-8" /> }
 );
-const CriticalEquipmentFamilyChart = dynamic(
-  () => import("@/components/critical-equipments/CriticalEquipmentFamilyChart").then((m) => m.CriticalEquipmentFamilyChart),
+const CriticalEquipmentPlanningGroupChart = dynamic(
+  () =>
+    import("@/components/critical-equipments/CriticalEquipmentPlanningGroupChart").then(
+      (m) => m.CriticalEquipmentPlanningGroupChart
+    ),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-8" /> }
+);
+const CriticalEquipmentCorrectivePlannedChart = dynamic(
+  () =>
+    import("@/components/critical-equipments/CriticalEquipmentCorrectivePlannedChart").then(
+      (m) => m.CriticalEquipmentCorrectivePlannedChart
+    ),
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-4" /> }
+);
+const CriticalEquipmentActivityChart = dynamic(
+  () =>
+    import("@/components/critical-equipments/CriticalEquipmentActivityChart").then(
+      (m) => m.CriticalEquipmentActivityChart
+    ),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-12" /> }
 );
 import { CriticalEquipmentEmptyState } from "@/components/critical-equipments/CriticalEquipmentEmptyState";
+import { CriticalEquipmentFieldNotice } from "@/components/critical-equipments/CriticalEquipmentFieldNotice";
 import type { CriticalEquipmentsPageData } from "@/types/critical-equipments";
+import {
+  ORDER_CLASS_LABELS,
+  PLANNING_ACTIVITY_LABELS,
+  PLANNING_GROUP_LABELS,
+  type OrderClassFilter,
+  type PlanningActivityTypeKey,
+  type PlanningGroupKey
+} from "@/utils/service-order-planning";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
 
 export type AppliedCriticalEquipmentFilters = {
@@ -49,6 +75,9 @@ export type AppliedCriticalEquipmentFilters = {
   statuses: ServiceOrderStatusLabel[];
   responsibleNames: string[];
   planningGroups: string[];
+  planningGroupKeys: PlanningGroupKey[];
+  activityTypes: PlanningActivityTypeKey[];
+  orderClass: OrderClassFilter;
   areas: string[];
   families: string[];
   costCenters: string[];
@@ -223,15 +252,18 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
             Identifique os ativos com maior volume de ordens, maior esforço de manutenção e maior risco operacional.
           </p>
           <p className="mt-2 max-w-3xl text-[11px] leading-relaxed text-zinc-400">
-            Regras aplicadas: ordens preventivas <strong className="font-semibold text-champagne">PL/PV</strong> são
-            ignoradas nesta análise e acompanhadas na aba Preventivas Programadas
+            Regra aplicada: ordens sem equipamento identificado (
+            <strong className="font-semibold text-champagne">Equipamento não informado</strong>) são ignoradas. As
+            preventivas e lubrificações programadas <strong className="font-semibold text-champagne">PL/PV</strong>{" "}
+            agora <strong className="font-semibold text-champagne">entram</strong> na análise — use o filtro
+            &ldquo;Corretiva / Planejada&rdquo; para recortar
             {data.summary.ignoredPreventiveOrders > 0 ? (
               <>
                 {" "}(
                 <strong className="font-semibold text-champagne">
                   {data.summary.ignoredPreventiveOrders.toLocaleString("pt-BR")}
                 </strong>{" "}
-                ignorada{data.summary.ignoredPreventiveOrders === 1 ? "" : "s"} no período)
+                PL/PV inclusa{data.summary.ignoredPreventiveOrders === 1 ? "" : "s"} no recorte atual)
               </>
             ) : null}
             .
@@ -240,10 +272,11 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
             <p className="mt-1.5 max-w-3xl text-[11px] leading-relaxed text-zinc-500">
               Auditoria do período: <strong className="text-zinc-300">{fmt(data.summary.rawOrdersInPeriod)}</strong> OS
               brutas · <strong className="text-zinc-300">{fmt(data.summary.ignoredInvalidEquipment)}</strong> equip. não
-              informado ignoradas · <strong className="text-zinc-300">{fmt(data.summary.ignoredPreventiveOrders)}</strong>{" "}
-              PL/PV ignoradas · <strong className="text-zinc-300">{fmt(data.summary.totalOrdersInPeriod)}</strong>{" "}
-              consideradas · <strong className="text-zinc-300">{fmt(data.summary.ordersWithoutTechnicalCode)}</strong> sem
-              local raiz identificado.
+              informado ignoradas · <strong className="text-zinc-300">{fmt(data.summary.totalOrdersInPeriod)}</strong>{" "}
+              consideradas (<strong className="text-zinc-300">{fmt(data.summary.ignoredPreventiveOrders)}</strong>{" "}
+              PL/PV inclusas) · <strong className="text-zinc-300">{fmt(data.summary.ordersWithoutTechnicalCode)}</strong>{" "}
+              sem local raiz identificado. Com &ldquo;Todas as ordens&rdquo;, o total considerado bate com a aba Ordens
+              de Manutenção no mesmo período.
             </p>
           ) : null}
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-zinc-400">
@@ -280,6 +313,8 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
         <>
           <CriticalEquipmentKpiCards summary={data.summary} />
 
+          <CriticalEquipmentFieldNotice availability={data.fieldAvailability} />
+
           {data.summary.ordersWithoutTechnicalCode > 0 ? (
             <div className="flex items-start gap-2 rounded-lg border border-gold/30 bg-gold/5 px-3 py-2 text-[12px] text-champagne">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
@@ -304,7 +339,14 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
             <CriticalEquipmentHoursChart items={data.hours} onSelect={openHoursByResponsible} />
             <CriticalEquipmentTrendChart points={data.trend} />
             <CriticalEquipmentStatusChart slices={data.statusDistribution} />
-            <CriticalEquipmentFamilyChart slices={data.familyDistribution} />
+            {data.fieldAvailability.planningGroup ? (
+              <CriticalEquipmentPlanningGroupChart slices={data.planningGroupDistribution} />
+            ) : null}
+            <CriticalEquipmentCorrectivePlannedChart data={data.correctivePlanned} />
+            <CriticalEquipmentActivityChart
+              slices={data.activityDistribution}
+              fieldAvailable={data.fieldAvailability.planningActivityType}
+            />
           </section>
 
           <CriticalEquipmentTable items={data.ranking} onSelect={openDetails} />
@@ -345,6 +387,9 @@ function filtersToParams(filters: AppliedCriticalEquipmentFilters): URLSearchPar
   if (filters.endDate) params.set("endDate", filters.endDate);
   filters.statuses.forEach((status) => params.append("status", status));
   filters.planningGroups.forEach((group) => params.append("grupo", group));
+  filters.planningGroupKeys.forEach((key) => params.append("grupoPlan", key));
+  filters.activityTypes.forEach((key) => params.append("atividade", key));
+  if (filters.orderClass && filters.orderClass !== "TODAS") params.set("classe", filters.orderClass);
   filters.responsibleNames.forEach((responsible) => params.append("responsavel", responsible));
   filters.areas.forEach((area) => params.append("area", area));
   filters.families.forEach((family) => params.append("familia", family));
@@ -389,6 +434,34 @@ function buildChips(
       groupLabel: "Grupo",
       valueLabel: group,
       onRemove: () => apply({ ...filters, planningGroups: filters.planningGroups.filter((value) => value !== group) })
+    });
+  }
+
+  for (const key of filters.planningGroupKeys) {
+    chips.push({
+      id: `grupoPlan:${key}`,
+      groupLabel: "Grupo de planejamento",
+      valueLabel: PLANNING_GROUP_LABELS[key] ?? key,
+      onRemove: () =>
+        apply({ ...filters, planningGroupKeys: filters.planningGroupKeys.filter((value) => value !== key) })
+    });
+  }
+
+  for (const key of filters.activityTypes) {
+    chips.push({
+      id: `atividade:${key}`,
+      groupLabel: "Tipo de atividade",
+      valueLabel: PLANNING_ACTIVITY_LABELS[key] ?? key,
+      onRemove: () => apply({ ...filters, activityTypes: filters.activityTypes.filter((value) => value !== key) })
+    });
+  }
+
+  if (filters.orderClass && filters.orderClass !== "TODAS") {
+    chips.push({
+      id: `classe:${filters.orderClass}`,
+      groupLabel: "Classe",
+      valueLabel: ORDER_CLASS_LABELS[filters.orderClass],
+      onRemove: () => apply({ ...filters, orderClass: "TODAS" })
     });
   }
 
