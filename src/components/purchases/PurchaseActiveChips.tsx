@@ -6,7 +6,11 @@ import {
   PURCHASE_OPERATIONAL_STATUS_LABELS
 } from "@/utils/purchase-classification";
 import type { PurchaseOperationalStatus } from "@/types/purchases";
-import { countActiveFilters, type AppliedPurchaseFilters } from "@/components/purchases/filters";
+import {
+  CLASSIFICATION_FILTER_KEYS,
+  countActiveFilters,
+  type AppliedPurchaseFilters
+} from "@/components/purchases/filters";
 
 type Chip = { key: keyof AppliedPurchaseFilters; value?: string; label: string };
 
@@ -29,6 +33,9 @@ export function PurchaseActiveChips({ filters, onRemove }: PurchaseActiveChipsPr
     chips.push({ key: "statuses", value, label: `Status: ${PURCHASE_OPERATIONAL_STATUS_LABELS[value as PurchaseOperationalStatus] ?? value}` })
   );
   filters.requesters.forEach((value) => chips.push({ key: "requesters", value, label: `Requisitante: ${value}` }));
+  for (const { level, key } of CLASSIFICATION_FILTER_KEYS) {
+    (filters[key] as string[]).forEach((value) => chips.push({ key, value, label: `${level}: ${value}` }));
+  }
 
   if (filters.startDate || filters.endDate) {
     chips.push({ key: "startDate", label: `Período: ${filters.startDate || "…"} → ${filters.endDate || "…"}` });

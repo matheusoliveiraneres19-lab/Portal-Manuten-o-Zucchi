@@ -2,7 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
-import type { PurchaseGroupCount, PurchaseMonthlyPoint, PurchaseRequesterCount, PurchaseStatusSlice, PurchaseSupplierSlice } from "@/types/purchases";
+import type { PurchaseClassificationSlice, PurchaseGroupCount, PurchaseMonthlyPoint, PurchaseRequesterCount, PurchaseStatusSlice, PurchaseSupplierSlice } from "@/types/purchases";
 
 type CardProps = { title: string; subtitle?: string; className?: string };
 
@@ -106,4 +106,9 @@ export function goodsGroupsToRank(groups: PurchaseGroupCount[]): RankItem[] {
 
 export function requestersToRank(requesters: PurchaseRequesterCount[]): RankItem[] {
   return requesters.map((item) => ({ label: item.requester, count: item.count }));
+}
+
+/** Fatias de um nível de classificação (N1/N2) -> ranking horizontal. */
+export function classificationToRank(slices: PurchaseClassificationSlice[], limit = 12): RankItem[] {
+  return slices.slice(0, limit).map((slice) => ({ label: slice.label, count: slice.count }));
 }

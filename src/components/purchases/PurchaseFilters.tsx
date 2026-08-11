@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, FilterX, SlidersHorizontal } from "lucide-react";
+import { Check, FilterX, Layers, SlidersHorizontal } from "lucide-react";
 import { DateRangeFilter } from "@/components/service-orders/filters/DateRangeFilter";
 import { MultiSelectFilter } from "@/components/common/MultiSelectFilter";
 import {
@@ -8,8 +8,12 @@ import {
   PURCHASE_KIND_FILTER_LABELS,
   PURCHASE_OPERATIONAL_STATUS_LABELS
 } from "@/utils/purchase-classification";
-import type { PurchaseFilterOptions } from "@/types/purchases";
-import { PURCHASE_KIND_VALUES, type AppliedPurchaseFilters } from "@/components/purchases/filters";
+import type { PurchaseClassificationOptions, PurchaseFilterOptions } from "@/types/purchases";
+import {
+  CLASSIFICATION_FILTER_KEYS,
+  PURCHASE_KIND_VALUES,
+  type AppliedPurchaseFilters
+} from "@/components/purchases/filters";
 
 type PurchaseFiltersProps = {
   draft: AppliedPurchaseFilters;
@@ -18,6 +22,12 @@ type PurchaseFiltersProps = {
   onChange: <Key extends keyof AppliedPurchaseFilters>(key: Key, value: AppliedPurchaseFilters[Key]) => void;
   onApply: () => void;
   onClear: () => void;
+  /**
+   * Opções em cascata dos filtros N1/N2/N3/N4. Só a aba Compras Pendentes
+   * fornece — sem elas, a seção de classificação nem é renderizada (Compras
+   * Realizadas segue exatamente como estava).
+   */
+  classificationOptions?: PurchaseClassificationOptions;
 };
 
 const selectClassName =
@@ -27,7 +37,27 @@ const labelClassName = "mb-1.5 block text-[11px] font-semibold uppercase trackin
 const KIND_OPTIONS = PURCHASE_KIND_VALUES.map((value) => ({ value, label: PURCHASE_KIND_FILTER_LABELS[value] ?? value }));
 const DATE_FIELD_OPTIONS = Object.entries(PURCHASE_DATE_FIELD_LABELS).map(([value, label]) => ({ value, label }));
 
-export function PurchaseFilters({ draft, options, isPending, onChange, onApply, onClear }: PurchaseFiltersProps) {
+export function PurchaseFilters({
+  draft,
+  options,
+  isPending,
+  onChange,
+  onApply,
+  onClear,
+  classificationOptions
+}: PurchaseFiltersProps) {
+  /**
+   * Ao mudar um nível, LIMPA os níveis abaixo dele: uma seleção de N3 herdada de
+   * outro N1 deixaria o resultado vazio sem o usuário entender o motivo.
+   */
+  function handleClassificationChange(key: (typeof CLASSIFICATION_FILTER_KEYS)[number]["key"], values: string[]) {
+    onChange(key, values);
+    const index = CLASSIFICATION_FILTER_KEYS.findIndex((item) => item.key === key);
+    for (const deeper of CLASSIFICATION_FILTER_KEYS.slice(index + 1)) {
+      onChange(deeper.key, []);
+    }
+  }
+
   return (
     <div className="rounded-lg border border-gold/20 bg-[#080909] p-4 shadow-premium sm:p-5">
       <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-gold">
@@ -119,6 +149,35 @@ export function PurchaseFilters({ draft, options, isPending, onChange, onApply, 
           />
         </label>
       </div>
+
+      {classificationOptions ? (
+        <div className="mt-5 border-t border-gold/10 pt-4">
+          <div className="mb-3 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-gold">
+            <Layers className="h-3.5 w-3.5" />
+            Classificação N1 &rsaquo; N2 &rsaquo; N3 &rsaquo; N4
+          </div>
+          <div className="grid gap-x-4 gap-y-4 md:grid-cols-2 xl:grid-cols-4">
+            {CLASSIFICATION_FILTER_KEYS.map(({ level, key, param }) => {
+              const levelOptions = classificationOptions[param];
+              const selected = draft[key] as string[];
+              return (
+                <MultiSelectFilter
+                  key={key}
+                  label={level}
+                  options={levelOptions}
+                  selectedValues={selected}
+                  onChange={(values) => handleClassificationChange(key, values)}
+                  placeholder={levelOptions.length ? `Todos os ${level}` : `Sem ${level} na base`}
+                  searchPlaceholder={`Buscar ${level}...`}
+                />
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[10px] text-zinc-500">
+            Filtros em cascata: escolher um N1 restringe as opções de N2, e assim por diante.
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-5 flex flex-col gap-2 border-t border-gold/10 pt-4 sm:flex-row sm:items-center sm:justify-end">
         <button

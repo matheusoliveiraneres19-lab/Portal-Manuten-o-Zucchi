@@ -16,6 +16,11 @@ export type AppliedPurchaseFilters = {
   /** Status operacional canônico (enum). */
   statuses: string[];
   requesters: string[];
+  /** Classificação N1..N4 (só usada na aba Compras Pendentes). */
+  classificationsN1: string[];
+  classificationsN2: string[];
+  classificationsN3: string[];
+  classificationsN4: string[];
   /** "" = data de referência (padrão); senão um campo de data específico. */
   dateField: string;
   startDate: string;
@@ -30,6 +35,10 @@ export const EMPTY_PURCHASE_FILTERS: AppliedPurchaseFilters = {
   kinds: [],
   statuses: [],
   requesters: [],
+  classificationsN1: [],
+  classificationsN2: [],
+  classificationsN3: [],
+  classificationsN4: [],
   dateField: "",
   startDate: "",
   endDate: ""
@@ -42,8 +51,20 @@ export const MULTI_FILTER_KEYS = [
   "purchasingGroups",
   "kinds",
   "statuses",
-  "requesters"
+  "requesters",
+  "classificationsN1",
+  "classificationsN2",
+  "classificationsN3",
+  "classificationsN4"
 ] as const;
+
+/** Níveis de classificação e a chave de filtro correspondente (ordem hierárquica). */
+export const CLASSIFICATION_FILTER_KEYS = [
+  { level: "N1", key: "classificationsN1", param: "n1" },
+  { level: "N2", key: "classificationsN2", param: "n2" },
+  { level: "N3", key: "classificationsN3", param: "n3" },
+  { level: "N4", key: "classificationsN4", param: "n4" }
+] as const satisfies ReadonlyArray<{ level: string; key: keyof AppliedPurchaseFilters; param: string }>;
 
 const DATE_FIELDS = ["requisitionDate", "purchaseOrderDate", "expectedDeliveryDate", "receiptDate"];
 export const PURCHASE_KIND_VALUES = ["material", "servico", "regularizacao", "ignorado"];
@@ -83,6 +104,10 @@ export function purchaseFiltersToParams(filters: AppliedPurchaseFilters): URLSea
   setCsv("tipos", filters.kinds);
   setCsv("status", filters.statuses);
   setCsv("requisitantes", filters.requesters);
+  setCsv("n1", filters.classificationsN1);
+  setCsv("n2", filters.classificationsN2);
+  setCsv("n3", filters.classificationsN3);
+  setCsv("n4", filters.classificationsN4);
   if (filters.dateField) params.set("campoData", filters.dateField);
   if (filters.startDate) params.set("startDate", filters.startDate);
   if (filters.endDate) params.set("endDate", filters.endDate);
@@ -127,6 +152,11 @@ export function parsePurchaseQueryParams(searchParams: SearchParams): PurchaseQu
     kinds: csvParam(searchParams.tipos, PURCHASE_KIND_VALUES) as PurchaseKindFilter[],
     statuses: csvParam(searchParams.status, PURCHASE_STATUS_VALUES) as PurchaseOperationalStatus[],
     requesters: csvParam(searchParams.requisitantes),
+    // Valores livres (vêm da planilha) — só normalizamos espaços/duplicatas.
+    classificationsN1: csvParam(searchParams.n1),
+    classificationsN2: csvParam(searchParams.n2),
+    classificationsN3: csvParam(searchParams.n3),
+    classificationsN4: csvParam(searchParams.n4),
     dateField: dateFieldRaw && DATE_FIELDS.includes(dateFieldRaw) ? (dateFieldRaw as PurchaseDateField) : undefined,
     startDate: firstParam(searchParams.startDate),
     endDate: firstParam(searchParams.endDate),
@@ -145,6 +175,10 @@ export function queryParamsToFilters(params: PurchaseQueryParams): AppliedPurcha
     kinds: params.kinds ?? [],
     statuses: params.statuses ?? [],
     requesters: params.requesters ?? [],
+    classificationsN1: params.classificationsN1 ?? [],
+    classificationsN2: params.classificationsN2 ?? [],
+    classificationsN3: params.classificationsN3 ?? [],
+    classificationsN4: params.classificationsN4 ?? [],
     dateField: params.dateField ?? "",
     startDate: params.startDate ?? "",
     endDate: params.endDate ?? ""

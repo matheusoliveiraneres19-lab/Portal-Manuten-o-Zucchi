@@ -13,7 +13,11 @@
 import { Prisma, PurchaseOperationalStatus, PurchaseStatus, PurchaseType } from "@prisma/client";
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
-import { getPurchaseRecordReferenceDate, resolvePurchaseValue } from "@/utils/purchases-normalizer";
+import {
+  getPurchaseRecordReferenceDate,
+  normalizeClassificationLevel,
+  resolvePurchaseValue
+} from "@/utils/purchases-normalizer";
 import {
   PURCHASE_OPERATIONAL_STATUS_LABELS,
   classificationReasonFor,
@@ -27,6 +31,10 @@ import type {
   CompletedPurchasesPageData,
   PaginatedPurchases,
   PendingPurchasesPageData,
+  PurchaseClassificationInsights,
+  PurchaseClassificationNode,
+  PurchaseClassificationOptions,
+  PurchaseClassificationSlice,
   PurchaseFilterOptions,
   PurchaseGroupCount,
   PurchaseKindFilter,
@@ -167,6 +175,19 @@ function buildFilterWhere(params: PurchaseQueryParams = {}, today: Date): Prisma
   }
   if (params.requesters?.length) {
     and.push({ requester: { in: params.requesters } });
+  }
+  // Classificação N1..N4: AND entre níveis, OR dentro de cada nível. Aplicado no
+  // SQL para que tabela, paginação, KPIs e gráficos vejam exatamente o mesmo
+  // conjunto — sem recorte paralelo na UI.
+  for (const [field, values] of [
+    ["classificationN1", params.classificationsN1],
+    ["classificationN2", params.classificationsN2],
+    ["classificationN3", params.classificationsN3],
+    ["classificationN4", params.classificationsN4]
+  ] as const) {
+    if (values?.length) {
+      and.push({ [field]: { in: values } } as Prisma.PurchaseRecordWhereInput);
+    }
   }
   if (params.statuses?.length) {
     and.push({ OR: params.statuses.map((status) => statusWhere(status, today)) });
@@ -358,6 +379,10 @@ const rowSelect = {
   purchaseType: true,
   goodsGroupCode: true,
   goodsGroupDescription: true,
+  classificationN1: true,
+  classificationN2: true,
+  classificationN3: true,
+  classificationN4: true,
   itemNature: true,
   requester: true
 } satisfies Prisma.PurchaseRecordSelect;
@@ -425,6 +450,10 @@ function toRow(record: RowRecord, today: Date): PurchaseRow {
     purchaseType: record.purchaseType,
     goodsGroupCode: record.goodsGroupCode,
     goodsGroupDescription: record.goodsGroupDescription,
+    classificationN1: record.classificationN1,
+    classificationN2: record.classificationN2,
+    classificationN3: record.classificationN3,
+    classificationN4: record.classificationN4,
     itemNature: record.itemNature,
     requester: record.requester
   };
@@ -474,6 +503,10 @@ const analysisSelect = {
   requisitionNumber: true,
   goodsGroupCode: true,
   goodsGroupDescription: true,
+  classificationN1: true,
+  classificationN2: true,
+  classificationN3: true,
+  classificationN4: true,
   requisitionDate: true,
   expectedDeliveryDate: true,
   receiptDate: true,
@@ -614,6 +647,218 @@ function topRequesters(records: AnalysisRow[], limit = 7): PurchaseRequesterCoun
     .map(([requester, count]) => ({ requester, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, limit);
+}
+
+/* ------------------------------------------------------------------ */
+/* Classificação N1 > N2 > N3 > N4                                    */
+/* ------------------------------------------------------------------ */
+
+/** Campo do registro correspondente a cada nível. */
+const CLASSIFICATION_FIELDS = ["classificationN1", "classificationN2", "classificationN3", "classificationN4"] as const;
+type ClassificationField = (typeof CLASSIFICATION_FIELDS)[number];
+
+/** Linha mínima para as agregações de classificação. */
+export type ClassifiableRow = Pick<AnalysisRow, ClassificationField>;
+
+/**
+ * Conta as ocorrências de um nível agrupando pelo valor EXATO gravado.
+ *
+ * Deliberadamente NÃO mescla grafias equivalentes ("ELETRICA" vs. "Elétrica"):
+ * o filtro da tabela usa `in` com o texto exato no SQL, então mesclar aqui faria
+ * o gráfico mostrar um total que o filtro não consegue reproduzir. Com o
+ * agrupamento exato, gráfico, filtro, tabela e paginação enxergam sempre o mesmo
+ * conjunto — e uma planilha com a mesma categoria escrita de dois jeitos fica
+ * visível para correção, em vez de silenciosamente escondida.
+ *
+ * Itens sem valor ficam de fora (não viram categoria falsa). Maior → menor.
+ */
+function countByLevel(rows: ClassifiableRow[], field: ClassificationField): PurchaseClassificationSlice[] {
+  const totals = new Map<string, PurchaseClassificationSlice>();
+  for (const row of rows) {
+    const label = normalizeClassificationLevel(row[field]);
+    if (!label) {
+      continue;
+    }
+    const entry = totals.get(label) ?? { key: label, label, count: 0 };
+    entry.count += 1;
+    totals.set(label, entry);
+  }
+  return Array.from(totals.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "pt-BR"));
+}
+
+/**
+ * Monta a árvore N1 > N2 > N3 > N4 (TAREFA 9). Um registro alimenta a contagem
+ * de cada nível que possui; a descida para no primeiro nível vazio, para não
+ * criar um ramo "sem nome" no meio da hierarquia.
+ */
+function buildClassificationTree(rows: ClassifiableRow[]): PurchaseClassificationNode[] {
+  const roots = new Map<string, PurchaseClassificationNode>();
+
+  for (const row of rows) {
+    let level = roots;
+    let node: PurchaseClassificationNode | null = null;
+
+    for (const field of CLASSIFICATION_FIELDS) {
+      const label = normalizeClassificationLevel(row[field]);
+      if (!label) {
+        break;
+      }
+      // Mesma decisão do `countByLevel`: agrupa pelo valor EXATO gravado.
+      node = level.get(label) ?? { key: label, label, count: 0, children: [] };
+      node.count += 1;
+      level.set(label, node);
+      // Índice auxiliar dos filhos para o próximo nível (Map só na montagem).
+      level = childIndex(node);
+    }
+  }
+
+  return sortNodes(Array.from(roots.values()));
+}
+
+/** Map de filhos de um nó (criado sob demanda e removido ao final). */
+const CHILD_INDEX = new WeakMap<PurchaseClassificationNode, Map<string, PurchaseClassificationNode>>();
+
+function childIndex(node: PurchaseClassificationNode): Map<string, PurchaseClassificationNode> {
+  let index = CHILD_INDEX.get(node);
+  if (!index) {
+    index = new Map<string, PurchaseClassificationNode>();
+    CHILD_INDEX.set(node, index);
+  }
+  return index;
+}
+
+/** Materializa `children` a partir do índice e ordena por contagem, recursivamente. */
+function sortNodes(nodes: PurchaseClassificationNode[]): PurchaseClassificationNode[] {
+  for (const node of nodes) {
+    const index = CHILD_INDEX.get(node);
+    node.children = index ? sortNodes(Array.from(index.values())) : [];
+  }
+  return nodes.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "pt-BR"));
+}
+
+/**
+ * Aplica os filtros N1..N4 em memória (mesma semântica do SQL: AND entre níveis).
+ * Exportada junto com os agregadores abaixo para permitir verificação isolada,
+ * sem depender de dados gravados no banco.
+ */
+export function matchesClassificationFilters(row: ClassifiableRow, params: PurchaseQueryParams): boolean {
+  const selections: Array<[ClassificationField, string[] | undefined]> = [
+    ["classificationN1", params.classificationsN1],
+    ["classificationN2", params.classificationsN2],
+    ["classificationN3", params.classificationsN3],
+    ["classificationN4", params.classificationsN4]
+  ];
+  for (const [field, values] of selections) {
+    if (values?.length && !values.includes(row[field] ?? "")) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Opções dos filtros em CASCATA (TAREFA 4): cada nível só oferece os valores que
+ * ainda existem dado o que foi escolhido nos níveis ACIMA dele. O nível corrente
+ * não se auto-restringe, senão o usuário não conseguiria marcar um segundo valor.
+ */
+export function buildClassificationOptions(
+  rows: ClassifiableRow[],
+  params: PurchaseQueryParams
+): PurchaseClassificationOptions {
+  const upstream = (upTo: number): ClassifiableRow[] => {
+    const selections: Array<[ClassificationField, string[] | undefined]> = [
+      ["classificationN1", params.classificationsN1],
+      ["classificationN2", params.classificationsN2],
+      ["classificationN3", params.classificationsN3],
+      ["classificationN4", params.classificationsN4]
+    ];
+    return rows.filter((row) =>
+      selections.slice(0, upTo).every(([field, values]) => !values?.length || values.includes(row[field] ?? ""))
+    );
+  };
+
+  const toOptions = (slices: PurchaseClassificationSlice[]) =>
+    slices
+      .map((slice) => ({ value: slice.label, label: `${slice.label} (${slice.count})` }))
+      .sort((a, b) => a.value.localeCompare(b.value, "pt-BR"));
+
+  return {
+    n1: toOptions(countByLevel(upstream(0), "classificationN1")),
+    n2: toOptions(countByLevel(upstream(1), "classificationN2")),
+    n3: toOptions(countByLevel(upstream(2), "classificationN3")),
+    n4: toOptions(countByLevel(upstream(3), "classificationN4"))
+  };
+}
+
+/** Bloco completo de análise por classificação das pendências filtradas. */
+export function buildClassificationInsights(rows: ClassifiableRow[], available: boolean): PurchaseClassificationInsights {
+  const byN1 = countByLevel(rows, "classificationN1");
+  const byN2 = countByLevel(rows, "classificationN2");
+  const unclassified = rows.filter(
+    (row) =>
+      !normalizeClassificationLevel(row.classificationN1) &&
+      !normalizeClassificationLevel(row.classificationN2) &&
+      !normalizeClassificationLevel(row.classificationN3) &&
+      !normalizeClassificationLevel(row.classificationN4)
+  ).length;
+
+  return {
+    available,
+    byN1,
+    byN2,
+    tree: buildClassificationTree(rows),
+    topN1: byN1[0] ?? null,
+    topN2: byN2[0] ?? null,
+    unclassified,
+    coverage: {
+      n1: rows.filter((row) => normalizeClassificationLevel(row.classificationN1)).length,
+      n2: rows.filter((row) => normalizeClassificationLevel(row.classificationN2)).length,
+      n3: rows.filter((row) => normalizeClassificationLevel(row.classificationN3)).length,
+      n4: rows.filter((row) => normalizeClassificationLevel(row.classificationN4)).length
+    }
+  };
+}
+
+/**
+ * A base importada tem ALGUMA classificação? Consulta leve (um `findFirst` por
+ * qualquer nível não-nulo) — quando falsa, a UI mostra o aviso da TAREFA 10 em
+ * vez de um gráfico zerado sem explicação.
+ */
+async function hasClassificationData(): Promise<boolean> {
+  try {
+    const found = await prisma.purchaseRecord.findFirst({
+      where: {
+        OR: [
+          { classificationN1: { not: null } },
+          { classificationN2: { not: null } },
+          { classificationN3: { not: null } },
+          { classificationN4: { not: null } }
+        ]
+      },
+      select: { id: true }
+    });
+    return Boolean(found);
+  } catch (error) {
+    console.error("Falha ao verificar a classificação N1..N4 na base de compras.", error);
+    return false;
+  }
+}
+
+function emptyClassificationInsights(): PurchaseClassificationInsights {
+  return {
+    available: false,
+    byN1: [],
+    byN2: [],
+    tree: [],
+    topN1: null,
+    topN2: null,
+    unclassified: 0,
+    coverage: { n1: 0, n2: 0, n3: 0, n4: 0 }
+  };
+}
+
+function emptyClassificationOptions(): PurchaseClassificationOptions {
+  return { n1: [], n2: [], n3: [], n4: [] };
 }
 
 /* ------------------------------------------------------------------ */
@@ -784,23 +1029,39 @@ export async function getPendingPurchasesPageData(params: PurchaseQueryParams = 
       materialsPending: 0,
       requestersPending: 0,
       oldestPendingDate: null,
+      classification: emptyClassificationInsights(),
+      classificationOptions: emptyClassificationOptions(),
       purchases: emptyPage(params),
       filterOptions: emptyFilterOptions(),
       source: "empty"
     };
   }
 
-  const [kpis, analysisRows, purchases, filterOptions] = await Promise.all([
+  // Os filtros N1..N4 são retirados da consulta de ANÁLISE para que as opções em
+  // cascata continuem mostrando os irmãos do valor selecionado. O recorte final
+  // dos gráficos/cards é aplicado em memória logo abaixo.
+  const paramsWithoutClassification: PurchaseQueryParams = {
+    ...params,
+    classificationsN1: [],
+    classificationsN2: [],
+    classificationsN3: [],
+    classificationsN4: []
+  };
+
+  const [kpis, analysisRows, purchases, filterOptions, classificationAvailable] = await Promise.all([
     getPurchaseSummary(params),
-    loadPendingAnalysisRows(params),
+    loadPendingAnalysisRows(paramsWithoutClassification),
     getPendingPurchasesList(params, today),
-    getPurchaseFilterOptions()
+    getPurchaseFilterOptions(),
+    hasClassificationData()
   ]);
 
   // Conjunto pendente REAL (mesma regra da tabela): Y01 sem pedido, com requisição.
-  const pendingRows = analysisRows.filter(
+  const pendingRowsUnfiltered = analysisRows.filter(
     (row) => effStatus(row, today) === OS.PENDENTE_COMPRA && hasRequisitionNumber(row.requisitionNumber)
   );
+  // Recorte final: aplica os filtros N1..N4 — mesma semântica do SQL da tabela.
+  const pendingRows = pendingRowsUnfiltered.filter((row) => matchesClassificationFilters(row, params));
 
   // Agregados dos cards/gráficos — todos sobre o MESMO conjunto filtrado (REGRA 11).
   const pendingValue = round(pendingRows.reduce((sum, row) => sum + valueOf(row), 0));
@@ -837,6 +1098,8 @@ export async function getPendingPurchasesPageData(params: PurchaseQueryParams = 
     materialsPending,
     requestersPending,
     oldestPendingDate: oldestPendingDate ? oldestPendingDate.toISOString() : null,
+    classification: buildClassificationInsights(pendingRows, classificationAvailable),
+    classificationOptions: buildClassificationOptions(pendingRowsUnfiltered, params),
     purchases,
     filterOptions,
     source: "database"

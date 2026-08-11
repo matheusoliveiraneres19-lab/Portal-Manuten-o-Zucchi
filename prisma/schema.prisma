@@ -378,6 +378,12 @@ model PurchaseRecord {
   /// Categoria de mercadoria (Grupo Merc).
   goodsGroupCode         String?
   goodsGroupDescription  String?
+  /// Classificação hierárquica da planilha de compras (N1 > N2 > N3 > N4).
+  /// Independente de Grupo Merc/Grupo Comp — é a taxonomia de análise do usuário.
+  classificationN1       String?
+  classificationN2       String?
+  classificationN3       String?
+  classificationN4       String?
   requester              String?
   /// Grupo de compras (Y01/Y04) e código de eliminação.
   purchasingGroup        String?
@@ -428,6 +434,8 @@ model PurchaseRecord {
   @@index([supplierName])
   @@index([materialCode])
   @@index([goodsGroupCode])
+  @@index([classificationN1])
+  @@index([classificationN2])
   @@index([purchaseType])
   @@index([itemNature])
   @@index([operationalStatus])

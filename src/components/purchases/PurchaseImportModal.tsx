@@ -128,6 +128,7 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
           <Summary label="Compras normais Y01" value={result.totalNormalPurchases} />
           <Summary label="Serviços" value={result.totalServices} />
           <Summary label="Materiais" value={result.totalMaterials} />
+          <Summary label="Compras pendentes" value={result.totalPendingPurchase} />
           <div className="col-span-2 flex items-center justify-between gap-2 border-t border-gold/10 pt-2">
             <dt className="text-zinc-400">Valor total importado</dt>
             <dd className="font-semibold text-gold">{formatCurrency(result.totalValue)}</dd>
@@ -140,6 +141,30 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
                 <span className="ml-2 font-normal text-zinc-400">
                   ({result.periodDetected.months.length} mês(es): {result.periodDetected.months.join(", ")})
                 </span>
+              </dd>
+            </div>
+          ) : null}
+          {/* Auditoria da classificação N1..N4 (TAREFA 11). */}
+          {result.classificationAudit ? (
+            <div className="col-span-2 border-t border-gold/10 pt-2">
+              <dt className="text-zinc-400">
+                Classificação N1/N2/N3/N4{" "}
+                {result.classificationAudit.columnsDetected.length ? (
+                  <span className="font-semibold text-champagne">
+                    ({result.classificationAudit.columnsDetected.join(", ")} detectada
+                    {result.classificationAudit.columnsDetected.length === 1 ? "" : "s"})
+                  </span>
+                ) : (
+                  <span className="font-semibold text-amber-300">(nenhuma coluna detectada)</span>
+                )}
+              </dt>
+              <dd className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-zinc-300">
+                <span>N1 preenchido: <strong className="text-champagne">{result.classificationAudit.withN1}</strong></span>
+                <span>N2 preenchido: <strong className="text-champagne">{result.classificationAudit.withN2}</strong></span>
+                <span>N3 preenchido: <strong className="text-champagne">{result.classificationAudit.withN3}</strong></span>
+                <span>N4 preenchido: <strong className="text-champagne">{result.classificationAudit.withN4}</strong></span>
+                <span>Sem classificação: <strong className="text-champagne">{result.classificationAudit.withoutAny}</strong></span>
+                <span>Pendentes com N1: <strong className="text-champagne">{result.classificationAudit.pendingWithN1}</strong></span>
               </dd>
             </div>
           ) : null}

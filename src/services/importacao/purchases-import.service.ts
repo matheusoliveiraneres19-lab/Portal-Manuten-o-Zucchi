@@ -7,6 +7,7 @@ import {
   computeProcessTimes,
   computeStatusFlags,
   getPurchaseRecordReferenceDate,
+  normalizeClassificationLevel,
   optionalText,
   parsePurchaseDate,
   parsePurchaseNumber,
@@ -15,6 +16,7 @@ import {
 import { classifyPurchaseRecord } from "@/utils/purchase-classification";
 import type {
   ParsedPurchaseRecord,
+  PurchaseClassificationAudit,
   PurchaseExcelRow,
   PurchaseImportError,
   PurchaseImportPeriod,
@@ -83,7 +85,35 @@ const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   data_miro: "miroDate",
   grupo_comp: "purchasingGroup",
   grupo_de_compras: "purchasingGroup",
-  grupo_compras: "purchasingGroup"
+  grupo_compras: "purchasingGroup",
+  // Classificação hierárquica N1 > N2 > N3 > N4 (TAREFA 1). Os cabeçalhos chegam
+  // normalizados por `normarizarNomeColuna` (sem acento, minúsculo, "_"), e o
+  // `mapRow` ainda tenta a variante sem "_" — por isso "Nível 1", "Nivel 1",
+  // "Classificação N1" e "Categoria N1" caem todos aqui.
+  n1: "classificationN1",
+  nivel_1: "classificationN1",
+  nivel1: "classificationN1",
+  classificacao_n1: "classificationN1",
+  classificacao_nivel_1: "classificationN1",
+  categoria_n1: "classificationN1",
+  n2: "classificationN2",
+  nivel_2: "classificationN2",
+  nivel2: "classificationN2",
+  classificacao_n2: "classificationN2",
+  classificacao_nivel_2: "classificationN2",
+  categoria_n2: "classificationN2",
+  n3: "classificationN3",
+  nivel_3: "classificationN3",
+  nivel3: "classificationN3",
+  classificacao_n3: "classificationN3",
+  classificacao_nivel_3: "classificationN3",
+  categoria_n3: "classificationN3",
+  n4: "classificationN4",
+  nivel_4: "classificationN4",
+  nivel4: "classificationN4",
+  classificacao_n4: "classificationN4",
+  classificacao_nivel_4: "classificationN4",
+  categoria_n4: "classificationN4"
 };
 
 type ImportOptions = {
@@ -242,6 +272,14 @@ export async function importPurchaseRows(
   result.warnings = buildWarnings(parsedList);
   result.missingColumns = [];
 
+  // 6) Auditoria da classificação N1..N4 (TAREFA 11).
+  result.classificationAudit = buildClassificationAudit(parsedList, rows);
+  if (!result.classificationAudit.columnsDetected.length) {
+    result.warnings.push(
+      "Colunas N1/N2/N3/N4 não encontradas na planilha. A análise por classificação da aba Compras Pendentes ficará indisponível até uma reimportação com essas colunas."
+    );
+  }
+
   await createImportHistory(result, options);
   return result;
 }
@@ -315,6 +353,54 @@ function detectPeriod(parsedList: ParsedPurchaseRecord[]): PurchaseImportPeriod 
     end: dates[dates.length - 1].toISOString().slice(0, 10),
     months
   };
+}
+
+/**
+ * Auditoria da classificação N1..N4 (TAREFA 11): quantas linhas trouxeram cada
+ * nível preenchido, quantas ficaram sem nenhuma classificação e quantas dessas
+ * linhas são de fato compras pendentes (o público-alvo da análise).
+ *
+ * `columnsDetected` olha as linhas CRUAS: uma coluna existe na planilha quando
+ * o mapeamento a reconheceu em alguma linha, mesmo que o valor esteja vazio.
+ */
+function buildClassificationAudit(
+  parsedList: ParsedPurchaseRecord[],
+  rawRows: PurchaseExcelRow[]
+): PurchaseClassificationAudit {
+  const columnsDetected: string[] = [];
+  const rawKeys: Array<[keyof PurchaseExcelRow, string]> = [
+    ["classificationN1", "N1"],
+    ["classificationN2", "N2"],
+    ["classificationN3", "N3"],
+    ["classificationN4", "N4"]
+  ];
+  for (const [key, label] of rawKeys) {
+    if (rawRows.some((row) => key in row)) {
+      columnsDetected.push(label);
+    }
+  }
+
+  let withN1 = 0;
+  let withN2 = 0;
+  let withN3 = 0;
+  let withN4 = 0;
+  let withoutAny = 0;
+  let pendingWithN1 = 0;
+
+  for (const parsed of parsedList) {
+    if (parsed.classificationN1) withN1 += 1;
+    if (parsed.classificationN2) withN2 += 1;
+    if (parsed.classificationN3) withN3 += 1;
+    if (parsed.classificationN4) withN4 += 1;
+    if (!parsed.classificationN1 && !parsed.classificationN2 && !parsed.classificationN3 && !parsed.classificationN4) {
+      withoutAny += 1;
+    }
+    if (parsed.operationalStatus === "PENDENTE_COMPRA" && parsed.classificationN1) {
+      pendingWithN1 += 1;
+    }
+  }
+
+  return { columnsDetected, withN1, withN2, withN3, withN4, withoutAny, pendingWithN1 };
 }
 
 /** Avisos de qualidade da importação. */
@@ -510,6 +596,11 @@ function parseRow(row: PurchaseExcelRow, line: number, now: Date): ParsedPurchas
     netTotal,
     goodsGroupCode,
     goodsGroupDescription,
+    // Classificação N1..N4 — opcional na planilha; null quando a coluna não existe.
+    classificationN1: normalizeClassificationLevel(row.classificationN1),
+    classificationN2: normalizeClassificationLevel(row.classificationN2),
+    classificationN3: normalizeClassificationLevel(row.classificationN3),
+    classificationN4: normalizeClassificationLevel(row.classificationN4),
     requester: optionalText(row.requester),
     purchasingGroup: optionalText(row.purchasingGroup),
     deletionCode,

@@ -74,6 +74,54 @@ export function isReceiptFlagSet(value: unknown): boolean {
 }
 
 /* ------------------------------------------------------------------ */
+/* Classificação hierárquica N1 > N2 > N3 > N4                        */
+/* ------------------------------------------------------------------ */
+
+/** Níveis da taxonomia de compras, na ordem hierárquica. */
+export const CLASSIFICATION_LEVELS = ["n1", "n2", "n3", "n4"] as const;
+export type ClassificationLevel = (typeof CLASSIFICATION_LEVELS)[number];
+
+/** Rótulos curtos usados em colunas, filtros e gráficos. */
+export const CLASSIFICATION_LEVEL_LABELS: Record<ClassificationLevel, string> = {
+  n1: "N1",
+  n2: "N2",
+  n3: "N3",
+  n4: "N4"
+};
+
+/**
+ * Valores que a planilha usa para dizer "sem classificação". Tratados como
+ * ausentes para não virarem uma categoria falsa nos gráficos.
+ */
+const CLASSIFICATION_PLACEHOLDERS = new Set(["", "-", "--", "#", "n/a", "na", "nd", "null", "0", "sem classificacao"]);
+
+/**
+ * Normaliza um valor de nível N1/N2/N3/N4 vindo da planilha:
+ * limpa espaços duplicados e devolve `null` para vazio/placeholder.
+ * PRESERVA a acentuação e a caixa originais — é o texto exibido ao usuário;
+ * o agrupamento usa `classificationKey` (insensível a caixa/acento).
+ */
+export function normalizeClassificationLevel(value: unknown): string | null {
+  const text = limparTexto(value).replace(/\s+/g, " ").trim();
+  if (!text) {
+    return null;
+  }
+  if (CLASSIFICATION_PLACEHOLDERS.has(normalizeText(text))) {
+    return null;
+  }
+  return text;
+}
+
+/**
+ * Chave estável de agrupamento de um nível (sem acento, minúsculo). Evita que
+ * "Elétrica" e "ELETRICA" virem duas barras distintas no gráfico.
+ * Devolve "" quando o valor é ausente.
+ */
+export function classificationKey(value: unknown): string {
+  return normalizeText(normalizeClassificationLevel(value) ?? "");
+}
+
+/* ------------------------------------------------------------------ */
 /* Classificação de natureza da compra (Grupo Comp) e do item         */
 /* ------------------------------------------------------------------ */
 

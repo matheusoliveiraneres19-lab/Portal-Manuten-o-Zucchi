@@ -49,7 +49,7 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
       ) : (
         <>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1120px] border-collapse text-left text-xs">
+            <table className={`w-full border-collapse text-left text-xs ${isPending ? "min-w-[1560px]" : "min-w-[1120px]"}`}>
               <thead>
                 <tr className="border-b border-zinc-200 text-[10px] uppercase tracking-wide text-zinc-500">
                   <th className="px-2 py-2 font-bold">Status</th>
@@ -77,6 +77,15 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
                   <th className="px-2 py-2 font-bold">Requisitante</th>
                   <th className="px-2 py-2 font-bold">Grupo Comp</th>
                   <th className="px-2 py-2 font-bold">Grupo Merc</th>
+                  {/* Classificação N1..N4 — só na aba Compras Pendentes. */}
+                  {isPending && (
+                    <>
+                      <th className="px-2 py-2 font-bold">N1</th>
+                      <th className="px-2 py-2 font-bold">N2</th>
+                      <th className="px-2 py-2 font-bold">N3</th>
+                      <th className="px-2 py-2 font-bold">N4</th>
+                    </>
+                  )}
                   {!isPending && (
                     <>
                       <th className="px-2 py-2 text-center font-bold">Recbconcl</th>
@@ -170,6 +179,14 @@ function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
       <td className="px-2 py-2 max-w-[140px] truncate" title={row.goodsGroupDescription ?? undefined}>
         {row.goodsGroupDescription ?? row.goodsGroupCode ?? "—"}
       </td>
+      {isPending && (
+        <>
+          <ClassificationCell value={row.classificationN1} />
+          <ClassificationCell value={row.classificationN2} />
+          <ClassificationCell value={row.classificationN3} />
+          <ClassificationCell value={row.classificationN4} />
+        </>
+      )}
       {!isPending && (
         <>
           <td className="px-2 py-2 text-center">
@@ -180,6 +197,15 @@ function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
       )}
       <td className="px-2 py-2">{kindLabel(row)}</td>
     </tr>
+  );
+}
+
+/** Célula de um nível de classificação (N1..N4), com truncagem e tooltip. */
+function ClassificationCell({ value }: { value: string | null }) {
+  return (
+    <td className="px-2 py-2 max-w-[130px] truncate" title={value ?? undefined}>
+      {value ?? <span className="text-zinc-400">—</span>}
+    </td>
   );
 }
 

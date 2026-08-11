@@ -38,6 +38,11 @@ export type PurchaseExcelRow = {
   miroNumber?: unknown;
   miroDate?: unknown;
   purchasingGroup?: unknown;
+  /** Classificação hierárquica da planilha (N1 > N2 > N3 > N4). */
+  classificationN1?: unknown;
+  classificationN2?: unknown;
+  classificationN3?: unknown;
+  classificationN4?: unknown;
 };
 
 /** Registro normalizado, pronto para gravação em PurchaseRecord. */
@@ -67,6 +72,11 @@ export type ParsedPurchaseRecord = {
   netTotal: number | null;
   goodsGroupCode: string | null;
   goodsGroupDescription: string | null;
+  /** Classificação hierárquica N1 > N2 > N3 > N4 (planilha de compras). */
+  classificationN1: string | null;
+  classificationN2: string | null;
+  classificationN3: string | null;
+  classificationN4: string | null;
   requester: string | null;
   purchasingGroup: string | null;
   deletionCode: string | null;
@@ -148,6 +158,8 @@ export type PurchaseImportResult = {
   warnings?: string[];
   /** Colunas obrigatórias não reconhecidas (vazio quando tudo certo). */
   missingColumns?: string[];
+  /** Auditoria da classificação N1..N4 lida da planilha (TAREFA 11). */
+  classificationAudit?: PurchaseClassificationAudit;
 };
 
 /* ------------------------------------------------------------------ */
@@ -182,6 +194,11 @@ export type PurchaseQueryParams = {
   /** Filtro por status operacional canônico (enum). */
   statuses?: PurchaseOperationalStatus[];
   requesters?: string[];
+  /** Classificação N1..N4 (valores originais da planilha; OR dentro de cada nível). */
+  classificationsN1?: string[];
+  classificationsN2?: string[];
+  classificationsN3?: string[];
+  classificationsN4?: string[];
   /** Período sobre o campo escolhido (default: data de referência). */
   dateField?: PurchaseDateField;
   startDate?: string;
@@ -275,6 +292,11 @@ export type PurchaseRow = {
   purchaseType: PurchaseType;
   goodsGroupCode: string | null;
   goodsGroupDescription: string | null;
+  /** Classificação hierárquica N1 > N2 > N3 > N4 (exibida na tabela). */
+  classificationN1: string | null;
+  classificationN2: string | null;
+  classificationN3: string | null;
+  classificationN4: string | null;
   itemNature: ItemNature;
   requester: string | null;
 };
@@ -285,6 +307,73 @@ export type PaginatedPurchases = {
   page: number;
   pageSize: number;
   totalPages: number;
+};
+
+/* ------------------------------------------------------------------ */
+/* Classificação N1 > N2 > N3 > N4                                    */
+/* ------------------------------------------------------------------ */
+
+/** Uma fatia de um nível de classificação (barra do gráfico). */
+export type PurchaseClassificationSlice = {
+  /** Chave estável (sem acento/caixa) usada para agrupar e filtrar. */
+  key: string;
+  /** Rótulo exibido, com a grafia original da planilha. */
+  label: string;
+  count: number;
+};
+
+/** Nó da visão hierárquica N1 > N2 > N3 > N4. */
+export type PurchaseClassificationNode = {
+  key: string;
+  label: string;
+  count: number;
+  children: PurchaseClassificationNode[];
+};
+
+/**
+ * Opções dos filtros N1/N2/N3/N4, em CASCATA: `n2` já vem restrito ao `n1`
+ * selecionado, `n3` ao `n1`+`n2`, e assim por diante. Fica em
+ * `PendingPurchasesPageData` (não no `PurchaseFilterOptions` compartilhado)
+ * porque só a aba Compras Pendentes usa esse recorte.
+ */
+export type PurchaseClassificationOptions = {
+  n1: Array<{ value: string; label: string }>;
+  n2: Array<{ value: string; label: string }>;
+  n3: Array<{ value: string; label: string }>;
+  n4: Array<{ value: string; label: string }>;
+};
+
+/** Bloco de análise por classificação da aba Compras Pendentes. */
+export type PurchaseClassificationInsights = {
+  /** false = a base importada não tem NENHUM N1..N4 (mostra aviso, não gráfico zerado). */
+  available: boolean;
+  /** Compras Pendentes por N1 (maior → menor). */
+  byN1: PurchaseClassificationSlice[];
+  /** Compras Pendentes por N2 — já respeita o filtro de N1 aplicado. */
+  byN2: PurchaseClassificationSlice[];
+  /** Árvore N1 > N2 > N3 > N4 com a contagem em cada nível. */
+  tree: PurchaseClassificationNode[];
+  /** N1/N2 mais recorrentes no conjunto filtrado (cards de apoio). */
+  topN1: PurchaseClassificationSlice | null;
+  topN2: PurchaseClassificationSlice | null;
+  /** Requisições pendentes sem nenhum nível preenchido. */
+  unclassified: number;
+  /** Cobertura por nível dentro das pendências filtradas. */
+  coverage: { n1: number; n2: number; n3: number; n4: number };
+};
+
+/** Auditoria da classificação na importação (TAREFA 11). */
+export type PurchaseClassificationAudit = {
+  /** Níveis cujo cabeçalho foi reconhecido na planilha (ex.: ["N1","N2"]). */
+  columnsDetected: string[];
+  withN1: number;
+  withN2: number;
+  withN3: number;
+  withN4: number;
+  /** Linhas sem nenhum dos quatro níveis. */
+  withoutAny: number;
+  /** Requisições pendentes de compra que vieram com N1. */
+  pendingWithN1: number;
 };
 
 export type PurchaseValueByOrder = {
@@ -441,6 +530,10 @@ export type PendingPurchasesPageData = {
   requestersPending: number;
   /** Data (ISO) da requisição pendente mais antiga do conjunto filtrado. */
   oldestPendingDate: string | null;
+  /** Análise por classificação N1 > N2 > N3 > N4 das pendências filtradas. */
+  classification: PurchaseClassificationInsights;
+  /** Opções em cascata dos filtros N1/N2/N3/N4. */
+  classificationOptions: PurchaseClassificationOptions;
   purchases: PaginatedPurchases;
   filterOptions: PurchaseFilterOptions;
   source: "database" | "empty";
