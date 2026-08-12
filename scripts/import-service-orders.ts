@@ -1,8 +1,6 @@
 import path from "node:path";
 import { prisma } from "../src/lib/prisma";
-import { importServiceOrdersFromNormalizedRows } from "../src/services/importacao/service-orders-import.service";
-import { readNormalizedExcelRows } from "../src/utils/excel-normalizer";
-import type { LinhaOrdemServicoNormalizada } from "../src/types/importacao";
+import { importServiceOrdersFromExcel } from "../src/services/importacao/service-orders-import.service";
 
 const defaultFilePath = path.resolve(
   process.cwd(),
@@ -17,9 +15,9 @@ async function main() {
   const fileName = path.basename(filePath);
 
   console.log(`Lendo planilha: ${filePath}`);
-  const rows = readNormalizedExcelRows(filePath) as LinhaOrdemServicoNormalizada[];
-
-  const result = await importServiceOrdersFromNormalizedRows(rows, {
+  // Mesma detecção de layout da rota web (/api/service-orders/import): aceita o
+  // export cru do SAP (aba "Exportação SAPUI5") ou a planilha já normalizada.
+  const result = await importServiceOrdersFromExcel(filePath, {
     fileName,
     importedBy
   });
