@@ -116,6 +116,11 @@ export type ProcedureInput = {
 
 /** Resumo para a página da Central (montado no service). */
 export type ProceduresCenterData = {
+  /**
+   * true quando a consulta ao banco FALHOU. As listas vem vazias, mas NAO porque
+   * faltam procedimentos — a Central avisa a falha em vez de sugerir outra busca.
+   */
+  dataUnavailable?: boolean;
   totalPublished: number;
   categories: ProcedureCategoryCount[];
   featured: ProcedureListItem[];

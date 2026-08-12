@@ -1,4 +1,5 @@
 import type { LubricantMovementCategory } from "@prisma/client";
+import type { PageDataSource } from "@/types/page-data";
 
 export type { LubricantMovementCategory };
 
@@ -195,7 +196,7 @@ export type LubricantsPageData = {
   codes: LubricantCodeRow[];
   movements: LubricantMovementsResult;
   filterOptions: LubricantFilterOptions;
-  source: "database" | "empty";
+  source: PageDataSource;
 };
 
 /* ------------------------------------------------------------------ */

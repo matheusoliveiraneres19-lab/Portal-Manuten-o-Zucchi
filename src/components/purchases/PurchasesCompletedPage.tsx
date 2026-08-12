@@ -103,7 +103,10 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
     { title: "Valor comprado", value: formatCurrency(kpis.purchasedValue), description: "Total com pedido no período", icon: Wallet, tone: "gold" }
   ];
 
-  const isEmpty = data.source === "empty";
+  // Sem dados por AUSENCIA de importacao ou por FALHA de consulta: a tela e a
+  // mesma, mas a mensagem e a acao mudam (ver PageDataSource).
+  const isUnavailable = data.source === "unavailable";
+  const isEmpty = data.source !== "database";
 
   return (
     <section className={`space-y-4 text-champagne transition ${isPending || isRefreshing ? "opacity-70" : ""}`}>
@@ -150,7 +153,7 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
       <PurchaseActiveChips filters={appliedFilters} onRemove={removeChip} />
 
       {isEmpty ? (
-        <PurchaseEmptyState onImport={() => setImportOpen(true)} />
+        <PurchaseEmptyState onImport={() => setImportOpen(true)} unavailable={isUnavailable} />
       ) : (
         <>
           {/* 5 cards: linha única só a partir de 2xl — abaixo disso a coluna de texto

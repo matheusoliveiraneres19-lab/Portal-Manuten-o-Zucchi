@@ -1,10 +1,4 @@
-import {
-  AlertStatus,
-  Criticality,
-  LubricantMovementCategory,
-  Priority,
-  ServiceOrderStatus
-} from "@prisma/client";
+import { AlertStatus, Criticality, Priority, ServiceOrderStatus } from "@prisma/client";
 import {
   AlertTriangle,
   Bell,
@@ -14,18 +8,12 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { getCriticalAlertsCount } from "@/services/alerts.service";
-import {
-  getCriticalEquipmentsByOrders,
-  getTopEquipmentsByCorrectiveVolume
-} from "@/services/critical-equipments.service";
+import { getCriticalEquipmentsByOrders } from "@/services/critical-equipments.service";
 import { getDerivedAlerts } from "@/services/derived-alerts.service";
 import {
   getPcFactoryMachinesBelowAverage,
   type PcFactoryMachinesBelowAverageResult
 } from "@/services/pc-factory.service";
-import { getLubricantConsumption } from "@/services/lubricants.service";
-import { getMostUsedMaterialsCount } from "@/services/materials.service";
 import { countPublishedProcedures } from "@/services/procedures.service";
 import { getPendingPurchases, getPendingPurchasesCount } from "@/services/purchases.service";
 import { OPEN_SERVICE_ORDER_STATUSES } from "@/services/shared/portal-rules";
@@ -35,16 +23,13 @@ import type {
   DashboardData,
   DatabaseDashboardData,
   DashboardKPI,
-  DashboardKPIsData,
   DashboardPeriod,
   DashboardPeriodInput,
   HomeKpisData,
   KPIComparison,
   KPITone,
-  LubricantConsumptionPoint,
   OpenClosedServiceOrdersPoint,
-  TopCriticalEquipmentData,
-  TopMachineBreakIndexData
+  TopCriticalEquipmentData
 } from "@/types/dashboard";
 import { formatCurrency, formatDate, formatMonthName } from "@/utils/formatters";
 import { isWithinPeriod, toEndOfDay, toStartOfDay, withinPeriod } from "@/utils/date-range";
@@ -124,58 +109,6 @@ async function getHomeKpis(): Promise<HomeKpisData> {
   ]);
 
   return { openServiceOrders, pendingPurchases, activeProcedures };
-}
-
-/**
- * Conjunto COMPLETO de KPIs consolidados do portal, usado pelo agregador
- * `portal-analytics.service` (snapshot de todos os módulos para um período).
- *
- * A aba Início NÃO usa esta função — ela consome getHomeKpis, que consulta apenas
- * o que exibe. Manter as duas separadas evita que a home pague por consumo de
- * lubrificantes, materiais mais usados e contagem de alertas, que ela não mostra.
- */
-export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promise<DashboardKPIsData> {
-  const period = parsePeriod(periodInput);
-  const [
-    openServiceOrders,
-    pendingPurchases,
-    criticalMachines,
-    lubricantConsumption,
-    mostUsedMaterials,
-    activeProcedures,
-    criticalAlerts
-  ] = await Promise.all([
-    // OS "em aberto" = conjunto único de status do portal (aberta/liberada/em
-    // andamento/aguardando material), excluindo registros sem equipamento.
-    prisma.serviceOrder.count({
-      where: { status: { in: OPEN_SERVICE_ORDER_STATUSES }, ...excludeInvalidTestEquipmentWhere() }
-    }),
-    getPendingPurchasesCount(),
-    // Máquinas críticas = máquinas ABAIXO da média de disponibilidade do PC-Factory
-    // no período (fonte oficial PcFactoryRecord). NÃO usa Ordens de Serviço nem a aba
-    // Equipamentos Críticos. Ver getPcFactoryMachinesBelowAverage.
-    getPcFactoryMachinesBelowAverage({
-      startDate: toInputDate(period.startDate),
-      endDate: toInputDate(period.endDate)
-    }).then((result) => result.count),
-    // Consumo (SAÍDA) de lubrificantes via service oficial (fonte única).
-    getLubricantConsumption(period),
-    getMostUsedMaterialsCount(period),
-    // Procedimentos "ativos" = PUBLICADOS na Central (status "Publicado" + categoria),
-    // não o campo legado `active`. Bate com /dashboard/procedimentos.
-    countPublishedProcedures(),
-    getCriticalAlertsCount()
-  ]);
-
-  return {
-    openServiceOrders,
-    pendingPurchases,
-    criticalMachines,
-    lubricantConsumption,
-    mostUsedMaterials,
-    activeProcedures,
-    criticalAlerts
-  };
 }
 
 export type MonthlyOpenClosedResult = {
@@ -372,58 +305,6 @@ function severityRank(severity: Priority): number {
   }
 }
 
-export async function getTopMachinesBreakIndex(
-  periodInput: DashboardPeriodInput,
-  limit = 5
-): Promise<TopMachineBreakIndexData[]> {
-  const period = parsePeriod(periodInput);
-  // Top máquinas por VOLUME de OS corretiva, via service OFICIAL de Equipamentos
-  // Críticos (exclui lubrificação/PL e ordens sem equipamento). Substitui o antigo
-  // "índice de quebra" em % por uma contagem clara de OS corretivas por equipamento.
-  const top = await getTopEquipmentsByCorrectiveVolume(
-    { startDate: toInputDate(period.startDate), endDate: toInputDate(period.endDate) },
-    limit
-  );
-
-  return top.map((equipment) => ({
-    equipmentName: equipment.equipmentName,
-    correctiveOrders: equipment.correctiveOrders
-  }));
-}
-
-export async function getLubricantConsumptionByPeriod(
-  periodInput: DashboardPeriodInput
-): Promise<LubricantConsumptionPoint[]> {
-  const period = parsePeriod(periodInput);
-  const movements = await prisma.lubricantMovement.findMany({
-    where: {
-      movementCategory: LubricantMovementCategory.SAIDA,
-      movementDate: withinPeriod(period)
-    },
-    select: {
-      movementDate: true,
-      absoluteQuantity: true
-    },
-    orderBy: { movementDate: "asc" }
-  });
-  // Agrupado por MÊS (igual ao módulo de Lubrificantes), evitando uma curva diária
-  // ruidosa que não bate com a aba. Meses sem saída ficam zerados e o gráfico
-  // mostra empty state quando não há consumo real no período.
-  const buckets = createConsumptionMonthlyBuckets(period);
-
-  for (const movement of movements) {
-    const bucket = buckets.get(monthKey(movement.movementDate));
-    if (bucket) {
-      bucket.consumption += Number(movement.absoluteQuantity);
-    }
-  }
-
-  return Array.from(buckets.values()).map((item) => ({
-    date: item.date,
-    consumption: Number(item.consumption.toFixed(2))
-  }));
-}
-
 export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInput): Promise<DatabaseDashboardData> {
   const period = parsePeriod(periodInput);
 
@@ -607,20 +488,6 @@ function createMonthlyBuckets(period: DashboardPeriod) {
   while (cursor <= period.endDate) {
     const month = new Date(cursor);
     buckets.set(monthKey(month), { date: month, abertas: 0, fechadas: 0 });
-    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
-  }
-
-  return buckets;
-}
-
-/** Um bucket de consumo por MÊS do período (igual ao módulo de Lubrificantes). */
-function createConsumptionMonthlyBuckets(period: DashboardPeriod) {
-  const buckets = new Map<string, LubricantConsumptionPoint>();
-
-  const cursor = new Date(Date.UTC(period.startDate.getUTCFullYear(), period.startDate.getUTCMonth(), 1));
-  while (cursor <= period.endDate) {
-    const month = new Date(cursor);
-    buckets.set(monthKey(month), { date: month, consumption: 0 });
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
 

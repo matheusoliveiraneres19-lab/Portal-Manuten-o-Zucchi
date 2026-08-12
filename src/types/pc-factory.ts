@@ -1,5 +1,6 @@
 import type { PcFactoryStatusCategory } from "@prisma/client";
 import type { PcFactoryManagementGroup } from "@/utils/pc-factory-normalizer";
+import type { PageDataSource } from "@/types/page-data";
 
 export type { PcFactoryStatusCategory };
 export type { PcFactoryManagementGroup };
@@ -368,7 +369,7 @@ export type PcFactoryPageData = {
   filterOptions: PcFactoryFilterOptions;
   /** Diagnóstico de qualidade da importação refletido nos dados atuais. */
   dataQuality: PcFactoryDataQuality;
-  source: "database" | "empty";
+  source: PageDataSource;
 };
 
 /** Painel "Qualidade da importação" (TAREFA 8). */

@@ -1,6 +1,8 @@
 import { cache } from "react";
+import type { PageDataSource } from "@/types/page-data";
 import { AlertStatus, AlertType, LubricantMovementCategory, Prisma, Priority } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getTodayDate } from "@/utils/date";
 import { toInputDate } from "@/utils/period";
 import { LUBRICANT_CATEGORY_LABELS } from "@/utils/lubricants-normalizer";
 import type {
@@ -852,7 +854,44 @@ export async function syncLubricantLowStockAlerts(): Promise<{ created: number; 
 /* Orquestrador da página                                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Referência (ano/mês) SEM consultar o banco — usada apenas no caminho de falha.
+ * `resolveLubricantReference` faz um aggregate para descobrir o último mês com
+ * movimento, o que não funciona com o banco fora; aqui derivamos dos params e, na
+ * ausência deles, do mês atual.
+ */
+function fallbackLubricantReference(params: LubricantQueryParams): LubricantReferencePeriod {
+  const base = params.endDate ? new Date(params.endDate) : getTodayDate();
+  const safe = Number.isNaN(base.getTime()) ? getTodayDate() : base;
+  const year = params.year ?? safe.getUTCFullYear();
+  const month = params.month ?? safe.getUTCMonth() + 1;
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 0));
+
+  return {
+    year,
+    month,
+    startDate: start.toISOString().slice(0, 10),
+    endDate: end.toISOString().slice(0, 10),
+    monthLabel: `${String(month).padStart(2, "0")}/${year}`
+  };
+}
+
+/**
+ * Aba Lubrificantes. Uma falha de banco aqui derrubava a página na tela genérica
+ * de erro; agora degrada para estado vazio, como já fazem o dashboard e Ordens
+ * de Serviço.
+ */
 export async function getLubricantsPageData(params: LubricantQueryParams = {}): Promise<LubricantsPageData> {
+  try {
+    return await loadLubricantsPageData(params);
+  } catch (error) {
+    console.error("Falha ao carregar Lubrificantes pelo banco. Exibindo estado vazio.", error);
+    return emptyPageData(fallbackLubricantReference(params), params, "unavailable");
+  }
+}
+
+async function loadLubricantsPageData(params: LubricantQueryParams): Promise<LubricantsPageData> {
   const reference = await resolveLubricantReference(params);
 
   const movementsTotal = await prisma.lubricantMovement.count();
@@ -939,7 +978,11 @@ export async function getLubricantFilterOptions(): Promise<LubricantFilterOption
   };
 }
 
-function emptyPageData(reference: LubricantReferencePeriod, params: LubricantQueryParams): LubricantsPageData {
+function emptyPageData(
+  reference: LubricantReferencePeriod,
+  params: LubricantQueryParams,
+  source: PageDataSource = "empty"
+): LubricantsPageData {
   return {
     reference,
     period: resolvePeriodWindow(params, reference),
@@ -973,7 +1016,7 @@ function emptyPageData(reference: LubricantReferencePeriod, params: LubricantQue
     codes: [],
     movements: { data: [], total: 0, page: 1, pageSize: DEFAULT_PAGE_SIZE, totalPages: 1 },
     filterOptions: { codes: [], units: [], years: [reference.year], movementCategories: [...CATEGORY_ORDER] },
-    source: "empty"
+    source
   };
 }
 

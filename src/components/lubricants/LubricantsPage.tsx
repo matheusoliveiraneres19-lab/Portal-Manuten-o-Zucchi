@@ -191,7 +191,10 @@ export function LubricantsPage({ data, appliedFilters }: LubricantsPageProps) {
     toast.success("CSV exportado");
   }
 
-  const isEmpty = data.source === "empty";
+  // Sem dados por AUSENCIA de importacao ou por FALHA de consulta: a tela e a
+  // mesma, mas a mensagem e a acao mudam (ver PageDataSource).
+  const isUnavailable = data.source === "unavailable";
+  const isEmpty = data.source !== "database";
   const sheetCode = sheetModalCode ? data.codes.find((row) => row.code === sheetModalCode) : null;
   const appCode = appModalCode ? data.codes.find((row) => row.code === appModalCode) : null;
 
@@ -247,7 +250,7 @@ export function LubricantsPage({ data, appliedFilters }: LubricantsPageProps) {
       />
 
       {isEmpty ? (
-        <LubricantEmptyState onImport={() => setImportOpen(true)} />
+        <LubricantEmptyState onImport={() => setImportOpen(true)} unavailable={isUnavailable} />
       ) : (
         <>
           <LubricantKpiCards kpis={data.kpis} reference={data.reference} />

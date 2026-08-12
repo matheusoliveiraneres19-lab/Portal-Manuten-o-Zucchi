@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Route,
   Search,
+  ServerCrash,
   Sparkles,
   Star,
   TrendingUp,
@@ -168,6 +169,25 @@ export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
           <p className={`mt-3 text-[11px] font-semibold uppercase tracking-wide ${TXT_GOLD}`}>
             {data.totalPublished} procedimento(s) publicado(s)
           </p>
+
+          {/* Falha ao consultar o banco: as listas vêm vazias, mas NÃO por falta de
+              procedimentos. Sem este aviso, a Central pareceria simplesmente vazia. */}
+          {data.dataUnavailable ? (
+            <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-danger/45 bg-danger/[0.12] px-4 py-3">
+              <ServerCrash className="h-5 w-5 shrink-0 text-danger-soft" />
+              <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-zinc-200">
+                <strong className="font-semibold text-white">Procedimentos indisponíveis.</strong> Não foi possível
+                consultar o banco de dados agora — nada foi perdido. Tente novamente em alguns instantes.
+              </p>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-danger/55 bg-danger/15 px-4 text-xs font-bold text-danger-soft transition hover:bg-danger/25"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Tentar novamente
+              </button>
+            </div>
+          ) : null}
 
           {/* Busca */}
           <div className="relative mt-5 max-w-2xl">

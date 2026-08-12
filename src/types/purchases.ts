@@ -1,5 +1,6 @@
 import type { ItemNature, PurchaseOperationalStatus, PurchaseType } from "@prisma/client";
 import type { PurchaseKind, PurchaseNature, PurchaseReportGroup } from "@/utils/purchase-classification";
+import type { PageDataSource } from "@/types/page-data";
 
 export type { ItemNature, PurchaseOperationalStatus, PurchaseType, PurchaseKind, PurchaseNature, PurchaseReportGroup };
 
@@ -536,7 +537,7 @@ export type PendingPurchasesPageData = {
   classificationOptions: PurchaseClassificationOptions;
   purchases: PaginatedPurchases;
   filterOptions: PurchaseFilterOptions;
-  source: "database" | "empty";
+  source: PageDataSource;
 };
 
 export type CompletedPurchasesPageData = {
@@ -551,5 +552,5 @@ export type CompletedPurchasesPageData = {
   processTimes: PurchaseProcessTimes;
   purchases: PaginatedPurchases;
   filterOptions: PurchaseFilterOptions;
-  source: "database" | "empty";
+  source: PageDataSource;
 };

@@ -263,7 +263,43 @@ export async function countPublishedProcedures(): Promise<number> {
 }
 
 /** Monta tudo o que a página da Central precisa numa só chamada (por usuário). */
+/**
+ * Estado vazio da Central de Procedimentos, usado quando a consulta ao banco
+ * falha. Antes, uma falha derrubava a página na tela genérica de erro.
+ */
+function emptyProceduresCenterData(): ProceduresCenterData {
+  return {
+    dataUnavailable: true,
+    totalPublished: 0,
+    categories: [],
+    featured: [],
+    onboarding: [],
+    all: [],
+    favorites: [],
+    readIds: [],
+    onboardingProgress: { total: 0, completed: 0, percent: 0 },
+    indicators: {
+      totalPublished: 0,
+      mostAccessedTitle: null,
+      pendingReadCount: 0,
+      onboardingPercent: 0,
+      withAttachmentsCount: 0,
+      recentlyUpdatedCount: 0
+    }
+  };
+}
+
+/** Central de Procedimentos. Degrada para estado vazio em falha de banco. */
 export async function getProceduresCenterData(userId?: string | null): Promise<ProceduresCenterData> {
+  try {
+    return await loadProceduresCenterData(userId);
+  } catch (error) {
+    console.error("Falha ao carregar a Central de Procedimentos pelo banco. Exibindo estado vazio.", error);
+    return emptyProceduresCenterData();
+  }
+}
+
+async function loadProceduresCenterData(userId?: string | null): Promise<ProceduresCenterData> {
   const [totalPublished, categories, featured, onboarding, all, favorites, readIds, mostAccessed, attachedIds] =
     await Promise.all([
       prisma.procedure.count({ where: { status: "Publicado", categoryName: { not: null } } }),

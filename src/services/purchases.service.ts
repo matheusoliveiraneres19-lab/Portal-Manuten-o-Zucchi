@@ -11,6 +11,7 @@
  * (getPendingPurchasesCount / getPendingPurchases / getPurchasesByMonth).
  */
 import { Prisma, PurchaseOperationalStatus, PurchaseStatus, PurchaseType } from "@prisma/client";
+import type { PageDataSource } from "@/types/page-data";
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import {
@@ -1013,28 +1014,54 @@ export async function getPurchasesByMonth(year: number): Promise<PurchasesByMont
 /* Orquestradores de página                                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Estado vazio da aba Compras Pendentes. Usado em dois casos: não há compras
+ * importadas, ou a consulta ao banco FALHOU. Em ambos, `source: "empty"` sinaliza
+ * à UI que não há dado a apresentar — nunca números inventados.
+ */
+function emptyPendingPurchasesPageData(
+  params: PurchaseQueryParams,
+  source: PageDataSource = "empty"
+): PendingPurchasesPageData {
+  return {
+    period: resolvePeriodWindow(params),
+    kpis: emptyKpis(),
+    pendingByMonth: [],
+    topPendingSuppliers: [],
+    pendingByGoodsGroup: [],
+    topRequesters: [],
+    pendingValue: 0,
+    materialsPending: 0,
+    requestersPending: 0,
+    oldestPendingDate: null,
+    classification: emptyClassificationInsights(),
+    classificationOptions: emptyClassificationOptions(),
+    purchases: emptyPage(params),
+    filterOptions: emptyFilterOptions(),
+    source
+  };
+}
+
+/**
+ * Aba Compras Pendentes. Uma falha de banco aqui derrubava a página inteira na
+ * tela genérica de erro; agora degrada para estado vazio, como já fazem o
+ * dashboard e a aba de Ordens de Serviço.
+ */
 export async function getPendingPurchasesPageData(params: PurchaseQueryParams = {}): Promise<PendingPurchasesPageData> {
+  try {
+    return await loadPendingPurchasesPageData(params);
+  } catch (error) {
+    console.error("Falha ao carregar Compras Pendentes pelo banco. Exibindo estado vazio.", error);
+    return emptyPendingPurchasesPageData(params, "unavailable");
+  }
+}
+
+async function loadPendingPurchasesPageData(params: PurchaseQueryParams): Promise<PendingPurchasesPageData> {
   const today = getTodayDate();
   const total = await prisma.purchaseRecord.count();
   const period = resolvePeriodWindow(params);
   if (total === 0) {
-    return {
-      period,
-      kpis: emptyKpis(),
-      pendingByMonth: [],
-      topPendingSuppliers: [],
-      pendingByGoodsGroup: [],
-      topRequesters: [],
-      pendingValue: 0,
-      materialsPending: 0,
-      requestersPending: 0,
-      oldestPendingDate: null,
-      classification: emptyClassificationInsights(),
-      classificationOptions: emptyClassificationOptions(),
-      purchases: emptyPage(params),
-      filterOptions: emptyFilterOptions(),
-      source: "empty"
-    };
+    return emptyPendingPurchasesPageData(params);
   }
 
   // Os filtros N1..N4 são retirados da consulta de ANÁLISE para que as opções em
@@ -1106,24 +1133,42 @@ export async function getPendingPurchasesPageData(params: PurchaseQueryParams = 
   };
 }
 
+/** Estado vazio da aba Compras Realizadas (sem dados importados OU falha de banco). */
+function emptyCompletedPurchasesPageData(
+  params: PurchaseQueryParams,
+  source: PageDataSource = "empty"
+): CompletedPurchasesPageData {
+  return {
+    period: resolvePeriodWindow(params),
+    kpis: emptyKpis(),
+    receivedByMonth: [],
+    receivedLateByMonth: [],
+    topDelayedReceiptSuppliers: [],
+    receivedByGoodsGroup: [],
+    regularizationByGoodsGroup: [],
+    processTimes: emptyProcessTimes(),
+    purchases: emptyPage(params),
+    filterOptions: emptyFilterOptions(),
+    source
+  };
+}
+
+/** Aba Compras Realizadas. Degrada para estado vazio em falha de banco. */
 export async function getCompletedPurchasesPageData(params: PurchaseQueryParams = {}): Promise<CompletedPurchasesPageData> {
+  try {
+    return await loadCompletedPurchasesPageData(params);
+  } catch (error) {
+    console.error("Falha ao carregar Compras Realizadas pelo banco. Exibindo estado vazio.", error);
+    return emptyCompletedPurchasesPageData(params, "unavailable");
+  }
+}
+
+async function loadCompletedPurchasesPageData(params: PurchaseQueryParams): Promise<CompletedPurchasesPageData> {
   const today = getTodayDate();
   const total = await prisma.purchaseRecord.count();
   const period = resolvePeriodWindow(params);
   if (total === 0) {
-    return {
-      period,
-      kpis: emptyKpis(),
-      receivedByMonth: [],
-      receivedLateByMonth: [],
-      topDelayedReceiptSuppliers: [],
-      receivedByGoodsGroup: [],
-      regularizationByGoodsGroup: [],
-      processTimes: emptyProcessTimes(),
-      purchases: emptyPage(params),
-      filterOptions: emptyFilterOptions(),
-      source: "empty"
-    };
+    return emptyCompletedPurchasesPageData(params);
   }
 
   const [kpis, receivedRows, regularizationRows, processTimes, purchases, filterOptions] = await Promise.all([

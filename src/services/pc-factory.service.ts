@@ -1,4 +1,5 @@
 import { cache } from "react";
+import type { PageDataSource } from "@/types/page-data";
 import { PcFactoryStatusCategory, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { PC_FACTORY_COLORS, PC_FACTORY_MANAGEMENT_GROUP_COLORS } from "@/constants/pc-factory-colors";
@@ -1289,7 +1290,22 @@ export async function getPcFactoryFilterOptions(): Promise<PcFactoryFilterOption
 /* Orquestrador da página                                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Aba PC-Factory. Uma falha de banco aqui derrubava a página na tela genérica de
+ * erro; agora degrada para estado vazio, como já fazem o dashboard e Ordens de
+ * Serviço. `resolveReference` é puro (só lê os params), então continua válido
+ * mesmo com o banco fora.
+ */
 export async function getPcFactoryPageData(params: PcFactoryQueryParams = {}): Promise<PcFactoryPageData> {
+  try {
+    return await loadPcFactoryPageData(params);
+  } catch (error) {
+    console.error("Falha ao carregar PC-Factory pelo banco. Exibindo estado vazio.", error);
+    return emptyPageData(resolveReference(params), "unavailable");
+  }
+}
+
+async function loadPcFactoryPageData(params: PcFactoryQueryParams): Promise<PcFactoryPageData> {
   const reference = resolveReference(params);
   const totalRecords = await prisma.pcFactoryRecord.count();
   if (totalRecords === 0) return emptyPageData(reference);
@@ -1418,7 +1434,10 @@ export async function getPcFactoryDashboardSummary(): Promise<PcFactoryDashboard
   };
 }
 
-function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
+function emptyPageData(
+  reference: PcFactoryReferencePeriod,
+  source: PageDataSource = "empty"
+): PcFactoryPageData {
   return {
     reference,
     kpis: {
@@ -1495,7 +1514,7 @@ function emptyPageData(reference: PcFactoryReferencePeriod): PcFactoryPageData {
         utilizationPercent: null
       }
     },
-    source: "empty"
+    source
   };
 }
 

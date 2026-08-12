@@ -85,21 +85,6 @@ export type DashboardPeriodInput =
     };
 
 /**
- * Conjunto COMPLETO de KPIs consolidados do portal — consumido pelo agregador
- * `portal-analytics.service`, que expõe todos os indicadores de um período.
- * A aba Início NÃO usa este tipo (ver `HomeKpisData`).
- */
-export type DashboardKPIsData = {
-  openServiceOrders: number;
-  pendingPurchases: number;
-  criticalMachines: number;
-  lubricantConsumption: number;
-  mostUsedMaterials: number;
-  activeProcedures: number;
-  criticalAlerts: number;
-};
-
-/**
  * KPIs efetivamente RENDERIZADOS na aba Início.
  *
  * A home exibe 4 cards: OS Abertas, Compras Pendentes, Máquinas Críticas e
@@ -107,9 +92,9 @@ export type DashboardKPIsData = {
  * resultado detalhado do PC-Factory (`DatabaseDashboardData.pcFactoryCritical`),
  * que já traz média e ranking para o subtítulo/tooltip do card.
  *
- * Este tipo existe para a home não pagar por indicadores que não mostra:
- * consumo de lubrificantes, materiais mais usados e contagem de alertas seguem
- * disponíveis em `DashboardKPIsData` para quem realmente precisa deles.
+ * Este é o ÚNICO conjunto de KPIs do portal: cada card consulta o que exibe.
+ * Não existe um agregador "de todos os indicadores" — havia um
+ * (`portal-analytics.service`), mas ficou sem consumidor e foi removido.
  */
 export type HomeKpisData = {
   openServiceOrders: number;
@@ -155,12 +140,6 @@ export type CriticalAlertData = {
   createdAt: Date;
 };
 
-export type TopMachineBreakIndexData = {
-  equipmentName: string;
-  /** Nº de OS corretivas do equipamento no período (volume de quebra). */
-  correctiveOrders: number;
-};
-
 export type HoursByCollaboratorData = {
   userName: string;
   hours: number;
@@ -177,11 +156,6 @@ export type HoursByCollaboratorData = {
 export type PurchasesByMonthData = {
   month: number;
   value: number;
-};
-
-export type LubricantConsumptionPoint = {
-  date: Date;
-  consumption: number;
 };
 
 export type DatabaseDashboardData = {
