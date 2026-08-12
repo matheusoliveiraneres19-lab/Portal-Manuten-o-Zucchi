@@ -56,5 +56,12 @@ yarn-error.log*
 # Capturas do portal para o video Remotion (regeneraveis: npm run capture)
 /public/captures
 
+# Capturas de verificacao/depuracao (PNGs pesados, regeneraveis). Sem esta linha,
+# um `git add .` versionaria dezenas de MB de screenshots.
+/.shots/
+
 # Local Vercel folder
 .vercel
+
+# Netlify (residual - o deploy oficial do portal e na Vercel)
+/.netlify/

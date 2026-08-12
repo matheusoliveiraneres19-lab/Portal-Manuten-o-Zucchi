@@ -38,6 +38,7 @@ import type {
   DashboardKPIsData,
   DashboardPeriod,
   DashboardPeriodInput,
+  HomeKpisData,
   KPIComparison,
   KPITone,
   LubricantConsumptionPoint,
@@ -86,6 +87,53 @@ export function parsePeriod(period?: DashboardPeriodInput): DashboardPeriod {
   );
 }
 
+/**
+ * Log de auditoria de consistência. Os números do portal são conferidos contra as
+ * abas oficiais durante o desenvolvimento; em produção o log é silenciado para não
+ * gerar uma linha por request na Vercel (custo e ruído, sem leitor).
+ */
+const AUDIT_LOGS_ENABLED = process.env.NODE_ENV !== "production";
+
+function auditLog(message: string): void {
+  if (AUDIT_LOGS_ENABLED) {
+    console.info(message);
+  }
+}
+
+/**
+ * KPIs da aba Início — SOMENTE os três indicadores realmente renderizados que vêm
+ * do banco. "Máquinas Críticas" não entra aqui: vem de
+ * getPcFactoryMachinesBelowAverage, chamado UMA única vez em
+ * getDatabaseDashboardData (a query do PC-Factory é a mais pesada do portal).
+ *
+ * Nenhum dos três depende do período: são snapshots do estado atual (OS em aberto,
+ * compras aguardando ação, procedimentos publicados) — igual ao que os cards já
+ * comunicam nos subtítulos.
+ */
+async function getHomeKpis(): Promise<HomeKpisData> {
+  const [openServiceOrders, pendingPurchases, activeProcedures] = await Promise.all([
+    // OS "em aberto" = conjunto único de status do portal (aberta/liberada/em
+    // andamento/aguardando material), excluindo registros sem equipamento.
+    prisma.serviceOrder.count({
+      where: { status: { in: OPEN_SERVICE_ORDER_STATUSES }, ...excludeInvalidTestEquipmentWhere() }
+    }),
+    getPendingPurchasesCount(),
+    // Procedimentos "ativos" = PUBLICADOS na Central (status "Publicado" + categoria),
+    // não o campo legado `active`. Bate com /dashboard/procedimentos.
+    countPublishedProcedures()
+  ]);
+
+  return { openServiceOrders, pendingPurchases, activeProcedures };
+}
+
+/**
+ * Conjunto COMPLETO de KPIs consolidados do portal, usado pelo agregador
+ * `portal-analytics.service` (snapshot de todos os módulos para um período).
+ *
+ * A aba Início NÃO usa esta função — ela consome getHomeKpis, que consulta apenas
+ * o que exibe. Manter as duas separadas evita que a home pague por consumo de
+ * lubrificantes, materiais mais usados e contagem de alertas, que ela não mostra.
+ */
 export async function getDashboardKPIs(periodInput: DashboardPeriodInput): Promise<DashboardKPIsData> {
   const period = parsePeriod(periodInput);
   const [
@@ -164,7 +212,7 @@ export async function getMonthlyOpenClosedServiceOrders(
   const periodLabel = `${toInputDate(period.startDate)}→${toInputDate(period.endDate)}`;
 
   if (orders.length === 0) {
-    console.info(`[dashboard os-abertas-x-fechadas] período ${periodLabel} | 0 OS consideradas no período`);
+    auditLog(`[dashboard os-abertas-x-fechadas] período ${periodLabel} | 0 OS consideradas no período`);
     return { points: [], note: null };
   }
 
@@ -203,7 +251,7 @@ export async function getMonthlyOpenClosedServiceOrders(
   }
 
   // TAREFA 11 — auditoria de consistência (logs do servidor).
-  console.info(
+  auditLog(
     `[dashboard os-abertas-x-fechadas] período ${periodLabel} | OS consideradas: ${orders.length} | ` +
       `abertas agrupadas: ${openedGrouped} | fechadas agrupadas: ${closedGrouped} | ` +
       `fechadas sem closedAt: ${closedWithoutDate} | fechadas reconhecidas só por statusSapRaw: ${closedByRawOnly}`
@@ -378,6 +426,17 @@ export async function getLubricantConsumptionByPeriod(
 
 export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInput): Promise<DatabaseDashboardData> {
   const period = parsePeriod(periodInput);
+
+  // UM único objeto de params do PC-Factory para TODO o render da home.
+  // `loadRecords` (pc-factory.service) é memoizado com React.cache, cuja chave é a
+  // IDENTIDADE do argumento — dois objetos literais equivalentes viram duas chaves
+  // distintas e fazem a query mais pesada do portal rodar duas vezes. Por isso o
+  // objeto é criado aqui e reaproveitado, conforme o contrato documentado lá.
+  const pcFactoryParams = {
+    startDate: toInputDate(period.startDate),
+    endDate: toInputDate(period.endDate)
+  };
+
   const [
     kpis,
     openClosed,
@@ -387,28 +446,23 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     criticalAlerts,
     pcFactoryCritical
   ] = await Promise.all([
-    getDashboardKPIs(period),
+    getHomeKpis(),
     getMonthlyOpenClosedServiceOrders(period),
     getCorrectivePreventiveChart(period),
     getTopCriticalEquipments(period),
     getPendingPurchases(),
     getDashboardCriticalAlerts(period),
-    // Máquinas abaixo da média de disponibilidade do PC-Factory (card Máquinas Críticas).
-    getPcFactoryMachinesBelowAverage({
-      startDate: toInputDate(period.startDate),
-      endDate: toInputDate(period.endDate)
-    })
+    // Máquinas abaixo da média de disponibilidade do PC-Factory (card Máquinas
+    // Críticas). Fonte ÚNICA do card: média, contagem e ranking saem daqui.
+    getPcFactoryMachinesBelowAverage(pcFactoryParams)
   ]);
-
-  // Garante que o card use exatamente o resultado detalhado do PC-Factory (média + top).
-  kpis.criticalMachines = pcFactoryCritical.count;
 
   // TAREFA 14 — Auditoria de consistência (dev): estes números devem bater com as
   // abas oficiais. OS abertas = Ordens; compras pendentes = Compras Pendentes;
   // máquinas críticas = abaixo da média de disponibilidade do PC-Factory;
   // procedimentos = Publicados da Central.
-  console.info(
-    `[dashboard-inicio] período ${toInputDate(period.startDate)}→${toInputDate(period.endDate)} | ` +
+  auditLog(
+    `[dashboard-inicio] período ${pcFactoryParams.startDate}→${pcFactoryParams.endDate} | ` +
       `OS abertas: ${kpis.openServiceOrders} | compras pendentes: ${kpis.pendingPurchases} | ` +
       `máquinas críticas (PC-Factory < média ${pcFactoryCritical.averageAvailability ?? "—"}%): ${pcFactoryCritical.count}` +
       ` de ${pcFactoryCritical.totalMachines} | procedimentos publicados: ${kpis.activeProcedures} | ` +

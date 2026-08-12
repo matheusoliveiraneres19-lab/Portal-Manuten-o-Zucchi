@@ -34,10 +34,20 @@ export type ServiceOrdersPageData = {
   totalPages: number;
   filterOptions: ServiceOrderFilterOptions;
   summary: ServiceOrdersSummary;
-  source: "database" | "mock";
+  source: ServiceOrdersSource;
   /** Data (ISO) da última importação de Ordens de Serviço, se houver. */
   lastImportAt: string | null;
 };
+
+/**
+ * Origem dos dados exibidos na aba Ordens de Serviço.
+ *
+ * - "database": leitura real do PostgreSQL/Supabase.
+ * - "empty": a consulta falhou e a aba exibe estado vazio. NUNCA dados fictícios —
+ *   mesma política já adotada por `dashboard.service.getEmptyDashboardData`, para o
+ *   gestor não tomar decisão sobre ordens que não existem.
+ */
+export type ServiceOrdersSource = "database" | "empty";
 
 export type ServiceOrdersQueryParams = {
   search?: string;
@@ -77,7 +87,7 @@ export type ServiceOrdersResult = {
   page: number;
   pageSize: number;
   totalPages: number;
-  source: "database" | "mock";
+  source: ServiceOrdersSource;
 };
 
 export type ServiceOrderFilterOptions = {

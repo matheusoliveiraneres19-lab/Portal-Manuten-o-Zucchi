@@ -1,13 +1,8 @@
 "use client";
 
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
   Cell,
-  LabelList,
   Legend,
   Line,
   LineChart,
@@ -22,74 +17,89 @@ import type { TooltipProps } from "recharts";
 import { AlertTriangle, LineChart as LineChartIcon } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { SeeAllLink } from "@/components/SeeAllLink";
-
-/** Trunca nomes longos no eixo, preservando leitura (o nome completo vai no tooltip). */
-function truncateLabel(value: string, max = 18): string {
-  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
-}
+import { CHART_CHROME, CHART_SERIES, TOOLTIP } from "@/constants/theme";
 
 const numberPtBr = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 });
 
 /**
- * Tooltip do gráfico "Horas apontadas por colaborador": mostra nome completo,
- * horas, quantidade de ordens e média de horas por ordem (quando disponíveis).
+ * Moldura do tooltip premium — escura, com filete dourado. Compartilhada pelos
+ * dois tipos de gráfico para que a leitura seja idêntica em toda a home.
  */
-function CollaboratorHoursTooltip({ active, payload }: TooltipProps<number, string>) {
-  if (!active || !payload || payload.length === 0) {
-    return null;
-  }
-
-  const row = payload[0].payload as { name?: string; value?: number; orders?: number; avg?: number };
-  const hours = Number(row.value ?? 0);
-  const orders = Number(row.orders ?? 0);
-  const avg = Number(row.avg ?? 0);
-
+function TooltipShell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-md border border-gold/30 bg-[#0a0b0b]/95 px-3 py-2 text-xs text-zinc-100 shadow-lg">
-      <p className="mb-1 max-w-[220px] font-semibold text-champagne">{row.name}</p>
-      <p>
-        Horas: <strong className="text-white">{numberPtBr.format(hours)}h</strong>
+    <div
+      className="rounded-lg border px-3 py-2 text-xs shadow-xl backdrop-blur-sm"
+      style={{ background: TOOLTIP.background, borderColor: TOOLTIP.border, color: TOOLTIP.text }}
+    >
+      <p className="mb-1.5 font-semibold" style={{ color: TOOLTIP.title }}>
+        {title}
       </p>
-      <p>
-        Ordens: <strong className="text-white">{numberPtBr.format(orders)}</strong>
-      </p>
-      {orders > 0 ? (
-        <p>
-          Média: <strong className="text-white">{numberPtBr.format(avg)}h/ordem</strong>
-        </p>
-      ) : null}
+      {children}
     </div>
   );
 }
 
+function TooltipRow({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <p className="flex items-center gap-2 leading-relaxed">
+      <span aria-hidden className="h-2 w-2 shrink-0 rounded-sm" style={{ background: color }} />
+      <span>{label}:</span>
+      <strong className="ml-auto pl-3 font-semibold text-white">{numberPtBr.format(value)}</strong>
+    </p>
+  );
+}
+
 /**
- * Tooltip do gráfico "OS abertas x fechadas (por mês)": mês + abertas + fechadas
- * e a fonte oficial dos dados.
+ * Tooltip de "OS abertas x fechadas (por mês)": mês + as duas séries + a fonte
+ * oficial dos dados, para o gestor saber de onde o número vem.
  */
 function OpenClosedTooltip({ active, payload, label }: TooltipProps<number, string>) {
   if (!active || !payload || payload.length === 0) {
     return null;
   }
+
   const abertas = Number(payload.find((item) => item.dataKey === "abertas")?.value ?? 0);
   const fechadas = Number(payload.find((item) => item.dataKey === "fechadas")?.value ?? 0);
 
   return (
-    <div className="rounded-md border border-gold/30 bg-[#0a0b0b]/95 px-3 py-2 text-xs text-zinc-100 shadow-lg">
-      <p className="mb-1 font-semibold text-champagne">{label}</p>
-      <p>
-        OS abertas: <strong className="text-white">{numberPtBr.format(abertas)}</strong>
+    <TooltipShell title={String(label)}>
+      <TooltipRow label="OS abertas" value={abertas} color={CHART_SERIES.ordens} />
+      <TooltipRow label="OS fechadas" value={fechadas} color={CHART_SERIES.compras} />
+      <p className="mt-1.5 border-t pt-1.5 text-[10px] opacity-60" style={{ borderColor: TOOLTIP.border }}>
+        Fonte: Ordens de Manutenção
       </p>
-      <p>
-        OS fechadas: <strong className="text-white">{numberPtBr.format(fechadas)}</strong>
+    </TooltipShell>
+  );
+}
+
+/** Tooltip do donut: categoria, valor absoluto e participação no total. */
+function ShareTooltip({ active, payload, total }: TooltipProps<number, string> & { total: number }) {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+
+  const slice = payload[0];
+  const value = Number(slice.value ?? 0);
+  const share = total > 0 ? (value / total) * 100 : 0;
+  const color = String((slice.payload as { color?: string })?.color ?? CHART_SERIES.outros);
+
+  return (
+    <TooltipShell title={String(slice.name ?? "")}>
+      <TooltipRow label="Ordens" value={value} color={color} />
+      <p className="mt-0.5 text-[11px] opacity-75">
+        {share.toFixed(1).replace(".", ",")}% do total de {numberPtBr.format(total)}
       </p>
-      <p className="mt-1 text-[10px] text-zinc-400">Fonte: Ordens de Manutenção</p>
-    </div>
+    </TooltipShell>
   );
 }
 
 type ChartCardProps = {
   title: string;
-  kind: "line" | "donut" | "bar-horizontal" | "bar" | "area";
+  /**
+   * Tipos suportados pelo card COMPARTILHADO da home. Os módulos internos
+   * (PC-Factory, Lubrificantes, Compras…) têm componentes de gráfico próprios.
+   */
+  kind: "line" | "donut";
   data: Array<Record<string, string | number>>;
   className?: string;
   emptyTitle?: string;
@@ -99,6 +109,12 @@ type ChartCardProps = {
   /** Aviso técnico opcional exibido abaixo do gráfico (ex.: closedAt não importado). */
   note?: string;
 };
+
+/**
+ * Altura responsiva. Antes era fixa em 185px, o que esmagava o gráfico em monitor
+ * grande — a queixa de "gráficos pouco visíveis". Agora cresce com o viewport.
+ */
+const CHART_HEIGHT = "h-[200px] sm:h-[224px] xl:h-[248px] 2xl:h-[288px]";
 
 export function ChartCard({
   title,
@@ -113,20 +129,20 @@ export function ChartCard({
   const donutTotal = data.reduce((total, item) => total + Number(item.value ?? 0), 0);
   const isEmpty = kind === "donut" ? donutTotal === 0 : data.length === 0;
   // Séries temporais com 1 ponto não permitem leitura de tendência.
-  const isInsufficient = !isEmpty && kind !== "donut" && data.length < 2;
+  const isInsufficient = !isEmpty && kind === "line" && data.length < 2;
 
   const header = (
     <div className="mb-3 flex items-center justify-between gap-3">
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">{title}</h3>
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">{title}</h3>
       {href ? <SeeAllLink href={href} /> : null}
     </div>
   );
 
   if (isEmpty) {
     return (
-      <article className={`panel rounded-lg p-4 ${className}`}>
+      <article className={`panel panel-accent flex h-full flex-col p-4 ${className}`}>
         {header}
-        <div className="h-[185px] w-full">
+        <div className={`w-full ${CHART_HEIGHT}`}>
           <EmptyState icon={LineChartIcon} title={emptyTitle} description={emptyDescription} />
         </div>
       </article>
@@ -134,92 +150,90 @@ export function ChartCard({
   }
 
   return (
-    <article className={`panel rounded-lg p-4 ${className}`}>
+    <article className={`panel panel-accent flex h-full flex-col p-4 ${className}`}>
       {header}
-      <div className="h-[185px] w-full">
+      <div className={`w-full ${CHART_HEIGHT}`}>
         <ResponsiveContainer width="100%" height="100%">
           {kind === "line" ? (
-            <LineChart data={data}>
-              <CartesianGrid stroke="#e8dfd1" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip content={<OpenClosedTooltip />} />
-              <Legend iconType="rect" wrapperStyle={{ fontSize: 11 }} />
-              <Line dataKey="abertas" name="Abertas" stroke="#245f83" strokeWidth={3} dot={{ r: 3 }} />
-              <Line dataKey="fechadas" name="Fechadas" stroke="#c49a45" strokeWidth={3} dot={{ r: 3 }} />
+            <LineChart data={data} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
+              <CartesianGrid stroke={CHART_CHROME.onLight.grid} strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="name"
+                tick={{ fontSize: 11, fill: CHART_CHROME.onLight.axis }}
+                stroke={CHART_CHROME.onLight.grid}
+                tickMargin={8}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: CHART_CHROME.onLight.axis }}
+                stroke={CHART_CHROME.onLight.grid}
+                allowDecimals={false}
+                width={44}
+              />
+              <Tooltip content={<OpenClosedTooltip />} cursor={{ stroke: CHART_CHROME.onLight.grid, strokeWidth: 1 }} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+              <Line
+                dataKey="abertas"
+                name="Abertas"
+                stroke={CHART_SERIES.ordens}
+                strokeWidth={2.5}
+                dot={{ r: 3, strokeWidth: 0, fill: CHART_SERIES.ordens }}
+                activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }}
+              />
+              <Line
+                dataKey="fechadas"
+                name="Fechadas"
+                stroke={CHART_SERIES.compras}
+                strokeWidth={2.5}
+                dot={{ r: 3, strokeWidth: 0, fill: CHART_SERIES.compras }}
+                activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }}
+              />
             </LineChart>
-          ) : kind === "donut" ? (
+          ) : (
             <PieChart>
-              <Pie data={data} dataKey="value" nameKey="name" innerRadius={48} outerRadius={72} paddingAngle={2}>
+              <Pie
+                data={data}
+                dataKey="value"
+                nameKey="name"
+                cx="42%"
+                innerRadius="56%"
+                outerRadius="82%"
+                paddingAngle={2}
+                stroke="#fff"
+                strokeWidth={2}
+              >
                 {data.map((entry) => (
                   <Cell key={String(entry.name)} fill={String(entry.color)} />
                 ))}
               </Pie>
-              <Tooltip />
-              <Legend layout="vertical" align="right" verticalAlign="middle" wrapperStyle={{ fontSize: 12 }} />
-              <text x="36%" y="48%" textAnchor="middle" dominantBaseline="middle" className="fill-zinc-700 text-xs">
+              <Tooltip content={<ShareTooltip total={donutTotal} />} />
+              <Legend
+                layout="vertical"
+                align="right"
+                verticalAlign="middle"
+                iconType="circle"
+                iconSize={8}
+                wrapperStyle={{ fontSize: 12 }}
+              />
+              <text x="42%" y="46%" textAnchor="middle" dominantBaseline="middle" className="fill-neutralized-strong text-[11px]">
                 Total
               </text>
-              <text x="36%" y="60%" textAnchor="middle" dominantBaseline="middle" className="fill-zinc-950 text-xl font-bold">
-                {donutTotal}
+              <text x="42%" y="58%" textAnchor="middle" dominantBaseline="middle" className="fill-ink text-2xl font-semibold">
+                {numberPtBr.format(donutTotal)}
               </text>
             </PieChart>
-          ) : kind === "bar-horizontal" ? (
-            <BarChart data={data} layout="vertical" margin={{ left: 8, right: 36 }}>
-              <CartesianGrid stroke="#eee4d6" strokeDasharray="3 3" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11 }} />
-              <YAxis
-                dataKey="name"
-                type="category"
-                width={140}
-                tick={{ fontSize: 11 }}
-                tickFormatter={(value: string) => truncateLabel(value)}
-                interval={0}
-              />
-              <Tooltip cursor={{ fill: "rgba(47,99,132,0.08)" }} content={<CollaboratorHoursTooltip />} />
-              <Bar dataKey="value" fill="#2f6384" radius={[0, 3, 3, 0]} barSize={14}>
-                <LabelList
-                  dataKey="value"
-                  position="right"
-                  className="fill-[#5a3d12]"
-                  fontSize={10}
-                  formatter={(value: number) => numberPtBr.format(value)}
-                />
-              </Bar>
-            </BarChart>
-          ) : kind === "bar" ? (
-            <BarChart data={data}>
-              <CartesianGrid stroke="#eee4d6" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(value) => `${value}k`} />
-              <Bar dataKey="value" fill="#2f6384" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          ) : (
-            <AreaChart data={data}>
-              <defs>
-                <linearGradient id="lubricant" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="5%" stopColor="#2f6384" stopOpacity={0.35} />
-                  <stop offset="95%" stopColor="#2f6384" stopOpacity={0.03} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke="#eee4d6" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Area dataKey="value" fill="url(#lubricant)" stroke="#245f83" strokeWidth={3} />
-            </AreaChart>
           )}
         </ResponsiveContainer>
       </div>
+
       {isInsufficient ? (
-        <p className="mt-2 text-center text-[11px] italic text-zinc-500">
+        <p className="mt-2 text-center text-[11px] italic text-neutralized-strong">
           Dados insuficientes para análise completa.
         </p>
       ) : null}
+
       {note ? (
-        <p className="mt-2 flex items-start gap-1.5 rounded-md border border-gold/30 bg-gold/[0.08] px-2.5 py-1.5 text-[11px] leading-snug text-[#7a5312]">
-          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-gold" />
+        <p className="mt-2 flex items-start gap-1.5 rounded-lg border border-warning/35 bg-warning/[0.09] px-2.5 py-1.5 text-[11px] leading-snug text-warning-strong">
+          <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-warning" />
           <span>{note}</span>
         </p>
       ) : null}

@@ -188,7 +188,7 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
             <div className="mt-2 space-y-0.5 border-t border-gold/15 pt-2 text-[11px] text-zinc-500">
               <p className="flex items-center gap-1.5">
                 <Database className="h-3 w-3 text-gold" />
-                Fonte: {data.source === "database" ? "Banco SQLite/Prisma" : "Fallback mockado"}
+                Fonte: {formatSourceLabel(data.source)}
               </p>
               <p>
                 Última importação:{" "}
@@ -423,7 +423,7 @@ function ServiceOrderActions({
       <div className="flex items-center gap-3 text-xs text-zinc-400">
         <span>{selectedCount ? `${selectedCount} ordens selecionadas` : "Nenhuma ordem selecionada"}</span>
         <span className="h-4 w-px bg-gold/20" />
-        <span>Fonte: {source === "database" ? "Banco SQLite/Prisma" : "Fallback mockado"}</span>
+        <span>Fonte: {formatSourceLabel(source)}</span>
       </div>
     </div>
   );
@@ -1184,4 +1184,13 @@ function exportOrdersToCsv(orders: ServiceOrderListItem[]) {
 function csvCell(value: string | number) {
   const text = String(value ?? "");
   return /[";\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/**
+ * Rótulo da origem dos dados. "empty" significa que a consulta ao banco falhou e a
+ * aba está em estado vazio — o aviso é explícito para o gestor não interpretar uma
+ * tabela vazia como "não há ordens".
+ */
+function formatSourceLabel(source: ServiceOrdersPageData["source"]): string {
+  return source === "database" ? "Banco PostgreSQL/Supabase" : "Indisponível — falha ao consultar o banco";
 }

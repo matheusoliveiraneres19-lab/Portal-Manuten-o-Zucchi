@@ -1,6 +1,5 @@
 import { unstable_cache } from "next/cache";
 import { ImportType, MaintenanceArea, Prisma, ServiceOrderStatus } from "@prisma/client";
-import { mockServiceOrders } from "@/data/service-orders";
 import { prisma } from "@/lib/prisma";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
 import { excludeInvalidTestEquipmentWhere } from "@/utils/service-order-classification";
@@ -44,8 +43,10 @@ export async function getServiceOrders(params: ServiceOrdersQueryParams = {}): P
       source: "database"
     };
   } catch (error) {
-    console.error("Falha ao carregar ordens de serviço pelo banco. Usando fallback mockado.", error);
-    return getMockServiceOrders(params);
+    // NUNCA devolver ordens fictícias: em falha, estado vazio explícito para o
+    // gestor não decidir sobre OS que não existem (mesma política do dashboard).
+    console.error("Falha ao carregar ordens de serviço pelo banco. Exibindo estado vazio.", error);
+    return getEmptyServiceOrders(params);
   }
 }
 
@@ -114,8 +115,8 @@ export async function getServiceOrderFilterOptions(): Promise<ServiceOrderFilter
   try {
     return await loadServiceOrderFilterOptions();
   } catch (error) {
-    console.error("Falha ao carregar opções de filtros de OS. Usando fallback mockado.", error);
-    return getMockFilterOptions();
+    console.error("Falha ao carregar opções de filtros de OS. Exibindo listas vazias.", error);
+    return getEmptyFilterOptions();
   }
 }
 
@@ -154,8 +155,8 @@ export async function getServiceOrdersSummary(): Promise<ServiceOrdersSummary> {
 
     return { total, abertas, liberadas, emAndamento, aguardandoMaterial, fechadas, semResponsavel };
   } catch (error) {
-    console.error("Falha ao carregar resumo de OS. Usando fallback mockado.", error);
-    return getMockSummary();
+    console.error("Falha ao carregar resumo de OS. Exibindo resumo zerado.", error);
+    return getEmptySummary();
   }
 }
 
@@ -347,81 +348,48 @@ function mapServiceOrder(order: Prisma.ServiceOrderGetPayload<{ select: typeof s
   };
 }
 
-function getMockServiceOrders(params: ServiceOrdersQueryParams): ServiceOrdersResult {
-  const page = normalizePage(params.page);
-  const pageSize = normalizePageSize(params.pageSize);
-  const filtered = mockServiceOrders.filter((order) => matchesMockFilters(order, params));
-  const start = (page - 1) * pageSize;
+/* ------------------------------------------------------------------ */
+/* Estados vazios de falha (substituem o antigo fallback mockado)      */
+/*                                                                    */
+/* Quando o banco falha, a aba mostra ESTADO VAZIO — nunca ordens      */
+/* fictícias. `source: "empty"` permite à UI avisar que os dados estão */
+/* indisponíveis, em vez de apresentar números falsos como reais.      */
+/* ------------------------------------------------------------------ */
 
+function getEmptyServiceOrders(params: ServiceOrdersQueryParams): ServiceOrdersResult {
   return {
-    data: filtered.slice(start, start + pageSize),
-    total: filtered.length,
-    page,
-    pageSize,
-    totalPages: Math.max(1, Math.ceil(filtered.length / pageSize)),
-    source: "mock"
+    data: [],
+    total: 0,
+    page: normalizePage(params.page),
+    pageSize: normalizePageSize(params.pageSize),
+    totalPages: 1,
+    source: "empty"
   };
 }
 
-function getMockFilterOptions(): ServiceOrderFilterOptions {
+function getEmptyFilterOptions(): ServiceOrderFilterOptions {
+  return { statuses: [], areas: [], planningGroups: [], responsibles: [], equipments: [] };
+}
+
+function getEmptySummary(): ServiceOrdersSummary {
   return {
-    statuses: Array.from(new Set(mockServiceOrders.map((order) => order.status))),
-    areas: Array.from(new Set(mockServiceOrders.map((order) => order.planningGroupCode).filter(Boolean))) as string[],
-    planningGroups: Array.from(new Set(mockServiceOrders.map((order) => order.planningGroup).filter(Boolean))) as string[],
-    responsibles: normalizeResponsibleOptions(mockServiceOrders.map(getResponsibleGroup)),
-    equipments: Array.from(new Set(mockServiceOrders.map((order) => order.technicalObject)))
+    total: 0,
+    abertas: 0,
+    liberadas: 0,
+    emAndamento: 0,
+    aguardandoMaterial: 0,
+    fechadas: 0,
+    semResponsavel: 0
   };
 }
 
-function getMockSummary(): ServiceOrdersSummary {
-  return {
-    total: mockServiceOrders.length,
-    abertas: mockServiceOrders.filter((order) => order.status === "ABERTA").length,
-    liberadas: mockServiceOrders.filter((order) => order.status === "LIBERADA").length,
-    emAndamento: mockServiceOrders.filter((order) => order.status === "EM_ANDAMENTO").length,
-    aguardandoMaterial: mockServiceOrders.filter((order) => order.status === "AGUARDANDO_MATERIAL").length,
-    fechadas: mockServiceOrders.filter((order) => order.status === "FECHADA").length,
-    semResponsavel: mockServiceOrders.filter((order) => getResponsibleGroup(order) === "SEM RESPONSÁVEL").length
-  };
-}
-
-function matchesMockFilters(order: ServiceOrderListItem, params: ServiceOrdersQueryParams) {
-  const haystack = [
-    order.osNumber,
-    order.title,
-    order.equipmentName,
-    order.equipmentCode,
-    order.technicalObject,
-    order.operation,
-    order.responsibleName
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  const openedDate = order.openedAt ? order.openedAt.slice(0, 10) : "";
-  const statuses = params.statuses ?? [];
-  const areas = params.areas ?? [];
-  const planningGroups = params.planningGroups ?? [];
-  const responsibles = params.responsibles ?? [];
-  const responsibleGroup = getResponsibleGroup(order);
-  const groupHaystack = `${order.planningGroup ?? ""} ${order.planningGroupCode ?? ""} ${order.workCenter ?? ""}`.toLowerCase();
-
-  return (
-    includes(haystack, params.search) &&
-    includes(`${order.osNumber} ${order.title}`, params.osNumber) &&
-    (!statuses.length || statuses.includes(order.status)) &&
-    includes(`${order.equipmentName ?? ""} ${order.equipmentCode ?? ""} ${order.technicalObject}`, params.equipment) &&
-    (!areas.length || areas.some((area) => groupHaystack.includes(area.toLowerCase()))) &&
-    (!planningGroups.length ||
-      planningGroups.some((group) => order.planningGroup === group || order.planningGroupCode === group)) &&
-    (!responsibles.length || responsibles.includes(responsibleGroup)) &&
-    (!params.startDate || (openedDate && openedDate >= params.startDate)) &&
-    (!params.endDate || (openedDate && openedDate <= params.endDate))
-  );
-}
-
+/**
+ * Filtro textual "contém", INSENSÍVEL a caixa — buscar "bomba" encontra "BOMBA"
+ * (títulos e objetos técnicos vêm do SAP em maiúsculas). Alinhado ao padrão já
+ * usado por purchases, pc-factory, procedures, collaborators e audit.
+ */
 function contains(value: string): Prisma.StringFilter {
-  return { contains: value.trim() };
+  return { contains: value.trim(), mode: "insensitive" };
 }
 
 function normalizePage(value?: number) {
@@ -471,14 +439,6 @@ function formatPlanningGroup(name: string | null, code: string | null) {
   return name ?? code ?? null;
 }
 
-function getResponsibleGroup(order: ServiceOrderListItem) {
-  if (!order.responsibleName) {
-    return "SEM RESPONSÁVEL";
-  }
-
-  return order.responsibleId ? `${order.responsibleName} (${order.responsibleId})` : order.responsibleName;
-}
-
 function stripResponsibleId(value: string) {
   return value.replace(/\s+\([^)]*\)$/, "").trim();
 }
@@ -496,12 +456,4 @@ function normalizeEnumText(value: string) {
     .replace(/[^a-zA-Z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .toLowerCase();
-}
-
-function includes(value: string, term?: string) {
-  if (!term?.trim()) {
-    return true;
-  }
-
-  return value.toLowerCase().includes(term.trim().toLowerCase());
 }

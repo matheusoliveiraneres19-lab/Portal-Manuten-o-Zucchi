@@ -3,7 +3,13 @@ import type { AlertStatus, AlertType, Criticality, Priority, PurchaseStatus } fr
 import type { PcFactoryMachinesBelowAverageResult } from "@/services/pc-factory.service";
 
 export type KPITrendDirection = "up" | "down" | "stable";
-export type KPITone = "blue" | "gold" | "red";
+
+/**
+ * Tom visual do card de KPI. `green`/`amber` existem para indicadores de estado
+ * positivo e de atenção — sem eles, um KPI "tudo em ordem" e um KPI crítico
+ * ficavam visualmente iguais.
+ */
+export type KPITone = "blue" | "gold" | "red" | "green" | "amber";
 
 /**
  * Comparativo com o período anterior.
@@ -78,6 +84,11 @@ export type DashboardPeriodInput =
       month?: number;
     };
 
+/**
+ * Conjunto COMPLETO de KPIs consolidados do portal — consumido pelo agregador
+ * `portal-analytics.service`, que expõe todos os indicadores de um período.
+ * A aba Início NÃO usa este tipo (ver `HomeKpisData`).
+ */
 export type DashboardKPIsData = {
   openServiceOrders: number;
   pendingPurchases: number;
@@ -86,6 +97,24 @@ export type DashboardKPIsData = {
   mostUsedMaterials: number;
   activeProcedures: number;
   criticalAlerts: number;
+};
+
+/**
+ * KPIs efetivamente RENDERIZADOS na aba Início.
+ *
+ * A home exibe 4 cards: OS Abertas, Compras Pendentes, Máquinas Críticas e
+ * Procedimentos Ativos. "Máquinas Críticas" não entra aqui porque vem do
+ * resultado detalhado do PC-Factory (`DatabaseDashboardData.pcFactoryCritical`),
+ * que já traz média e ranking para o subtítulo/tooltip do card.
+ *
+ * Este tipo existe para a home não pagar por indicadores que não mostra:
+ * consumo de lubrificantes, materiais mais usados e contagem de alertas seguem
+ * disponíveis em `DashboardKPIsData` para quem realmente precisa deles.
+ */
+export type HomeKpisData = {
+  openServiceOrders: number;
+  pendingPurchases: number;
+  activeProcedures: number;
 };
 
 export type OpenClosedServiceOrdersPoint = {
@@ -157,7 +186,8 @@ export type LubricantConsumptionPoint = {
 
 export type DatabaseDashboardData = {
   period: DashboardPeriod;
-  kpis: DashboardKPIsData;
+  /** Apenas os KPIs exibidos na home — ver HomeKpisData. */
+  kpis: HomeKpisData;
   openClosedServiceOrders: OpenClosedServiceOrdersPoint[];
   openClosedNote: string | null;
   correctivePreventiveChart: CorrectivePreventiveChartData;

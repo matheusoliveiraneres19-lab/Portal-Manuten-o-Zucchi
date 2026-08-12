@@ -20,6 +20,13 @@ type RankingListProps = {
   unit?: "count" | "percent";
 };
 
+/**
+ * Ranking dos cards da home (equipamentos críticos, máquinas etc.).
+ *
+ * Os três primeiros colocados recebem destaque de posição — num ranking de
+ * criticidade, "quem está no topo" é a informação que o gestor busca primeiro, e
+ * antes todas as posições tinham o mesmo peso visual.
+ */
 export function RankingList({
   title,
   items,
@@ -33,40 +40,57 @@ export function RankingList({
   const maxValue = Math.max(...items.map((item) => item.value), 0) || 1;
 
   return (
-    <article className={`panel rounded-lg p-4 ${className}`}>
+    <article className={`panel panel-accent flex h-full flex-col p-4 ${className}`}>
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">{title}</h3>
+        <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">{title}</h3>
         {href && items.length ? <SeeAllLink href={href} /> : null}
       </div>
+
       {items.length === 0 ? (
         <EmptyState icon={Trophy} title={emptyTitle} description={emptyDescription} />
       ) : (
-      <div className="space-y-2.5">
-        {items.map((item, index) => (
-          <div key={item.name} className="grid grid-cols-[28px_1fr_auto] items-center gap-3 border-b border-zinc-100 pb-2.5 last:border-0 last:pb-0">
-            <span className="text-xs font-bold text-zinc-500">{String(index + 1).padStart(2, "0")}</span>
-            <div className="min-w-0">
-              <div className="truncate text-sm text-zinc-900">{item.name}</div>
-              {variant === "bars" ? (
-                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-200">
-                  <div className="h-full rounded-full bg-danger" style={{ width: `${(item.value / maxValue) * 100}%` }} />
+        <ol className="space-y-1">
+          {items.map((item, index) => (
+            <li
+              key={item.name}
+              className="grid grid-cols-[26px_1fr_auto] items-center gap-3 rounded-lg border-b border-black/[0.06] px-1 py-2 transition-colors duration-200 ease-premium last:border-0 hover:bg-gold/[0.07]"
+            >
+              <span
+                className={`grid h-6 w-6 place-items-center rounded-md text-[11px] font-bold tabular-nums ${
+                  index < 3 ? "bg-danger/12 text-danger-strong" : "text-neutralized-strong"
+                }`}
+              >
+                {index + 1}
+              </span>
+
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-ink" title={item.name}>
+                  {item.name}
                 </div>
-              ) : null}
-            </div>
-            {variant === "badges" ? (
-              <span className="rounded-md border border-danger/30 bg-danger/10 px-3 py-1 text-sm font-bold text-danger">
-                {item.value}
-              </span>
-            ) : (
-              <span className="text-sm font-semibold text-zinc-800">
-                {unit === "percent"
-                  ? `${item.value.toFixed(1).replace(".", ",")}%`
-                  : item.value.toLocaleString("pt-BR")}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
+                {variant === "bars" ? (
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-black/[0.07]">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-danger to-[#C6304A]"
+                      style={{ width: `${(item.value / maxValue) * 100}%` }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              {variant === "badges" ? (
+                <span className="rounded-lg border border-danger/30 bg-danger/[0.10] px-3 py-1 text-sm font-bold tabular-nums text-danger-strong">
+                  {item.value}
+                </span>
+              ) : (
+                <span className="text-sm font-semibold tabular-nums text-ink">
+                  {unit === "percent"
+                    ? `${item.value.toFixed(1).replace(".", ",")}%`
+                    : item.value.toLocaleString("pt-BR")}
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
       )}
     </article>
   );

@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 
 type ChartCardLazyProps = {
   title: string;
-  kind: "line" | "donut" | "bar-horizontal" | "bar" | "area";
+  kind: "line" | "donut";
   data: Array<Record<string, string | number>>;
   className?: string;
   emptyTitle?: string;
@@ -16,12 +16,14 @@ type ChartCardLazyProps = {
 };
 
 // Recharts só é baixado quando o gráfico monta no cliente.
+// As alturas do skeleton acompanham CHART_HEIGHT do ChartCard — se mudarem lá,
+// mude aqui também, senão volta o layout shift no lazy-load.
 const ChartCard = dynamic(() => import("@/components/ChartCard").then((m) => m.ChartCard), {
   ssr: false,
   loading: () => (
-    <div className="panel h-full min-h-[244px] rounded-lg p-4">
-      <div className="h-3 w-40 animate-pulse rounded bg-zinc-300/70" />
-      <div className="mt-4 h-[185px] animate-pulse rounded bg-zinc-200/70" />
+    <div className="panel panel-accent h-full p-4">
+      <div className="h-3 w-40 animate-pulse rounded bg-neutralized/25" />
+      <div className="mt-4 h-[200px] animate-pulse rounded-lg bg-neutralized/15 sm:h-[224px] xl:h-[248px] 2xl:h-[288px]" />
     </div>
   )
 });

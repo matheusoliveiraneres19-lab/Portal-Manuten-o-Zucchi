@@ -478,9 +478,12 @@ export async function getCriticalEquipmentsPageData(
 
     // Auditoria: com "Todas as ordens" e mesmo período, `rows.length` deve bater
     // com o total exibido na aba /dashboard/ordens-servico (TAREFA 14).
-    console.info(
-      `[equipamentos-criticos] período ${period.startDate}→${period.endDate} | OS brutas: ${rawRows.length} | equip. não informado ignoradas: ${ignoredInvalidEquipment} | fora do recorte de planejamento: ${ignoredByPlanningFilters} | OS consideradas: ${rows.length} (PL/PV incluídas: ${programmedPreventiveOrders})`
-    );
+    // Só em desenvolvimento: em produção seria uma linha de log por request.
+    if (process.env.NODE_ENV !== "production") {
+      console.info(
+        `[equipamentos-criticos] período ${period.startDate}→${period.endDate} | OS brutas: ${rawRows.length} | equip. não informado ignoradas: ${ignoredInvalidEquipment} | fora do recorte de planejamento: ${ignoredByPlanningFilters} | OS consideradas: ${rows.length} (PL/PV incluídas: ${programmedPreventiveOrders})`
+      );
+    }
 
     const items = analyzeEquipments(rows, effective, lookup);
     const limit = normalizeLimit(params.limit);
