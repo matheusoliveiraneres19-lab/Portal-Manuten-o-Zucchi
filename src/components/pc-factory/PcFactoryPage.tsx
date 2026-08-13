@@ -8,7 +8,7 @@ import { Activity, Factory, Info, RefreshCw, Upload, X } from "lucide-react";
 import { ChartSkeleton } from "@/components/ChartSkeleton";
 import { PcFactoryKpiCards } from "@/components/pc-factory/PcFactoryKpiCards";
 import { PcFactoryFilters } from "@/components/pc-factory/PcFactoryFilters";
-import { PcFactoryEmptyState } from "@/components/pc-factory/PcFactoryEmptyState";
+import { ModuleEmptyState } from "@/components/ui/ModuleEmptyState";
 import { PcFactoryRecordsTable } from "@/components/pc-factory/PcFactoryRecordsTable";
 import { PcFactoryReliabilityTable } from "@/components/pc-factory/PcFactoryReliabilityTable";
 import { PcFactoryDetailsDrawer } from "@/components/pc-factory/PcFactoryDetailsDrawer";
@@ -212,7 +212,14 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
       ) : null}
 
       {isEmpty ? (
-        <PcFactoryEmptyState onImport={() => setImportOpen(true)} unavailable={isUnavailable} />
+        <ModuleEmptyState
+          icon={Factory}
+          title="Nenhum dado do PC-Factory importado ainda"
+          description="Importe um relatório do PC-Factory para visualizar disponibilidade, utilização, MTBF, MTTR e status das máquinas."
+          action={{ label: "Importar Excel", onClick: () => setImportOpen(true) }}
+          unavailable={isUnavailable}
+          unavailableTitle="Dados do PC-Factory indisponíveis"
+        />
       ) : (
         <>
           <PcFactoryKpiCards kpis={data.kpis} />

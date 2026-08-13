@@ -4,10 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FileSpreadsheet, Loader2, Upload } from "lucide-react";
 import {
-  LubricantModalShell,
-  ghostButtonClass,
-  primaryButtonClass
-} from "@/components/lubricants/LubricantModalShell";
+  ModalShell,
+  modalGhostButtonClass,
+  modalPrimaryButtonClass
+} from "@/components/ui/ModalShell";
 import type { LubricantImportResult } from "@/types/lubricants";
 
 type LubricantImportModalProps = {
@@ -57,7 +57,7 @@ export function LubricantImportModal({ open, onClose, onImported }: LubricantImp
   }
 
   return (
-    <LubricantModalShell
+    <ModalShell
       open={open}
       title="Importar planilha de lubrificação"
       subtitle='Aba "Data" — formato SAP/Fiori (.xlsx)'
@@ -102,15 +102,15 @@ export function LubricantImportModal({ open, onClose, onImported }: LubricantImp
       ) : null}
 
       <div className="mt-5 flex justify-end gap-2">
-        <button type="button" onClick={onClose} className={ghostButtonClass}>
+        <button type="button" onClick={onClose} className={modalGhostButtonClass}>
           {result ? "Fechar" : "Cancelar"}
         </button>
-        <button type="button" onClick={handleUpload} disabled={uploading || !file} className={primaryButtonClass}>
+        <button type="button" onClick={handleUpload} disabled={uploading || !file} className={modalPrimaryButtonClass}>
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           Importar
         </button>
       </div>
-    </LubricantModalShell>
+    </ModalShell>
   );
 }
 

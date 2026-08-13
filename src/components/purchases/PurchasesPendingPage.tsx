@@ -10,7 +10,7 @@ import { PurchaseKpiCards, type PurchaseKpiCard } from "@/components/purchases/P
 import { PurchaseFilters } from "@/components/purchases/PurchaseFilters";
 import { PurchaseActiveChips } from "@/components/purchases/PurchaseActiveChips";
 import { PurchaseTable } from "@/components/purchases/PurchaseTable";
-import { PurchaseEmptyState } from "@/components/purchases/PurchaseEmptyState";
+import { ModuleEmptyState } from "@/components/ui/ModuleEmptyState";
 import { PurchaseImportModal } from "@/components/purchases/PurchaseImportModal";
 import {
   EMPTY_PURCHASE_FILTERS,
@@ -154,7 +154,15 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
       <PurchaseActiveChips filters={appliedFilters} onRemove={removeChip} />
 
       {isEmpty ? (
-        <PurchaseEmptyState onImport={() => setImportOpen(true)} unavailable={isUnavailable} />
+        <ModuleEmptyState
+          surface="panel"
+          icon={ShoppingCart}
+          title="Nenhuma compra importada ainda"
+          description='Importe a planilha BASE DE DADOS PORTAL COMPRAS.xlsx (aba "Data") para ver indicadores, gráficos e tabelas.'
+          action={{ label: "Importar Excel", onClick: () => setImportOpen(true) }}
+          unavailable={isUnavailable}
+          unavailableTitle="Dados de compras indisponíveis"
+        />
       ) : (
         <>
           <PurchaseKpiCards cards={cards} />

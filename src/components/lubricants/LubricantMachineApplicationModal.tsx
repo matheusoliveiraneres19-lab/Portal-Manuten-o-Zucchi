@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Plus } from "lucide-react";
 import {
-  LubricantModalShell,
-  fieldInputClass,
-  fieldLabelClass,
-  ghostButtonClass,
-  primaryButtonClass
-} from "@/components/lubricants/LubricantModalShell";
+  ModalShell,
+  modalFieldInputClass,
+  modalFieldLabelClass,
+  modalGhostButtonClass,
+  modalPrimaryButtonClass
+} from "@/components/ui/ModalShell";
 
 type LubricantMachineApplicationModalProps = {
   open: boolean;
@@ -67,7 +67,7 @@ export function LubricantMachineApplicationModal({
   }
 
   return (
-    <LubricantModalShell
+    <ModalShell
       open={open}
       title="Aplicações por máquina"
       subtitle={code ? `${code} — ${description ?? ""}` : undefined}
@@ -75,53 +75,53 @@ export function LubricantMachineApplicationModal({
     >
       <div className="space-y-3">
         <label className="block">
-          <span className={fieldLabelClass}>Equipamento / máquina *</span>
+          <span className={modalFieldLabelClass}>Equipamento / máquina *</span>
           <input
             value={equipmentName}
             onChange={(event) => setEquipmentName(event.target.value)}
             placeholder="Ex.: Compressor Atlas Copco"
-            className={fieldInputClass}
+            className={modalFieldInputClass}
           />
         </label>
         <label className="block">
-          <span className={fieldLabelClass}>Código do equipamento</span>
+          <span className={modalFieldLabelClass}>Código do equipamento</span>
           <input
             value={equipmentCode}
             onChange={(event) => setEquipmentCode(event.target.value)}
             placeholder="Ex.: EQ-COMP-01"
-            className={fieldInputClass}
+            className={modalFieldInputClass}
           />
         </label>
         <label className="block">
-          <span className={fieldLabelClass}>Ponto de aplicação</span>
+          <span className={modalFieldLabelClass}>Ponto de aplicação</span>
           <input
             value={applicationPoint}
             onChange={(event) => setApplicationPoint(event.target.value)}
             placeholder="Ex.: Sistema hidráulico"
-            className={fieldInputClass}
+            className={modalFieldInputClass}
           />
         </label>
         <label className="block">
-          <span className={fieldLabelClass}>Recomendação</span>
+          <span className={modalFieldLabelClass}>Recomendação</span>
           <textarea
             value={recommendation}
             onChange={(event) => setRecommendation(event.target.value)}
             placeholder="Ex.: Verificar nível semanalmente"
             rows={2}
-            className={`${fieldInputClass} h-auto py-2`}
+            className={`${modalFieldInputClass} h-auto py-2`}
           />
         </label>
       </div>
 
       <div className="mt-5 flex justify-end gap-2">
-        <button type="button" onClick={onClose} className={ghostButtonClass}>
+        <button type="button" onClick={onClose} className={modalGhostButtonClass}>
           Cancelar
         </button>
-        <button type="button" onClick={handleSubmit} disabled={saving} className={primaryButtonClass}>
+        <button type="button" onClick={handleSubmit} disabled={saving} className={modalPrimaryButtonClass}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
           Adicionar aplicação
         </button>
       </div>
-    </LubricantModalShell>
+    </ModalShell>
   );
 }

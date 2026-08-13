@@ -27,7 +27,7 @@ import type {
   ServiceOrderStatusLabel
 } from "@/types/service-orders";
 import { formatPeriodRange } from "@/utils/period";
-import { MultiSelectFilter } from "@/components/service-orders/filters/MultiSelectFilter";
+import { MultiSelectFilter } from "@/components/ui/MultiSelectFilter";
 import { DateRangeFilter } from "@/components/service-orders/filters/DateRangeFilter";
 import { ActiveFilterChips, type ActiveFilterChip } from "@/components/service-orders/filters/ActiveFilterChips";
 

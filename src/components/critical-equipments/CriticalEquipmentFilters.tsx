@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, FilterX, SlidersHorizontal } from "lucide-react";
-import { MultiSelectFilter } from "@/components/service-orders/filters/MultiSelectFilter";
+import { MultiSelectFilter } from "@/components/ui/MultiSelectFilter";
 import { DateRangeFilter } from "@/components/service-orders/filters/DateRangeFilter";
 import type { AppliedCriticalEquipmentFilters } from "@/components/critical-equipments/CriticalEquipmentsPage";
 import type { CriticalEquipmentFilterOptions } from "@/types/critical-equipments";

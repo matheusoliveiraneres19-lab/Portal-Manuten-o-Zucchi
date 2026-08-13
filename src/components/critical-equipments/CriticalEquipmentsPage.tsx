@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { AlertTriangle, CalendarRange, ShieldAlert } from "lucide-react";
+import { AlertTriangle, CalendarRange, PackageSearch, ShieldAlert } from "lucide-react";
 import { formatPeriodRange } from "@/utils/period";
 import { CriticalEquipmentDetailsDrawer } from "@/components/critical-equipments/CriticalEquipmentDetailsDrawer";
 import { EquipmentHoursByResponsibleModal } from "@/components/critical-equipments/EquipmentHoursByResponsibleModal";
@@ -56,7 +56,7 @@ const CriticalEquipmentActivityChart = dynamic(
     ),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-12" /> }
 );
-import { CriticalEquipmentEmptyState } from "@/components/critical-equipments/CriticalEquipmentEmptyState";
+import { ModuleEmptyState } from "@/components/ui/ModuleEmptyState";
 import { CriticalEquipmentFieldNotice } from "@/components/critical-equipments/CriticalEquipmentFieldNotice";
 import type { CriticalEquipmentsPageData } from "@/types/critical-equipments";
 import {
@@ -308,7 +308,11 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
       <ActiveFilterChips chips={chips} onClearAll={clearFilters} />
 
       {isEmpty ? (
-        <CriticalEquipmentEmptyState />
+        <ModuleEmptyState
+          icon={PackageSearch}
+          title="Não há ordens suficientes para calcular equipamentos críticos neste período."
+          description="Importe ordens de manutenção ou ajuste o período para visualizar a análise."
+        />
       ) : (
         <>
           <CriticalEquipmentKpiCards summary={data.summary} />

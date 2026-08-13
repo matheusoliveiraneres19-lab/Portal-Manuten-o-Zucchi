@@ -9,7 +9,7 @@ import { ChartSkeleton } from "@/components/ChartSkeleton";
 import { LubricantKpiCards } from "@/components/lubricants/LubricantKpiCards";
 import { LubricantReplenishmentBanner } from "@/components/lubricants/LubricantReplenishmentBanner";
 import { LubricantFilters } from "@/components/lubricants/LubricantFilters";
-import { LubricantEmptyState } from "@/components/lubricants/LubricantEmptyState";
+import { ModuleEmptyState } from "@/components/ui/ModuleEmptyState";
 import { LubricantCodesTable } from "@/components/lubricants/LubricantCodesTable";
 import { LubricantMovementsHistory } from "@/components/lubricants/LubricantMovementsHistory";
 import { LubricantDetailsDrawer } from "@/components/lubricants/LubricantDetailsDrawer";
@@ -251,7 +251,19 @@ export function LubricantsPage({ data, appliedFilters }: LubricantsPageProps) {
       />
 
       {isEmpty ? (
-        <LubricantEmptyState onImport={() => setImportOpen(true)} unavailable={isUnavailable} />
+        <ModuleEmptyState
+          icon={Droplets}
+          title="Nenhuma movimentação de lubrificante ainda"
+          description={
+            <>
+              Importe a planilha <strong className="text-champagne">BASE DE DADOS LUBRIFICAÇÃO.xlsx</strong> (extraída
+              do SAP/Fiori) para visualizar entradas, saídas, saldo e consumo por material.
+            </>
+          }
+          action={{ label: "Importar planilha Excel", onClick: () => setImportOpen(true) }}
+          unavailable={isUnavailable}
+          unavailableTitle="Dados de lubrificantes indisponíveis"
+        />
       ) : (
         <>
           <LubricantKpiCards kpis={data.kpis} reference={data.reference} />

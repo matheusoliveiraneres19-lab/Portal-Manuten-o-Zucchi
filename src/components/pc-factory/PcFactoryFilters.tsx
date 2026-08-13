@@ -2,7 +2,7 @@
 
 import { Check, FilterX, SlidersHorizontal } from "lucide-react";
 import { DateRangeFilter } from "@/components/service-orders/filters/DateRangeFilter";
-import { MultiSelectFilter } from "@/components/common/MultiSelectFilter";
+import { MultiSelectFilter } from "@/components/ui/MultiSelectFilter";
 import type { PcFactoryFilterOptions } from "@/types/pc-factory";
 import type { AppliedPcFactoryFilters } from "@/components/pc-factory/PcFactoryPage";
 
@@ -36,7 +36,7 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
         <MultiSelectFilter
           label="Grupo Portal"
           options={options.groupPortals}
-          selectedValues={draft.groupPortals}
+          selected={draft.groupPortals}
           onChange={(values) => onChange("groupPortals", values)}
           placeholder="Todos os grupos"
           searchPlaceholder="Buscar grupo..."
@@ -45,7 +45,7 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
         <MultiSelectFilter
           label="Linha / Área"
           options={options.productionLines}
-          selectedValues={draft.productionLines}
+          selected={draft.productionLines}
           onChange={(values) => onChange("productionLines", values)}
           placeholder="Todas as linhas"
           searchPlaceholder="Buscar linha..."
@@ -54,7 +54,7 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
         <MultiSelectFilter
           label="Máquina / recurso"
           options={options.resources}
-          selectedValues={draft.resources}
+          selected={draft.resources}
           onChange={(values) => onChange("resources", values)}
           placeholder="Todas as máquinas"
           searchPlaceholder="Buscar máquina..."
@@ -63,7 +63,7 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
         <MultiSelectFilter
           label="Nome Status Recurso"
           options={options.statusNames}
-          selectedValues={draft.statusNames}
+          selected={draft.statusNames}
           onChange={(values) => onChange("statusNames", values)}
           placeholder="Todos os status"
           searchPlaceholder="Buscar status..."
@@ -72,7 +72,7 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
         <MultiSelectFilter
           label="Classificação"
           options={options.categories.map((c) => ({ value: c.value, label: c.label }))}
-          selectedValues={draft.categories}
+          selected={draft.categories}
           onChange={(values) => onChange("categories", values)}
           placeholder="Todas as classificações"
           searchPlaceholder="Buscar classificação..."
@@ -80,7 +80,7 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
         <MultiSelectFilter
           label="Setor"
           options={options.sectors}
-          selectedValues={draft.sectors}
+          selected={draft.sectors}
           onChange={(values) => onChange("sectors", values)}
           placeholder="Todos os setores"
           searchPlaceholder="Buscar setor..."
@@ -89,7 +89,7 @@ export function PcFactoryFilters({ draft, options, isPending, onChange, onApply,
         <MultiSelectFilter
           label="Turno"
           options={options.shifts}
-          selectedValues={draft.shifts}
+          selected={draft.shifts}
           onChange={(values) => onChange("shifts", values)}
           placeholder="Todos os turnos"
           searchPlaceholder="Buscar turno..."

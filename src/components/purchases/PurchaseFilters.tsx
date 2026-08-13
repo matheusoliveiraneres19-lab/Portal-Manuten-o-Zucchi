@@ -2,7 +2,7 @@
 
 import { Check, FilterX, Layers, SlidersHorizontal } from "lucide-react";
 import { DateRangeFilter } from "@/components/service-orders/filters/DateRangeFilter";
-import { MultiSelectFilter } from "@/components/common/MultiSelectFilter";
+import { MultiSelectFilter } from "@/components/ui/MultiSelectFilter";
 import {
   PURCHASE_DATE_FIELD_LABELS,
   PURCHASE_KIND_FILTER_LABELS,
@@ -69,7 +69,7 @@ export function PurchaseFilters({
         <MultiSelectFilter
           label="Fornecedor"
           options={options.suppliers}
-          selectedValues={draft.suppliers}
+          selected={draft.suppliers}
           onChange={(values) => onChange("suppliers", values)}
           placeholder="Todos os fornecedores"
           searchPlaceholder="Buscar fornecedor..."
@@ -77,7 +77,7 @@ export function PurchaseFilters({
         <MultiSelectFilter
           label="Categoria (Grupo Merc)"
           options={options.categories}
-          selectedValues={draft.categories}
+          selected={draft.categories}
           onChange={(values) => onChange("categories", values)}
           placeholder="Todas as categorias"
           searchPlaceholder="Buscar categoria..."
@@ -85,7 +85,7 @@ export function PurchaseFilters({
         <MultiSelectFilter
           label="Grupo Comp"
           options={options.purchasingGroups}
-          selectedValues={draft.purchasingGroups}
+          selected={draft.purchasingGroups}
           onChange={(values) => onChange("purchasingGroups", values)}
           placeholder="Todos os grupos"
           searchPlaceholder="Buscar grupo..."
@@ -93,14 +93,14 @@ export function PurchaseFilters({
         <MultiSelectFilter
           label="Tipo"
           options={KIND_OPTIONS}
-          selectedValues={draft.kinds}
+          selected={draft.kinds}
           onChange={(values) => onChange("kinds", values)}
           placeholder="Material, serviço, Y04, ignorado"
         />
         <MultiSelectFilter
           label="Status"
           options={options.statuses.map((status) => ({ value: status, label: PURCHASE_OPERATIONAL_STATUS_LABELS[status] }))}
-          selectedValues={draft.statuses}
+          selected={draft.statuses}
           onChange={(values) => onChange("statuses", values)}
           placeholder="Todos os status"
           searchPlaceholder="Buscar status..."
@@ -108,7 +108,7 @@ export function PurchaseFilters({
         <MultiSelectFilter
           label="Requisitante"
           options={options.requesters.map((requester) => ({ value: requester, label: requester }))}
-          selectedValues={draft.requesters}
+          selected={draft.requesters}
           onChange={(values) => onChange("requesters", values)}
           placeholder="Todos os requisitantes"
           searchPlaceholder="Buscar requisitante..."
@@ -165,7 +165,7 @@ export function PurchaseFilters({
                   key={key}
                   label={level}
                   options={levelOptions}
-                  selectedValues={selected}
+                  selected={selected}
                   onChange={(values) => handleClassificationChange(key, values)}
                   placeholder={levelOptions.length ? `Todos os ${level}` : `Sem ${level} na base`}
                   searchPlaceholder={`Buscar ${level}...`}

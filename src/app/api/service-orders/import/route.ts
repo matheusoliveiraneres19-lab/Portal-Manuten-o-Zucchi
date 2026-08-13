@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { importServiceOrdersFromExcel } from "@/services/importacao/service-orders-import.service";
 import { requireApiSession } from "@/lib/auth-guard";
 import { auditImport } from "@/lib/audit-import";
@@ -43,6 +43,13 @@ export async function POST(request: NextRequest) {
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/ordens-servico");
     revalidatePath("/dashboard/equipamentos-criticos");
+
+    // As OPÇÕES de filtro de OS (status, áreas, grupos, responsáveis, equipamentos)
+    // são cacheadas por 120s com unstable_cache sob a tag "service-orders" — e
+    // `revalidatePath` NÃO invalida cache por tag. Sem esta linha, um responsável ou
+    // equipamento novo levava até 2 minutos para aparecer nos filtros, mesmo com a
+    // tabela já mostrando as ordens importadas.
+    revalidateTag("service-orders");
 
     return NextResponse.json(result);
   } catch (error) {

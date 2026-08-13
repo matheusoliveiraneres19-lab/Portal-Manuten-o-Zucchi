@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { FileCheck2, Loader2 } from "lucide-react";
 import {
-  LubricantModalShell,
-  fieldInputClass,
-  fieldLabelClass,
-  ghostButtonClass,
-  primaryButtonClass
-} from "@/components/lubricants/LubricantModalShell";
+  ModalShell,
+  modalFieldInputClass,
+  modalFieldLabelClass,
+  modalGhostButtonClass,
+  modalPrimaryButtonClass
+} from "@/components/ui/ModalShell";
 
 type LubricantTechnicalSheetModalProps = {
   open: boolean;
@@ -62,19 +62,19 @@ export function LubricantTechnicalSheetModal({
   }
 
   return (
-    <LubricantModalShell
+    <ModalShell
       open={open}
       title="Ficha técnica"
       subtitle={code ? `${code} — ${description ?? ""}` : undefined}
       onClose={onClose}
     >
       <label className="block">
-        <span className={fieldLabelClass}>URL ou caminho do arquivo</span>
+        <span className={modalFieldLabelClass}>URL ou caminho do arquivo</span>
         <input
           value={url}
           onChange={(event) => setUrl(event.target.value)}
           placeholder="https://... ou \\\\servidor\\fichas\\material.pdf"
-          className={fieldInputClass}
+          className={modalFieldInputClass}
         />
       </label>
       <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
@@ -83,14 +83,14 @@ export function LubricantTechnicalSheetModal({
       </p>
 
       <div className="mt-5 flex justify-end gap-2">
-        <button type="button" onClick={onClose} className={ghostButtonClass}>
+        <button type="button" onClick={onClose} className={modalGhostButtonClass}>
           Cancelar
         </button>
-        <button type="button" onClick={handleSubmit} disabled={saving} className={primaryButtonClass}>
+        <button type="button" onClick={handleSubmit} disabled={saving} className={modalPrimaryButtonClass}>
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCheck2 className="h-4 w-4" />}
           Salvar ficha técnica
         </button>
       </div>
-    </LubricantModalShell>
+    </ModalShell>
   );
 }

@@ -4,10 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FileSpreadsheet, Loader2, Upload } from "lucide-react";
 import {
-  PurchaseModalShell,
-  purchaseGhostButtonClass,
-  purchasePrimaryButtonClass
-} from "@/components/purchases/PurchaseModalShell";
+  ModalShell,
+  modalGhostButtonClass,
+  modalPrimaryButtonClass
+} from "@/components/ui/ModalShell";
 import { formatCurrency } from "@/utils/formatters";
 import type { PurchaseImportResult } from "@/types/purchases";
 
@@ -87,7 +87,7 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
   }
 
   return (
-    <PurchaseModalShell
+    <ModalShell
       open={open}
       title="Importar planilha de compras"
       subtitle='Aba "Data" — formato SAP/Fiori (.xlsx)'
@@ -190,15 +190,15 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
       ) : null}
 
       <div className="mt-5 flex justify-end gap-2">
-        <button type="button" onClick={onClose} className={purchaseGhostButtonClass}>
+        <button type="button" onClick={onClose} className={modalGhostButtonClass}>
           {result ? "Fechar" : "Cancelar"}
         </button>
-        <button type="button" onClick={handleUpload} disabled={uploading || !file} className={purchasePrimaryButtonClass}>
+        <button type="button" onClick={handleUpload} disabled={uploading || !file} className={modalPrimaryButtonClass}>
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           {uploading ? "Importando e validando dados..." : "Importar"}
         </button>
       </div>
-    </PurchaseModalShell>
+    </ModalShell>
   );
 }
 

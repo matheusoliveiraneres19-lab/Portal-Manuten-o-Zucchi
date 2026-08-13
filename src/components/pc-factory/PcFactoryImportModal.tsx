@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FileSpreadsheet, Loader2, Upload } from "lucide-react";
-import { PcFactoryModalShell, ghostButtonClass, primaryButtonClass } from "@/components/pc-factory/PcFactoryModalShell";
+import { ModalShell, modalGhostButtonClass, modalPrimaryButtonClass } from "@/components/ui/ModalShell";
 import type { PcFactoryImportResult, PcFactoryLayoutType } from "@/types/pc-factory";
 
 /** Rótulos amigáveis do layout detectado na importação (TAREFA 7/8). */
@@ -78,7 +78,7 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
   }
 
   return (
-    <PcFactoryModalShell
+    <ModalShell
       open={open}
       title="Importar relatório do PC-Factory"
       subtitle="CSV histórico de status (.csv) ou planilha do PC-Factory (.xlsx)"
@@ -254,15 +254,15 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
       ) : null}
 
       <div className="mt-5 flex justify-end gap-2">
-        <button type="button" onClick={onClose} className={ghostButtonClass}>
+        <button type="button" onClick={onClose} className={modalGhostButtonClass}>
           {result ? "Fechar" : "Cancelar"}
         </button>
-        <button type="button" onClick={handleUpload} disabled={uploading || !file} className={primaryButtonClass}>
+        <button type="button" onClick={handleUpload} disabled={uploading || !file} className={modalPrimaryButtonClass}>
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           Importar
         </button>
       </div>
-    </PcFactoryModalShell>
+    </ModalShell>
   );
 }
 
