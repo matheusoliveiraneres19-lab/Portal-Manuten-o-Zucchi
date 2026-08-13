@@ -1,8 +1,9 @@
 # Conexões de banco e desempenho das páginas
 
-Documento de recomendação. **Nada aqui foi aplicado** — mexer em `DATABASE_URL` é
-mudança de infraestrutura (painel da Vercel + `.env` local) e deve ser feita por
-quem administra o projeto.
+> **APLICADO em 13/08/2026** — `connection_limit` foi elevado de **1 para 8** no
+> `DATABASE_URL` de Production e Preview na Vercel. Os resultados medidos estão na
+> seção "O que a medição mostrou", ao final, e **refutam parcialmente** a hipótese
+> original registrada abaixo. Leia as duas partes.
 
 ## O achado
 
@@ -100,3 +101,50 @@ importação, porque cada `insert` passa a atualizar mais árvores.
 Se surgir uma consulta lenta comprovada por `EXPLAIN ANALYZE`, o caminho é um
 índice **composto** que cubra exatamente aquele filtro — nunca mais índices de
 coluna única.
+
+---
+
+## O que a medição mostrou (13/08/2026)
+
+`connection_limit` foi elevado de 1 para 8 em Production e Preview, e o mesmo commit
+foi redeployado para a variável passar a valer. Medições em produção, requisições
+autenticadas já aquecidas, mediana de 3–4 amostras:
+
+| Rota | limit=1 | limit=8 | ganho |
+|---|---|---|---|
+| `/dashboard/ordens-servico` | 1,02–1,21s | ~0,78s | ~30% |
+| `/dashboard/lubrificantes` | 0,71–0,92s | ~0,60s | ~22% |
+| `/dashboard/compras-pendentes` | 0,88–0,94s | ~0,75s | ~18% |
+| `/dashboard/equipamentos-criticos` | 1,69–1,82s | ~1,60s | ~8% |
+| `/dashboard/pc-factory` | 4,14–4,28s | ~3,84s | ~7% |
+| `/dashboard` | 3,34s | ~3,23s | ~3% |
+
+### A hipótese original estava parcialmente errada
+
+A previsão era que o pool de UMA conexão fosse o gargalo principal justamente das
+duas rotas mais pesadas, porque são as que mais abrem queries em paralelo. A medição
+diz o contrário: **home e PC-Factory melhoraram apenas 3–7% e seguem em 3–4s**,
+enquanto o ganho maior (18–30%) apareceu nas rotas que já respondiam em menos de
+1,3s.
+
+Leitura correta: a contenção de conexão existia e custava algo, mas o custo
+DOMINANTE em home e PC-Factory é o **trabalho da própria query**, não a espera por
+conexão. Ampliar o pool foi útil e deve ser mantido — só não era o gargalo que se
+supunha.
+
+Cautela sobre os números: houve variação entre amostras (uma medição de
+`equipamentos-criticos` deu 2,30s contra mediana de ~1,6s). Trate os ganhos como
+ordem de grandeza, não como precisão de milissegundo.
+
+### Próximo passo real, se a lentidão de home/PC-Factory incomodar
+
+O caminho agora é a query, não a conexão:
+
+1. `loadRecords` (`pc-factory.service.ts`) faz `findMany` de TODOS os
+   `PcFactoryRecord` do recorte e agrega em JavaScript. Para um período largo isso
+   trafega e processa muita linha. Medir com `EXPLAIN ANALYZE` e avaliar mover a
+   agregação para SQL (`groupBy` do Prisma ou view materializada).
+2. A home chama `getPcFactoryMachinesBelowAverage`, que depende do mesmo
+   `loadRecords` — é por isso que ela acompanha o PC-Factory no tempo de resposta.
+3. Só depois disso considerar índice composto, e apenas para o filtro comprovado
+   pelo `EXPLAIN` (ver a seção "Índices: não adicionar").
