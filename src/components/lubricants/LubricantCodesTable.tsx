@@ -34,7 +34,7 @@ export function LubricantCodesTable({
     <article className="panel overflow-hidden rounded-lg">
       <div className="flex flex-col gap-3 border-b border-[#3e311d1f] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">
+          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
             Códigos de lubrificantes e aplicações
           </h3>
           <p className="text-[11px] text-zinc-500">
@@ -54,7 +54,7 @@ export function LubricantCodesTable({
 
       <div className="max-h-[560px] overflow-auto">
         <table className="w-full min-w-[960px] border-collapse text-left text-xs">
-          <thead className="sticky top-0 z-10 bg-[#efe7d6] text-[10px] uppercase tracking-wide text-[#5a3d12]">
+          <thead className="sticky top-0 z-10 bg-surface text-[10px] uppercase tracking-wide text-gold-deep">
             <tr>
               <Th>Código</Th>
               <Th>Descrição</Th>
@@ -172,7 +172,7 @@ function IconButton({
       title={title}
       aria-label={title}
       onClick={onClick}
-      className="grid h-7 w-7 place-items-center rounded-md border border-zinc-300 text-zinc-600 transition hover:border-gold hover:bg-gold/10 hover:text-[#5a3d12]"
+      className="grid h-7 w-7 place-items-center rounded-md border border-zinc-300 text-zinc-600 transition hover:border-gold hover:bg-gold/10 hover:text-gold-deep"
     >
       {children}
     </button>

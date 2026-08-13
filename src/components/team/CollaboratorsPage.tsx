@@ -19,7 +19,7 @@ type CollaboratorsPageProps = {
 };
 
 const STATUS_TONE: Record<CollaboratorStatus, string> = {
-  ATIVO: "bg-[#3f8f6b]/15 text-[#5fd0a0]",
+  ATIVO: "bg-success/15 text-success-soft",
   FERIAS: "bg-petroleum/20 text-sky-300",
   AFASTADO: "bg-gold/20 text-gold",
   DESLIGADO: "bg-danger/15 text-rose-300"
@@ -72,7 +72,7 @@ export function CollaboratorsPage({ initial, stats }: CollaboratorsPageProps) {
   return (
     <section className={`space-y-4 text-champagne transition ${loading ? "opacity-70" : ""}`}>
       {/* Hero */}
-      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-6">
+      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-5 shadow-premium sm:p-6">
         <div className="login-marble-bg absolute inset-0 opacity-80" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78),rgba(0,0,0,0.44)),radial-gradient(circle_at_88%_8%,rgba(196,154,69,0.15),transparent_22rem)]" />
         <div className="relative z-10 flex flex-wrap items-end justify-between gap-3">
@@ -125,9 +125,9 @@ export function CollaboratorsPage({ initial, stats }: CollaboratorsPageProps) {
           onChange={(e) => setStatus(e.target.value as CollaboratorStatus | "")}
           className="h-10 rounded-lg border border-white/14 bg-black/40 px-3 text-sm text-white outline-none focus:border-gold/70"
         >
-          <option value="" className="bg-[#0a0b0b]">Todos os status</option>
+          <option value="" className="bg-ink">Todos os status</option>
           {(Object.keys(STATUS_LABELS) as CollaboratorStatus[]).map((s) => (
-            <option key={s} value={s} className="bg-[#0a0b0b]">{STATUS_LABELS[s]}</option>
+            <option key={s} value={s} className="bg-ink">{STATUS_LABELS[s]}</option>
           ))}
         </select>
         <select
@@ -135,9 +135,9 @@ export function CollaboratorsPage({ initial, stats }: CollaboratorsPageProps) {
           onChange={(e) => setArea(e.target.value as CollaboratorArea | "")}
           className="h-10 rounded-lg border border-white/14 bg-black/40 px-3 text-sm text-white outline-none focus:border-gold/70"
         >
-          <option value="" className="bg-[#0a0b0b]">Todas as áreas</option>
+          <option value="" className="bg-ink">Todas as áreas</option>
           {(Object.keys(AREA_LABELS) as CollaboratorArea[]).map((a) => (
-            <option key={a} value={a} className="bg-[#0a0b0b]">{AREA_LABELS[a]}</option>
+            <option key={a} value={a} className="bg-ink">{AREA_LABELS[a]}</option>
           ))}
         </select>
         <span className="ml-auto flex items-center gap-2 text-[11px] text-zinc-500">
@@ -206,7 +206,7 @@ type StatTone = "gold" | "emerald" | "danger" | "petroleum";
 
 const TONE_CLASS: Record<StatTone, string> = {
   gold: "bg-gold",
-  emerald: "bg-[#3f8f6b]",
+  emerald: "bg-success",
   danger: "bg-danger",
   petroleum: "bg-petroleum"
 };

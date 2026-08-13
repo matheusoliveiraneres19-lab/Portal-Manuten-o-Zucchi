@@ -237,7 +237,7 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
   return (
     <section className={`space-y-4 text-champagne transition ${isPending ? "opacity-70" : ""}`}>
       {/* Hero */}
-      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-6">
+      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-5 shadow-premium sm:p-6">
         <div className="login-marble-bg absolute inset-0 opacity-80" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78),rgba(0,0,0,0.44)),radial-gradient(circle_at_88%_8%,rgba(196,154,69,0.15),transparent_22rem)]" />
         <div className="relative z-10">

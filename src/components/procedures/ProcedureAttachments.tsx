@@ -90,13 +90,13 @@ export function ProcedureAttachments({ slug, attachments, canManage }: Procedure
   const hasItems = attachments.length > 0;
 
   return (
-    <section className="rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0E0D0A] p-5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
-      <h2 className="mb-3 flex items-center gap-2 font-serif text-lg font-semibold text-[#F8F3E7]">
-        <FileText className="h-4 w-4 text-[#D6AA3A]" /> Materiais de apoio
+    <section className="rounded-2xl border border-gold/30 bg-gradient-to-br from-ink-card-top to-ink-card p-5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
+      <h2 className="mb-3 flex items-center gap-2 font-serif text-lg font-semibold text-surface">
+        <FileText className="h-4 w-4 text-gold" /> Materiais de apoio
       </h2>
 
       {!hasItems ? (
-        <p className="text-sm text-[#B8AD9A]">Nenhum material de apoio neste procedimento.</p>
+        <p className="text-sm text-parchment-dim">Nenhum material de apoio neste procedimento.</p>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {attachments.map((item) => (
@@ -106,14 +106,14 @@ export function ProcedureAttachments({ slug, attachments, canManage }: Procedure
       )}
 
       {canManage ? (
-        <div className="mt-5 space-y-3 border-t border-[#C6A24A]/20 pt-4">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-[#D6AA3A]">Adicionar material (ADMIN/Gestão)</p>
+        <div className="mt-5 space-y-3 border-t border-gold/20 pt-4">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-gold">Adicionar material (ADMIN/Gestão)</p>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#D6AA3A]/50 bg-[#D6AA3A]/15 px-3 text-[12px] font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25 disabled:opacity-60"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-gold/50 bg-gold/15 px-3 text-[12px] font-bold text-gold-soft transition hover:bg-gold/25 disabled:opacity-60"
             >
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
               Enviar arquivo (PDF/imagem, ≤ 4 MB)
@@ -131,19 +131,19 @@ export function ProcedureAttachments({ slug, attachments, canManage }: Procedure
               value={linkUrl}
               onChange={(e) => setLinkUrl(e.target.value)}
               placeholder="Link de vídeo/documento (YouTube, Drive...)"
-              className="h-9 flex-1 rounded-lg border border-[#C6A24A]/30 bg-[#11100C] px-3 text-sm text-[#F8F3E7] outline-none transition placeholder:text-[#8F846F] focus:border-[#D6AA3A] focus:ring-2 focus:ring-[#D6AA3A]/20"
+              className="h-9 flex-1 rounded-lg border border-gold/30 bg-ink-card px-3 text-sm text-surface outline-none transition placeholder:text-neutralized focus:border-gold focus:ring-2 focus:ring-gold/20"
             />
             <input
               value={linkName}
               onChange={(e) => setLinkName(e.target.value)}
               placeholder="Título (opcional)"
-              className="h-9 rounded-lg border border-[#C6A24A]/30 bg-[#11100C] px-3 text-sm text-[#F8F3E7] outline-none transition placeholder:text-[#8F846F] focus:border-[#D6AA3A] focus:ring-2 focus:ring-[#D6AA3A]/20 sm:w-48"
+              className="h-9 rounded-lg border border-gold/30 bg-ink-card px-3 text-sm text-surface outline-none transition placeholder:text-neutralized focus:border-gold focus:ring-2 focus:ring-gold/20 sm:w-48"
             />
             <button
               type="button"
               onClick={handleAddLink}
               disabled={savingLink}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#D6AA3A]/50 px-3 text-[12px] font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/15 disabled:opacity-60"
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-gold/50 px-3 text-[12px] font-bold text-gold-soft transition hover:bg-gold/15 disabled:opacity-60"
             >
               {savingLink ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               Adicionar link
@@ -165,7 +165,7 @@ function AttachmentCard({
   onDelete: () => void;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-xl border border-[#C6A24A]/25 bg-[#15130E]">
+    <div className="relative overflow-hidden rounded-xl border border-gold/25 bg-ink-raised">
       {canManage ? (
         <button
           type="button"
@@ -196,17 +196,17 @@ function AttachmentCard({
         <video src={item.url} controls className="h-44 w-full bg-black object-contain" />
       ) : (
         <div className="flex h-24 items-center gap-3 px-4">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 text-[#D6AA3A]">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-gold/35 bg-gold/12 text-gold">
             {item.kind === "pdf" ? <FileText className="h-5 w-5" /> : item.kind === "video" ? <Video className="h-5 w-5" /> : <Link2 className="h-5 w-5" />}
           </span>
-          <span className="truncate text-sm font-semibold text-[#F8F3E7]" title={item.fileName}>
+          <span className="truncate text-sm font-semibold text-surface" title={item.fileName}>
             {item.fileName}
           </span>
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-2 border-t border-[#C6A24A]/15 px-3 py-2">
-        <span className="truncate text-[12px] text-[#D7CDBA]" title={item.description ?? item.fileName}>
+      <div className="flex items-center justify-between gap-2 border-t border-gold/15 px-3 py-2">
+        <span className="truncate text-[12px] text-parchment" title={item.description ?? item.fileName}>
           {item.description || item.fileName}
         </span>
         {item.url ? (
@@ -214,7 +214,7 @@ function AttachmentCard({
             href={item.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex shrink-0 items-center gap-1 text-[12px] font-semibold text-[#F6D98B] transition hover:text-white"
+            className="inline-flex shrink-0 items-center gap-1 text-[12px] font-semibold text-gold-soft transition hover:text-white"
           >
             {item.isExternal ? <ExternalLink className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />}
             {item.isExternal ? "Abrir" : "Baixar"}

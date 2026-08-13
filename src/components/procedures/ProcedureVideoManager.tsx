@@ -146,7 +146,7 @@ export function ProcedureVideoManager({ slug, current }: ProcedureVideoManagerPr
   if (!open) {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-[#D6AA3A]">Gestão da videoaula (ADMIN/Gestão)</span>
+        <span className="text-[11px] font-bold uppercase tracking-wide text-gold">Gestão da videoaula (ADMIN/Gestão)</span>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -154,7 +154,7 @@ export function ProcedureVideoManager({ slug, current }: ProcedureVideoManagerPr
               resetForm();
               setOpen(true);
             }}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#D6AA3A]/55 bg-[#D6AA3A]/15 px-3 text-[12px] font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25"
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-3 text-[12px] font-bold text-gold-soft transition hover:bg-gold/25"
           >
             {current ? <RefreshCw className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
             {current ? "Substituir videoaula" : "Adicionar videoaula"}
@@ -178,8 +178,8 @@ export function ProcedureVideoManager({ slug, current }: ProcedureVideoManagerPr
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-[#D6AA3A]">Videoaula do procedimento</span>
-        <button type="button" onClick={() => setOpen(false)} aria-label="Fechar" className="text-[#B8AD9A] transition hover:text-white">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-gold">Videoaula do procedimento</span>
+        <button type="button" onClick={() => setOpen(false)} aria-label="Fechar" className="text-parchment-dim transition hover:text-white">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -201,28 +201,28 @@ export function ProcedureVideoManager({ slug, current }: ProcedureVideoManagerPr
         tabIndex={0}
         aria-label="Enviar arquivo de vídeo"
         className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-8 text-center transition ${
-          dragOver ? "border-[#D6AA3A] bg-[#D6AA3A]/10" : "border-[#C6A24A]/30 bg-black/30 hover:border-[#D6AA3A]/55"
+          dragOver ? "border-gold bg-gold/10" : "border-gold/30 bg-black/30 hover:border-gold/55"
         } ${busy ? "pointer-events-none opacity-60" : ""}`}
       >
         {uploading ? (
           <>
-            <Loader2 className="h-7 w-7 animate-spin text-[#D6AA3A]" />
-            <p className="text-sm font-semibold text-[#F8F3E7]">Enviando vídeo…</p>
-            <p className="text-[11px] text-[#8F846F]">Não feche esta janela até concluir.</p>
+            <Loader2 className="h-7 w-7 animate-spin text-gold" />
+            <p className="text-sm font-semibold text-surface">Enviando vídeo…</p>
+            <p className="text-[11px] text-neutralized">Não feche esta janela até concluir.</p>
           </>
         ) : (
           <>
-            <UploadCloud className="h-7 w-7 text-[#D6AA3A]" />
-            <p className="text-sm font-semibold text-[#F8F3E7]">Arraste o vídeo aqui ou clique para enviar</p>
-            <p className="text-[11px] text-[#8F846F]">Formato MP4, até {MAX_VIDEO_MB} MB. O vídeo fica hospedado no portal.</p>
+            <UploadCloud className="h-7 w-7 text-gold" />
+            <p className="text-sm font-semibold text-surface">Arraste o vídeo aqui ou clique para enviar</p>
+            <p className="text-[11px] text-neutralized">Formato MP4, até {MAX_VIDEO_MB} MB. O vídeo fica hospedado no portal.</p>
           </>
         )}
         <input ref={fileInputRef} type="file" accept="video/mp4" onChange={(e) => handleFile(e.target.files?.[0])} className="hidden" />
       </div>
 
       {/* Separador */}
-      <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wide text-[#8F846F]">
-        <span className="h-px flex-1 bg-[#C6A24A]/20" /> ou cole um link <span className="h-px flex-1 bg-[#C6A24A]/20" />
+      <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wide text-neutralized">
+        <span className="h-px flex-1 bg-gold/20" /> ou cole um link <span className="h-px flex-1 bg-gold/20" />
       </div>
 
       {/* Link externo */}
@@ -236,7 +236,7 @@ export function ProcedureVideoManager({ slug, current }: ProcedureVideoManagerPr
         {url.trim() ? (
           <span
             className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
-              isKnown ? "border-[#D6AA3A]/30 bg-[#D6AA3A]/10 text-[#F6D98B]" : "border-danger/40 bg-danger/10 text-danger"
+              isKnown ? "border-gold/30 bg-gold/10 text-gold-soft" : "border-danger/40 bg-danger/10 text-danger"
             }`}
           >
             <Video className="h-3.5 w-3.5" /> Tipo detectado: {videoProviderLabel(provider)}
@@ -259,7 +259,7 @@ export function ProcedureVideoManager({ slug, current }: ProcedureVideoManagerPr
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="h-9 rounded-lg border border-[#C6A24A]/30 px-3 text-[12px] font-semibold text-[#D7CDBA] transition hover:border-[#D6AA3A]/55 hover:text-white"
+          className="h-9 rounded-lg border border-gold/30 px-3 text-[12px] font-semibold text-parchment transition hover:border-gold/55 hover:text-white"
         >
           Cancelar
         </button>
@@ -267,7 +267,7 @@ export function ProcedureVideoManager({ slug, current }: ProcedureVideoManagerPr
           type="button"
           onClick={handleSaveLink}
           disabled={busy || !url.trim()}
-          className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#D6AA3A]/60 bg-[#D6AA3A]/15 px-3 text-[12px] font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25 disabled:opacity-50"
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-gold/60 bg-gold/15 px-3 text-[12px] font-bold text-gold-soft transition hover:bg-gold/25 disabled:opacity-50"
         >
           {savingLink ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
           Salvar link
@@ -278,4 +278,4 @@ export function ProcedureVideoManager({ slug, current }: ProcedureVideoManagerPr
 }
 
 const inputClass =
-  "h-9 w-full rounded-lg border border-[#C6A24A]/30 bg-[#11100C] px-3 text-sm text-[#F8F3E7] outline-none transition placeholder:text-[#8F846F] focus:border-[#D6AA3A] focus:ring-2 focus:ring-[#D6AA3A]/20";
+  "h-9 w-full rounded-lg border border-gold/30 bg-ink-card px-3 text-sm text-surface outline-none transition placeholder:text-neutralized focus:border-gold focus:ring-2 focus:ring-gold/20";

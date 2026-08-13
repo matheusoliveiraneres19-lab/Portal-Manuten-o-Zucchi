@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getTodayDate } from "@/utils/date";
 import { toInputDate } from "@/utils/period";
 import { LUBRICANT_CATEGORY_LABELS } from "@/utils/lubricants-normalizer";
+import { CHART_SERIES, GOLD, SEMANTIC } from "@/constants/theme";
 import type {
   LubricantBalanceRow,
   LubricantCodeRow,
@@ -25,10 +26,10 @@ import type {
 
 const DEFAULT_PAGE_SIZE = 50;
 const CATEGORY_COLORS: Record<LubricantMovementCategory, string> = {
-  ENTRADA: "#3f8f6b",
-  SAIDA: "#a6192e",
-  ESTOQUE_INICIAL: "#0f4d68",
-  AJUSTE: "#c49a45"
+  ENTRADA: CHART_SERIES.producao,
+  SAIDA: SEMANTIC.danger.DEFAULT,
+  ESTOQUE_INICIAL: CHART_SERIES.ordens,
+  AJUSTE: GOLD.DEFAULT
 };
 const CATEGORY_ORDER: LubricantMovementCategory[] = ["ENTRADA", "SAIDA", "ESTOQUE_INICIAL", "AJUSTE"];
 

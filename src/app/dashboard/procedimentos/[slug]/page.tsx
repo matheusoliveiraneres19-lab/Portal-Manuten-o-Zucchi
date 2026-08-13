@@ -63,27 +63,27 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
   ) : null;
 
   return (
-    <article className="mx-auto max-w-4xl space-y-5 text-[#F8F3E7]">
+    <article className="mx-auto max-w-4xl space-y-5 text-surface">
       <ProcedureDetailActions detail={detail} canManage={canManage} isFavorite={detail.isFavorite} readConfirmedAt={detail.readConfirmedAt} />
 
       {/* Cabeçalho */}
-      <header className="relative overflow-hidden rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#11100C] via-[#0B0A08] to-[#050504] p-5 shadow-[0_18px_45px_rgba(0,0,0,0.4)] sm:p-7">
+      <header className="relative overflow-hidden rounded-2xl border border-gold/30 bg-gradient-to-br from-ink-card via-ink to-[#050504] p-5 shadow-[0_18px_45px_rgba(0,0,0,0.4)] sm:p-7">
         <div className="login-marble-bg absolute inset-0 opacity-10" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(214,170,58,0.12),transparent_22rem)]" />
         <div className="relative z-10">
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 px-2.5 py-0.5 text-[11px] font-semibold text-[#F6D98B]">
-              <Icon className="h-3.5 w-3.5 text-[#D6AA3A]" /> {detail.categoryName}
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-gold/35 bg-gold/12 px-2.5 py-0.5 text-[11px] font-semibold text-gold-soft">
+              <Icon className="h-3.5 w-3.5 text-gold" /> {detail.categoryName}
             </span>
             <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${levelStyle(detail.level)}`}>{detail.level}</span>
             {detail.status !== "Publicado" ? (
-              <span className="rounded-full border border-[#B8AD9A]/40 bg-[#B8AD9A]/15 px-2 py-0.5 text-[11px] font-semibold text-[#D7CDBA]">{detail.status}</span>
+              <span className="rounded-full border border-parchment-dim/40 bg-parchment-dim/15 px-2 py-0.5 text-[11px] font-semibold text-parchment">{detail.status}</span>
             ) : null}
           </div>
           <h1 className="font-serif text-2xl leading-tight text-white sm:text-3xl">{detail.title}</h1>
-          {detail.summary ? <p className="mt-2 max-w-3xl text-sm leading-relaxed text-[#D7CDBA]">{detail.summary}</p> : null}
+          {detail.summary ? <p className="mt-2 max-w-3xl text-sm leading-relaxed text-parchment">{detail.summary}</p> : null}
 
-          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] text-[#B8AD9A]">
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] text-parchment-dim">
             {detail.estimatedMinutes != null ? <Meta icon={<Clock className="h-3.5 w-3.5" />} text={`${detail.estimatedMinutes} min de leitura`} /> : null}
             {detail.targetAudience ? <Meta icon={<Users className="h-3.5 w-3.5" />} text={detail.targetAudience} /> : null}
             {detail.responsible ? <Meta icon={<UserCog className="h-3.5 w-3.5" />} text={`Responsável: ${detail.responsible}`} /> : null}
@@ -102,14 +102,14 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
             {detail.objective ? <Block title="Objetivo">{detail.objective}</Block> : null}
             {detail.whenToUse ? <Block title="Quando usar">{detail.whenToUse}</Block> : null}
 
-            <section className="rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0E0D0A] p-5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
-              <h2 className="mb-3 flex items-center gap-2 font-serif text-lg font-semibold text-[#F8F3E7]">
-                <Gauge className="h-4 w-4 text-[#D6AA3A]" /> Passo a passo
+            <section className="rounded-2xl border border-gold/30 bg-gradient-to-br from-ink-card-top to-ink-card p-5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
+              <h2 className="mb-3 flex items-center gap-2 font-serif text-lg font-semibold text-surface">
+                <Gauge className="h-4 w-4 text-gold" /> Passo a passo
               </h2>
               {detail.content ? (
-                <div className="whitespace-pre-line text-sm leading-relaxed text-[#D7CDBA]">{detail.content}</div>
+                <div className="whitespace-pre-line text-sm leading-relaxed text-parchment">{detail.content}</div>
               ) : (
-                <p className="text-sm text-[#B8AD9A]">Conteúdo não informado.</p>
+                <p className="text-sm text-parchment-dim">Conteúdo não informado.</p>
               )}
             </section>
 
@@ -117,9 +117,9 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
 
             {detail.tags.length > 0 ? (
               <div className="flex flex-wrap items-center gap-2">
-                <Tag className="h-4 w-4 text-[#D6AA3A]" />
+                <Tag className="h-4 w-4 text-gold" />
                 {detail.tags.map((tag) => (
-                  <span key={tag} className="rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 px-2.5 py-0.5 text-[11px] font-semibold text-[#F6D98B]">
+                  <span key={tag} className="rounded-full border border-gold/35 bg-gold/12 px-2.5 py-0.5 text-[11px] font-semibold text-gold-soft">
                     {tag}
                   </span>
                 ))}
@@ -137,7 +137,7 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
             />
             {extraVideos.length > 0 ? (
               <div className="space-y-3">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-[#D6AA3A]">Vídeos complementares</p>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gold">Vídeos complementares</p>
                 {extraVideos.map((video) => (
                   <ProcedureVideoLesson
                     key={video.id}
@@ -160,7 +160,7 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
 function Meta({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (
     <span className="flex items-center gap-1.5">
-      <span className="text-[#D6AA3A]">{icon}</span>
+      <span className="text-gold">{icon}</span>
       {text}
     </span>
   );
@@ -168,9 +168,9 @@ function Meta({ icon, text }: { icon: React.ReactNode; text: string }) {
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0E0D0A] p-5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
-      <h2 className="mb-2 font-serif text-lg font-semibold text-[#F8F3E7]">{title}</h2>
-      <div className="whitespace-pre-line text-sm leading-relaxed text-[#D7CDBA]">{children}</div>
+    <section className="rounded-2xl border border-gold/30 bg-gradient-to-br from-ink-card-top to-ink-card p-5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
+      <h2 className="mb-2 font-serif text-lg font-semibold text-surface">{title}</h2>
+      <div className="whitespace-pre-line text-sm leading-relaxed text-parchment">{children}</div>
     </section>
   );
 }

@@ -65,7 +65,7 @@ export function CollaboratorDetailPage({ data }: { data: CollaboratorDetailData 
   return (
     <section className="space-y-4 text-champagne">
       {/* Hero / cabeçalho */}
-      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-6">
+      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-5 shadow-premium sm:p-6">
         <div className="login-marble-bg absolute inset-0 opacity-80" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78),rgba(0,0,0,0.44)),radial-gradient(circle_at_88%_8%,rgba(196,154,69,0.15),transparent_22rem)]" />
         <div className="relative z-10">
@@ -107,7 +107,7 @@ export function CollaboratorDetailPage({ data }: { data: CollaboratorDetailData 
 
       {/* Banco de horas */}
       <article className="panel rounded-lg p-4">
-        <h3 className="mb-3 text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Banco de horas</h3>
+        <h3 className="mb-3 text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Banco de horas</h3>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <Stat label="Saldo do mês" value={signed(data.monthBalance)} tone={data.monthBalance >= 0 ? "green" : "red"} />
           <Stat label="Saldo acumulado" value={signed(data.accumulatedBalance)} tone={data.accumulatedBalance >= 0 ? "green" : "red"} />
@@ -125,7 +125,7 @@ export function CollaboratorDetailPage({ data }: { data: CollaboratorDetailData 
       <article className="panel rounded-lg p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Horas apontadas por mês</h3>
+            <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Horas apontadas por mês</h3>
             <p className="text-[11px] text-zinc-500">
               Barras abaixo da meta em vermelho. {deficitMonths > 0 ? `${deficitMonths} mês(es) abaixo da meta móvel.` : "Nenhum mês abaixo da meta móvel."}
             </p>
@@ -149,8 +149,8 @@ export function CollaboratorDetailPage({ data }: { data: CollaboratorDetailData 
       {/* Férias */}
       <article className="panel rounded-lg p-4">
         <div className="mb-3 flex items-center gap-2">
-          <Palmtree className="h-4 w-4 text-[#5a3d12]" />
-          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Férias</h3>
+          <Palmtree className="h-4 w-4 text-gold-deep" />
+          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Férias</h3>
         </div>
 
         {vacation.expiringSoon ? (
@@ -233,7 +233,7 @@ const cardTone: Record<Tone, string> = {
   blue: "bg-petroleum text-white",
   gold: "bg-gold text-white",
   red: "bg-danger text-white",
-  green: "bg-[#3f8f6b] text-white"
+  green: "bg-success text-white"
 };
 
 function Card({ label, value, icon: Icon, tone }: { label: string; value: string; icon: typeof Clock; tone: Tone }) {
@@ -251,7 +251,7 @@ function Card({ label, value, icon: Icon, tone }: { label: string; value: string
 }
 
 function Stat({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "green" | "red" }) {
-  const valueClass = tone === "green" ? "text-[#2f6e51]" : tone === "red" ? "text-danger" : "text-zinc-900";
+  const valueClass = tone === "green" ? "text-success-strong" : tone === "red" ? "text-danger" : "text-zinc-900";
   return (
     <div className="rounded-lg border border-zinc-200/70 bg-white/60 px-3 py-2">
       <div className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">{label}</div>
@@ -263,7 +263,7 @@ function Stat({ label, value, tone = "default" }: { label: string; value: string
 function statusTone(status: CollaboratorDetailData["collaborator"]["status"]): string {
   switch (status) {
     case "ATIVO":
-      return "bg-[#3f8f6b]/20 text-[#5fd0a0]";
+      return "bg-success/20 text-success-soft";
     case "FERIAS":
       return "bg-petroleum/30 text-sky-300";
     case "AFASTADO":

@@ -15,7 +15,7 @@ export function LubricantCategoryChart({ slices, className = "" }: LubricantCate
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Distribuição por tipo de movimento</h3>
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Distribuição por tipo de movimento</h3>
       <p className="mb-3 text-[11px] text-zinc-500">Quantidade de movimentações por categoria no ano.</p>
 
       {total === 0 ? (

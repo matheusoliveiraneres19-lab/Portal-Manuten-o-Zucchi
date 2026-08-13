@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSettingValue } from "@/services/settings.service";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
 import { excludeInvalidTestEquipmentWhere, getProgrammedOrderType } from "@/utils/service-order-classification";
+import { CHART_SERIES, GOLD, SEMANTIC } from "@/constants/theme";
 import {
   PREVENTIVE_TARGETS,
   type PreventiveAlerts,
@@ -131,13 +132,13 @@ const STATUS_SAP_LABEL: Record<ServiceOrderStatus, string> = {
 };
 
 const MANAGEMENT_COLORS: Record<PreventiveManagementStatus, string> = {
-  "Aberta sem execução": "#c49a45",
-  "Em andamento": "#3b82f6",
-  Realizada: "#10b981",
-  "Fechada sem execução": "#dc2626",
-  Atrasada: "#f97316",
-  "A vencer": "#eab308",
-  Cancelada: "#71717a"
+  "Aberta sem execução": GOLD.DEFAULT,
+  "Em andamento": SEMANTIC.petroleum.on_dark,
+  Realizada: CHART_SERIES.producao,
+  "Fechada sem execução": SEMANTIC.danger.DEFAULT,
+  Atrasada: CHART_SERIES.aguardando,
+  "A vencer": SEMANTIC.warning.DEFAULT,
+  Cancelada: SEMANTIC.neutral.DEFAULT
 };
 
 export function colorForManagementStatus(status: PreventiveManagementStatus): string {

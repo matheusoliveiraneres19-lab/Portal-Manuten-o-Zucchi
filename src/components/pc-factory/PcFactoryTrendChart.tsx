@@ -5,6 +5,7 @@ import type { TooltipProps } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
 import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryTrendPoint } from "@/types/pc-factory";
+import { CHART_CHROME } from "@/constants/theme";
 
 type PcFactoryTrendChartProps = {
   points: PcFactoryTrendPoint[];
@@ -48,7 +49,7 @@ export function PcFactoryTrendChart({ points, selectedMachine = null, className 
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Evolução de manutenção e disponibilidade</h3>
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Evolução de manutenção e disponibilidade</h3>
       <p className="mb-3 text-[11px] text-zinc-500">{subtitle}</p>
 
       {data.length === 0 ? (
@@ -57,7 +58,7 @@ export function PcFactoryTrendChart({ points, selectedMachine = null, className 
         <div className="h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={data} margin={{ left: 0, right: 8, top: 12, bottom: manyMonths ? 8 : 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_CHROME.onLight.grid} vertical={false} />
               <XAxis
                 dataKey="label"
                 tick={{ fontSize: 11 }}
@@ -99,7 +100,7 @@ function TrendTooltip({ active, payload, selectedMachine }: TooltipProps<number,
   return (
     <div className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-[11px] leading-relaxed shadow-md">
       {selectedMachine ? (
-        <p className="font-semibold text-[#5a3d12]">
+        <p className="font-semibold text-gold-deep">
           <span className="text-zinc-500">Máquina:</span> {selectedMachine}
         </p>
       ) : null}

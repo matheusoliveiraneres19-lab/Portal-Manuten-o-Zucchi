@@ -27,7 +27,7 @@ type PcFactoryRootCauseChartProps = {
 export function PcFactoryRootCauseChart({ rows, className = "" }: PcFactoryRootCauseChartProps) {
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Pareto de causas raiz</h3>
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Pareto de causas raiz</h3>
       <p className="mb-3 text-[11px] text-zinc-500">
         Horas de manutenção por causa raiz e % acumulado. Concentre a ação nas primeiras barras (regra 80/20).
       </p>

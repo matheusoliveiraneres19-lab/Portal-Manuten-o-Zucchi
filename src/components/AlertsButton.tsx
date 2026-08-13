@@ -28,7 +28,7 @@ export function AlertsButton() {
       </button>
 
       {isOpen ? (
-        <div className="absolute right-0 top-[calc(100%+0.65rem)] z-50 w-72 rounded-lg border border-gold/25 bg-[#070808]/95 p-4 text-sm leading-relaxed text-champagne shadow-[0_18px_48px_rgba(0,0,0,0.42)] backdrop-blur">
+        <div className="absolute right-0 top-[calc(100%+0.65rem)] z-50 w-72 rounded-lg border border-gold/25 bg-ink/95 p-4 text-sm leading-relaxed text-champagne shadow-[0_18px_48px_rgba(0,0,0,0.42)] backdrop-blur">
           <div className="mb-2 text-[0.68rem] font-bold uppercase tracking-[0.22em] text-gold">
             Alertas
           </div>

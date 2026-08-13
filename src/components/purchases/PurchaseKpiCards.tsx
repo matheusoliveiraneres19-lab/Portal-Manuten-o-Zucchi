@@ -17,7 +17,7 @@ const toneClass: Record<PurchaseKpiTone, string> = {
   blue: "bg-petroleum text-white",
   gold: "bg-gold text-white",
   red: "bg-danger text-white",
-  green: "bg-[#3f8f6b] text-white"
+  green: "bg-success text-white"
 };
 
 /** Colunas padrão da grade (Compras Pendentes e demais consumidores). */

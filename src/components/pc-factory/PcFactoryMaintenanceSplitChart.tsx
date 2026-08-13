@@ -3,6 +3,7 @@
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
 import type { PcFactoryMaintenanceSplit } from "@/types/pc-factory";
+import { CHART_CHROME } from "@/constants/theme";
 
 type PcFactoryMaintenanceSplitChartProps = {
   split: PcFactoryMaintenanceSplit[];
@@ -15,7 +16,7 @@ export function PcFactoryMaintenanceSplitChart({ split, className = "" }: PcFact
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Composição da manutenção (grupo do PC-Factory)</h3>
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Composição da manutenção (grupo do PC-Factory)</h3>
       <p className="mb-3 text-[11px] text-zinc-500">Horas por tipo dentro do grupo Manutenção: Mecânica, Elétrica, Automação, Planejada, Terceiros e Aguardando.</p>
 
       {data.length === 0 ? (
@@ -35,7 +36,7 @@ export function PcFactoryMaintenanceSplitChart({ split, className = "" }: PcFact
                   entry?.payload?.label ?? ""
                 ]}
               />
-              <Legend formatter={(value) => <span style={{ fontSize: 11, color: "#52525b" }}>{value}</span>} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+              <Legend formatter={(value) => <span style={{ fontSize: 11, color: CHART_CHROME.onLight.axis }}>{value}</span>} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
             </PieChart>
           </ResponsiveContainer>
         </div>

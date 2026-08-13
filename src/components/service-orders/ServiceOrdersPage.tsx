@@ -164,7 +164,7 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
 
   return (
     <section className={`space-y-4 text-champagne transition ${isPending ? "opacity-70" : ""}`}>
-      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-6">
+      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-5 shadow-premium sm:p-6">
         <div className="login-marble-bg absolute inset-0 opacity-80" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78),rgba(0,0,0,0.44)),radial-gradient(circle_at_88%_8%,rgba(196,154,69,0.15),transparent_22rem)]" />
         <div className="relative z-10 flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
@@ -407,7 +407,7 @@ function ServiceOrderActions({
   onClear
 }: ServiceOrderActionsProps) {
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-gold/15 bg-[#090a0a] p-3 shadow-premium sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 rounded-lg border border-gold/15 bg-ink p-3 shadow-premium sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-wrap items-center gap-2">
         <ActionButton icon={Upload} label="Importar Excel" active={showImportPanel} onClick={onToggleImport} />
         <ActionButton icon={RefreshCw} label="Atualizar dados" onClick={onRefresh} />
@@ -504,7 +504,7 @@ function ImportPreviewPanel({ onClose, onImported }: { onClose: () => void; onIm
   }
 
   return (
-    <div className="rounded-lg border border-gold/25 bg-[#090a0a] p-4 shadow-premium">
+    <div className="rounded-lg border border-gold/25 bg-ink p-4 shadow-premium">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-sm font-semibold text-gold">Importação Excel SAP/Fiori</h2>
@@ -652,7 +652,7 @@ function ServiceOrderFilters({
   return (
     <div
       onKeyDown={handleKeyDown}
-      className="rounded-lg border border-gold/20 bg-[#080909] p-4 shadow-premium sm:p-5"
+      className="rounded-lg border border-gold/20 bg-ink p-4 shadow-premium sm:p-5"
     >
       <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-gold">
         <Search className="h-4 w-4" />
@@ -802,7 +802,7 @@ function Pagination({
   const lastRow = (page - 1) * pageSize + displayed;
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-gold/15 bg-[#090a0a] p-3 text-sm shadow-premium sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 rounded-lg border border-gold/15 bg-ink p-3 text-sm shadow-premium sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <span className="text-xs text-zinc-400">
           Registros {firstRow.toLocaleString("pt-BR")}–{lastRow.toLocaleString("pt-BR")} de{" "}
@@ -881,7 +881,7 @@ function ServiceOrdersTable({
   onToggleOrder
 }: ServiceOrdersTableProps) {
   return (
-    <div className="overflow-hidden rounded-lg border border-gold/15 bg-[#070808] shadow-premium">
+    <div className="overflow-hidden rounded-lg border border-gold/15 bg-ink shadow-premium">
       <div className="flex items-center justify-between border-b border-gold/15 px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold text-champagne">Lista de ordens</h2>
@@ -894,7 +894,7 @@ function ServiceOrdersTable({
 
       <div className="max-h-[65vh] overflow-auto">
         <table className="w-full min-w-[1280px] border-collapse text-left text-xs">
-          <thead className="sticky top-0 z-10 bg-[#0c0d0d] text-[11px] uppercase tracking-wide text-zinc-300 shadow-[0_1px_0_rgba(196,154,69,0.25)]">
+          <thead className="sticky top-0 z-10 bg-ink-raised text-[11px] uppercase tracking-wide text-zinc-300 shadow-[0_1px_0_rgba(196,154,69,0.25)]">
             <tr className="border-b border-gold/25">
               <th className="w-12 px-3 py-3">
                 <input
@@ -982,7 +982,7 @@ function ServiceOrderGroupHeader({
   totalHours: number;
 }) {
   return (
-    <tr className="border-y border-gold/20 bg-[#15130d]">
+    <tr className="border-y border-gold/20 bg-ink-raised">
       <td colSpan={9} className="px-4 py-2.5">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <span className="text-xs font-semibold uppercase tracking-wide text-gold">

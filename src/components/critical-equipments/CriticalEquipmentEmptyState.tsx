@@ -2,7 +2,7 @@ import { PackageSearch } from "lucide-react";
 
 export function CriticalEquipmentEmptyState() {
   return (
-    <div className="rounded-lg border border-gold/20 bg-[#070808] p-10 text-center shadow-premium">
+    <div className="rounded-lg border border-gold/20 bg-ink p-10 text-center shadow-premium">
       <span className="mx-auto grid h-14 w-14 place-items-center rounded-full border border-gold/30 bg-black/40 text-gold">
         <PackageSearch className="h-7 w-7" strokeWidth={1.6} />
       </span>

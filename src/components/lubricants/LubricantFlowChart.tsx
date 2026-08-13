@@ -3,6 +3,7 @@
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
 import type { LubricantMonthlyFlowPoint } from "@/types/lubricants";
+import { CHART_SERIES, SEMANTIC } from "@/constants/theme";
 
 type LubricantFlowChartProps = {
   points: LubricantMonthlyFlowPoint[];
@@ -15,7 +16,7 @@ export function LubricantFlowChart({ points, className = "" }: LubricantFlowChar
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Entradas x Saídas por mês</h3>
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Entradas x Saídas por mês</h3>
       <p className="mb-3 text-[11px] text-zinc-500">Fluxo mensal de entradas e consumo no ano de referência.</p>
 
       {!hasData ? (
@@ -32,8 +33,8 @@ export function LubricantFlowChart({ points, className = "" }: LubricantFlowChar
                 formatter={(value: number, name) => [value.toLocaleString("pt-BR"), name]}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="inputs" name="Entradas" fill="#3f8f6b" radius={[3, 3, 0, 0]} barSize={14} />
-              <Bar dataKey="outputs" name="Saídas" fill="#a6192e" radius={[3, 3, 0, 0]} barSize={14} />
+              <Bar dataKey="inputs" name="Entradas" fill={CHART_SERIES.producao} radius={[3, 3, 0, 0]} barSize={14} />
+              <Bar dataKey="outputs" name="Saídas" fill={SEMANTIC.danger.DEFAULT} radius={[3, 3, 0, 0]} barSize={14} />
             </BarChart>
           </ResponsiveContainer>
         </div>

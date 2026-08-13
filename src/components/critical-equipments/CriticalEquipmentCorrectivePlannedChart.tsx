@@ -3,6 +3,7 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
 import type { CriticalEquipmentCorrectivePlannedData } from "@/types/critical-equipments";
+import { CHART_CHROME, CHART_SERIES } from "@/constants/theme";
 
 type CriticalEquipmentCorrectivePlannedChartProps = {
   data: CriticalEquipmentCorrectivePlannedData;
@@ -10,8 +11,8 @@ type CriticalEquipmentCorrectivePlannedChartProps = {
   compact?: boolean;
 };
 
-const CORRECTIVE_COLOR = "#b51f32";
-const PLANNED_COLOR = "#3f8f6b";
+const CORRECTIVE_COLOR = CHART_SERIES.corretiva;
+const PLANNED_COLOR = CHART_SERIES.preventiva;
 
 /**
  * Dashboard "Ordens Corretivas x Planejadas" (TAREFA 6): cards no topo + rosca.
@@ -106,7 +107,7 @@ export function CriticalEquipmentCorrectivePlannedChart({
 
   return (
     <article className="panel rounded-lg p-4 xl:col-span-4">
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
         Ordens Corretivas x Planejadas
       </h3>
       <p className="mb-3 text-[11px] text-zinc-500">

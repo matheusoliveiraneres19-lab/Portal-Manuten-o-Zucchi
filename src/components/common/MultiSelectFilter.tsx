@@ -115,7 +115,7 @@ export function MultiSelectFilter({
         {open ? (
           <div
             role="listbox"
-            className="absolute z-50 mt-1 w-full overflow-hidden rounded-lg border border-gold/30 bg-[#0a0b0b] shadow-[0_18px_50px_rgba(0,0,0,0.6)]"
+            className="absolute z-50 mt-1 w-full overflow-hidden rounded-lg border border-gold/30 bg-ink shadow-[0_18px_50px_rgba(0,0,0,0.6)]"
           >
             <div className="flex items-center gap-2 border-b border-gold/15 px-3 py-2">
               <Search className="h-4 w-4 shrink-0 text-zinc-500" />

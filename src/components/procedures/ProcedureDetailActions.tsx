@@ -22,9 +22,9 @@ function formatDate(iso: string): string {
 
 /* Botões neutros (Voltar/Imprimir) e dourados (Editar) com alto contraste. */
 const NEUTRAL_BTN =
-  "inline-flex h-9 items-center gap-2 rounded-lg border border-[#C6A24A]/30 px-3 text-[13px] font-semibold text-[#D7CDBA] transition hover:border-[#D6AA3A]/55 hover:text-white";
+  "inline-flex h-9 items-center gap-2 rounded-lg border border-gold/30 px-3 text-[13px] font-semibold text-parchment transition hover:border-gold/55 hover:text-white";
 const GOLD_BTN =
-  "inline-flex h-9 items-center gap-2 rounded-lg border border-[#D6AA3A]/55 bg-[#D6AA3A]/15 px-3 text-[13px] font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25";
+  "inline-flex h-9 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-3 text-[13px] font-bold text-gold-soft transition hover:bg-gold/25";
 
 export function ProcedureDetailActions({ detail, canManage, isFavorite, readConfirmedAt }: ProcedureDetailActionsProps) {
   const router = useRouter();
@@ -110,17 +110,17 @@ export function ProcedureDetailActions({ detail, canManage, isFavorite, readConf
         disabled={favLoading}
         className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[13px] font-bold transition disabled:opacity-60 ${
           favorite
-            ? "border-[#D6AA3A]/60 bg-[#D6AA3A]/15 text-[#F6D98B]"
-            : "border-[#C6A24A]/30 text-[#D7CDBA] hover:border-[#D6AA3A]/55 hover:text-white"
+            ? "border-gold/60 bg-gold/15 text-gold-soft"
+            : "border-gold/30 text-parchment hover:border-gold/55 hover:text-white"
         }`}
       >
-        {favLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className={`h-4 w-4 ${favorite ? "fill-[#D6AA3A]" : ""}`} />}
+        {favLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className={`h-4 w-4 ${favorite ? "fill-gold" : ""}`} />}
         {favorite ? "Favoritado" : "Favoritar"}
       </button>
 
       {/* Li e estou ciente — qualquer usuário */}
       {readAt ? (
-        <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#3f8f6b]/50 bg-[#3f8f6b]/15 px-3 text-[13px] font-bold text-[#9be3c1]">
+        <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-success/50 bg-success/15 px-3 text-[13px] font-bold text-success-soft">
           <CheckCircle2 className="h-4 w-4" /> Lido em {formatDate(readAt)}
         </span>
       ) : (
@@ -128,7 +128,7 @@ export function ProcedureDetailActions({ detail, canManage, isFavorite, readConf
           type="button"
           onClick={confirmRead}
           disabled={readLoading}
-          className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#3f8f6b]/50 bg-[#3f8f6b]/15 px-3 text-[13px] font-bold text-[#9be3c1] transition hover:bg-[#3f8f6b]/25 disabled:opacity-60"
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-success/50 bg-success/15 px-3 text-[13px] font-bold text-success-soft transition hover:bg-success/25 disabled:opacity-60"
         >
           {readLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
           Li e estou ciente

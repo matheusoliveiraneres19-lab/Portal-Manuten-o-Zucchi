@@ -51,7 +51,7 @@ export function OrderDetailDrawer({ row, onClose }: { row: PreventiveOrderRow | 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Detalhe da ordem">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <aside className="relative z-10 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-gold/30 bg-[#0a0b0b] shadow-2xl">
+      <aside className="relative z-10 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-gold/30 bg-ink shadow-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-gold/20 p-5">
           <div>
             <div className="flex items-center gap-2">
@@ -135,7 +135,7 @@ export function RulesModal({ open, onClose }: { open: boolean; onClose: () => vo
   return (
     <div className="fixed inset-0 z-50 grid place-items-center p-4" role="dialog" aria-modal="true" aria-label="Como os indicadores são calculados">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-lg border border-gold/30 bg-[#0a0b0b] shadow-2xl">
+      <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-lg border border-gold/30 bg-ink shadow-2xl">
         <div className="flex items-center justify-between border-b border-gold/20 p-5">
           <div className="flex items-center gap-2 text-champagne">
             <Calculator className="h-5 w-5 text-gold" />

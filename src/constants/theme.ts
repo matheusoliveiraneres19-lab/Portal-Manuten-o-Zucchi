@@ -48,14 +48,41 @@ export const GOLD = {
   line: "rgba(214, 170, 58, 0.22)"
 } as const;
 
-/** Pretos e grafites da identidade (fundo de hero, sidebar, tabelas densas). */
+/**
+ * Pretos e grafites da identidade, em degraus de ELEVAÇÃO.
+ *
+ * A escala saiu do módulo de Procedimentos, que já a usava em literais e é a
+ * referência visual do portal: página → base do card → topo do gradiente do card
+ * → superfície elevada → hover. Sem esses degraus intermediários, um card escuro
+ * sobre fundo escuro perde a separação e a tela achata.
+ */
 export const INK = {
-  /** Preto Zucchi — fundo mais profundo. */
+  /** Preto Zucchi — fundo de página / hero. */
   DEFAULT: "#0B0A08",
-  /** Grafite — superfície escura elevada (hero, header de tabela). */
+  /** Base do card escuro (fim do gradiente). */
+  card: "#0E0D0A",
+  /** Topo do gradiente do card — dá o volume. */
+  cardTop: "#1B1812",
+  /** Superfície escura elevada simples (header de tabela, painel de filtros). */
   raised: "#15130E",
-  /** Grafite claro — linha divisória sobre fundo escuro. */
+  /** Card escuro sob o cursor. */
+  hover: "#1F1B13",
+  /** Linha divisória sobre fundo escuro. */
   line: "rgba(255, 255, 255, 0.08)"
+} as const;
+
+/**
+ * Texto quente sobre superfície ESCURA. Cinzas puros (zinc/gray do Tailwind)
+ * brigam com a identidade de mármore e granito — daí uma escala com viés quente.
+ *
+ * Hierarquia: título usa `SURFACE.DEFAULT` (#F8F3E7), corpo usa `DEFAULT` e
+ * informação secundária usa `dim`.
+ */
+export const PARCHMENT = {
+  /** Corpo de texto sobre superfície escura. */
+  DEFAULT: "#D7CDBA",
+  /** Texto secundário / legenda sobre superfície escura. */
+  dim: "#B8AD9A"
 } as const;
 
 /** Superfícies claras (mármore/champagne) dos cards `.panel`. */

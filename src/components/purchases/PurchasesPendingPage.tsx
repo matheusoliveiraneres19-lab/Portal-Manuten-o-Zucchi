@@ -27,6 +27,7 @@ import { PurchaseClassificationNotice } from "@/components/purchases/PurchaseCla
 import { PurchaseClassificationTree } from "@/components/purchases/PurchaseClassificationTree";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import type { PendingPurchasesPageData } from "@/types/purchases";
+import { CHART_SERIES, GOLD } from "@/constants/theme";
 
 const PurchaseMonthlyCountChart = dynamic(
   () => import("@/components/purchases/PurchaseInsightCharts").then((m) => m.PurchaseMonthlyCountChart),
@@ -110,7 +111,7 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
 
   return (
     <section className={`space-y-4 text-champagne transition ${isPending || isRefreshing ? "opacity-70" : ""}`}>
-      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-6">
+      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-5 shadow-premium sm:p-6">
         <div className="login-marble-bg absolute inset-0 opacity-80" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78),rgba(0,0,0,0.44)),radial-gradient(circle_at_88%_8%,rgba(196,154,69,0.15),transparent_22rem)]" />
         <div className="relative z-10">
@@ -163,14 +164,14 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
               className="xl:col-span-7"
               title="Requisições pendentes por mês"
               subtitle="Pela data da requisição."
-              color="#c49a45"
+              color={CHART_SERIES.compras}
               points={data.pendingByMonth}
             />
             <PurchaseRankBarChart
               className="xl:col-span-5"
               title="Top fornecedores pendentes"
               subtitle="Fornecedores com mais requisições sem pedido."
-              color="#7b551f"
+              color={GOLD.deep}
               items={suppliersToRank(data.topPendingSuppliers)}
               emptyDescription="Nenhuma requisição pendente."
             />
@@ -178,13 +179,13 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
               className="xl:col-span-6"
               title="Pendências por grupo de mercadoria"
               subtitle="Requisições pendentes por grupo."
-              color="#0f4d68"
+              color={CHART_SERIES.ordens}
               items={goodsGroupsToRank(data.pendingByGoodsGroup)}
             />
             <PurchaseRankBarChart
               className="xl:col-span-6"
               title="Requisitantes com mais pendências"
-              color="#7b551f"
+              color={GOLD.deep}
               items={requestersToRank(data.topRequesters)}
             />
           </section>
@@ -199,7 +200,7 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
                   className="xl:col-span-6"
                   title="Compras pendentes por N1"
                   subtitle="Requisições sem pedido, agrupadas pelo 1º nível de classificação."
-                  color="#c49a45"
+                  color={CHART_SERIES.compras}
                   items={classificationToRank(data.classification.byN1)}
                   emptyDescription="Nenhuma requisição pendente com N1 preenchido."
                 />
@@ -211,7 +212,7 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
                       ? `Restrito a N1: ${appliedFilters.classificationsN1.join(", ")}.`
                       : "Selecione um N1 nos filtros para ver apenas os N2 daquele grupo."
                   }
-                  color="#0f4d68"
+                  color={CHART_SERIES.ordens}
                   items={classificationToRank(data.classification.byN2)}
                   emptyDescription="Nenhuma requisição pendente com N2 preenchido."
                 />
@@ -273,7 +274,7 @@ function ClassificationSummary({
 
   return (
     <section className="panel rounded-lg p-4">
-      <h3 className="mb-3 text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">
+      <h3 className="mb-3 text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
         Resumo da classificação
       </h3>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">

@@ -18,6 +18,7 @@
  * puros de `purchases-normalizer.ts`. Testável isoladamente.
  */
 import { PurchaseOperationalStatus, PurchaseType } from "@prisma/client";
+import { CHART_SERIES, SEMANTIC } from "@/constants/theme";
 import {
   classifyPurchaseType,
   detectIgnoredDescriptionTerm,
@@ -332,13 +333,13 @@ export const PURCHASE_OPERATIONAL_STATUS_ORDER: PurchaseOperationalStatus[] = [
 ];
 
 export const PURCHASE_OPERATIONAL_STATUS_COLORS: Record<PurchaseOperationalStatus, string> = {
-  ATRASADO: "#f87171",
-  PENDENTE_COMPRA: "#fbbf24",
-  COMPRADO: "#38bdf8",
-  ENTREGUE: "#4ade80",
-  REGULARIZACAO: "#c084fc",
-  SERVICO: "#64748b",
-  IGNORADO: "#94a3b8"
+  ATRASADO: SEMANTIC.danger.DEFAULT,
+  PENDENTE_COMPRA: SEMANTIC.warning.DEFAULT,
+  COMPRADO: CHART_SERIES.preventiva,
+  ENTREGUE: CHART_SERIES.producao,
+  REGULARIZACAO: CHART_SERIES.automacao,
+  SERVICO: SEMANTIC.neutral.DEFAULT,
+  IGNORADO: CHART_SERIES.outros
 };
 
 export const PURCHASE_KIND_LABELS: Record<PurchaseKind, string> = {

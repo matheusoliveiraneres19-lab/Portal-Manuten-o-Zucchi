@@ -47,9 +47,9 @@ export function EquipmentOrderDetailModal({ order, onClose }: EquipmentOrderDeta
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 6 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-gold/30 bg-[#0a0b0b] text-champagne shadow-[0_0_60px_rgba(0,0,0,0.7)]"
+            className="relative flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-gold/30 bg-ink text-champagne shadow-[0_0_60px_rgba(0,0,0,0.7)]"
           >
-        <div className="flex items-start justify-between gap-3 border-b border-gold/20 bg-[#070808] px-5 py-4">
+        <div className="flex items-start justify-between gap-3 border-b border-gold/20 bg-ink px-5 py-4">
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-gold">
               Ordem de manutenção · {order.osNumber}

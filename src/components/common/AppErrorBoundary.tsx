@@ -38,7 +38,7 @@ export function AppErrorBoundary({
 
   return (
     <div className="grid min-h-[60vh] place-items-center p-6">
-      <div className="marble-dark relative w-full max-w-md overflow-hidden rounded-xl border border-gold/25 bg-[#0a0b0b] p-8 text-center shadow-premium">
+      <div className="marble-dark relative w-full max-w-md overflow-hidden rounded-xl border border-gold/25 bg-ink p-8 text-center shadow-premium">
         <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-full border border-gold/40 bg-black/40 text-gold shadow-[0_0_30px_rgba(196,154,69,0.18)]">
           <AlertTriangle className="h-8 w-8" strokeWidth={1.6} />
         </div>

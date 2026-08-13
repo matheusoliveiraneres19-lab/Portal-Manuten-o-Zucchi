@@ -7,8 +7,10 @@
  * reimplementar a classificação em componente ou em outro service.
  *
  * Puro: sem Prisma client e sem React (apenas tipos), para poder ser usado tanto
- * no importador quanto nos serviços de leitura.
+ * no importador quanto nos serviços de leitura. `@/constants/theme` também é puro
+ * (só constantes de cor), então importá-lo preserva essa propriedade.
  */
+import { CHART_SERIES, GOLD, SEMANTIC } from "@/constants/theme";
 
 /* ------------------------------------------------------------------ */
 /* Grupo de planejamento                                              */
@@ -38,12 +40,12 @@ export const PLANNING_GROUP_ORDER: PlanningGroupKey[] = [
 
 /** Cores premium Zucchi para cada grupo (usadas em barras/rosca). */
 export const PLANNING_GROUP_COLORS: Record<PlanningGroupKey, string> = {
-  MEC: "#2f6384",
-  ELE: "#c49a45",
-  SERVICO_TERCEIRO: "#7a5a16",
-  LUB: "#3f8f6b",
-  USINAGEM: "#8a6fa8",
-  OUTROS: "#6b7280"
+  MEC: CHART_SERIES.mecanica,
+  ELE: CHART_SERIES.eletrica,
+  SERVICO_TERCEIRO: SEMANTIC.petroleum.DEFAULT,
+  LUB: GOLD.DEFAULT,
+  USINAGEM: SEMANTIC.petroleum.on_dark,
+  OUTROS: CHART_SERIES.outros
 };
 
 /**
@@ -159,14 +161,14 @@ export const PLANNING_ACTIVITY_ORDER: PlanningActivityTypeKey[] = [
 
 /** Cores premium Zucchi por tipo de atividade. */
 export const PLANNING_ACTIVITY_COLORS: Record<PlanningActivityTypeKey, string> = {
-  CORRETIVA: "#b51f32",
-  PREVENTIVA: "#3f8f6b",
-  MELHORIA: "#2f6384",
-  INSPECAO: "#3f7da6",
-  LUBRIFICACAO: "#c49a45",
-  PREDITIVA: "#8a6fa8",
-  PLANEJADA: "#7a5a16",
-  OUTROS: "#6b7280"
+  CORRETIVA: CHART_SERIES.corretiva,
+  PREVENTIVA: CHART_SERIES.preventiva,
+  MELHORIA: SEMANTIC.petroleum.DEFAULT,
+  INSPECAO: SEMANTIC.petroleum.on_dark,
+  LUBRIFICACAO: GOLD.DEFAULT,
+  PREDITIVA: CHART_SERIES.automacao,
+  PLANEJADA: GOLD.deep,
+  OUTROS: CHART_SERIES.outros
 };
 
 /**

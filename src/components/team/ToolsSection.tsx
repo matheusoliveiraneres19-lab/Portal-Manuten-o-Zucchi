@@ -137,8 +137,8 @@ export function ToolsSection({
     <article className="panel rounded-lg p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Wrench className="h-4 w-4 text-[#5a3d12]" />
-          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Ferramentas sob responsabilidade</h3>
+          <Wrench className="h-4 w-4 text-gold-deep" />
+          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Ferramentas sob responsabilidade</h3>
         </div>
         {canManage ? (
           <button
@@ -179,7 +179,7 @@ export function ToolsSection({
                     {canManage ? (
                       <td className="py-1.5">
                         <span className="flex items-center gap-1">
-                          <button type="button" onClick={() => void toggleStatus(tool)} title={tool.status === "EM_USO" ? "Marcar devolvida" : "Marcar em uso"} className="grid h-7 w-7 place-items-center rounded-md text-[#2f6e51] transition hover:bg-[#3f8f6b]/10">
+                          <button type="button" onClick={() => void toggleStatus(tool)} title={tool.status === "EM_USO" ? "Marcar devolvida" : "Marcar em uso"} className="grid h-7 w-7 place-items-center rounded-md text-success-strong transition hover:bg-success/10">
                             <RotateCcw className="h-3.5 w-3.5" />
                           </button>
                           <button type="button" onClick={() => openEdit(tool)} title="Editar" className="grid h-7 w-7 place-items-center rounded-md text-petroleum transition hover:bg-petroleum/10">

@@ -18,6 +18,7 @@ import { LubricantTechnicalSheetModal } from "@/components/lubricants/LubricantT
 import { LubricantImportModal } from "@/components/lubricants/LubricantImportModal";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import type { LubricantDetails, LubricantsPageData } from "@/types/lubricants";
+import { SEMANTIC } from "@/constants/theme";
 
 const LubricantOutputChart = dynamic(
   () => import("@/components/lubricants/LubricantOutputChart").then((m) => m.LubricantOutputChart),
@@ -201,7 +202,7 @@ export function LubricantsPage({ data, appliedFilters }: LubricantsPageProps) {
   return (
     <section className={`space-y-4 text-champagne transition ${isPending || isRefreshing ? "opacity-70" : ""}`}>
       {/* Hero */}
-      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-6">
+      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-5 shadow-premium sm:p-6">
         <div className="login-marble-bg absolute inset-0 opacity-80" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78),rgba(0,0,0,0.44)),radial-gradient(circle_at_88%_8%,rgba(196,154,69,0.15),transparent_22rem)]" />
         <div className="relative z-10">
@@ -268,7 +269,7 @@ export function LubricantsPage({ data, appliedFilters }: LubricantsPageProps) {
               title="Saídas por material no mês"
               subtitle={`Top 10 materiais com maior saída em ${data.reference.monthLabel}.`}
               items={data.monthlyOutputs}
-              color="#a6192e"
+              color={SEMANTIC.danger.DEFAULT}
               emptyDescription="Sem saídas no mês de referência."
               onSelect={openDetails}
             />
@@ -277,7 +278,7 @@ export function LubricantsPage({ data, appliedFilters }: LubricantsPageProps) {
               title="Saídas por material no ano"
               subtitle={`Top 10 materiais com maior saída em ${data.reference.year}.`}
               items={data.annualOutputs}
-              color="#7b2d3a"
+              color={SEMANTIC.danger.on_light}
               emptyDescription="Sem saídas no ano de referência."
               onSelect={openDetails}
             />

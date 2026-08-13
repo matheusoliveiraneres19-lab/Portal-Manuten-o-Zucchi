@@ -3,6 +3,7 @@
 import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
 import type { CriticalEquipmentHoursPoint } from "@/types/critical-equipments";
+import { CHART_SERIES } from "@/constants/theme";
 
 type CriticalEquipmentHoursChartProps = {
   items: CriticalEquipmentHoursPoint[];
@@ -26,7 +27,7 @@ export function CriticalEquipmentHoursChart({ items, onSelect }: CriticalEquipme
 
   return (
     <article className="panel rounded-lg p-4 xl:col-span-5">
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
         Esforço de manutenção por equipamento
       </h3>
       <p className="mb-3 text-[11px] text-zinc-500">
@@ -50,7 +51,7 @@ export function CriticalEquipmentHoursChart({ items, onSelect }: CriticalEquipme
               />
               <Bar
                 dataKey="value"
-                fill="#c49a45"
+                fill={CHART_SERIES.compras}
                 radius={[0, 4, 4, 0]}
                 barSize={20}
                 onClick={(entry: { id?: string }) => handleSelect(entry)}

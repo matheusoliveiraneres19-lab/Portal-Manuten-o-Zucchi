@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
 import type { CollaboratorMonthPoint } from "@/types/collaborators";
+import { CHART_SERIES, SEMANTIC } from "@/constants/theme";
 
 type CollaboratorHoursChartProps = {
   data: CollaboratorMonthPoint[];
@@ -36,13 +37,13 @@ export function CollaboratorHoursChart({ data, meta }: CollaboratorHoursChartPro
           <Tooltip cursor={{ fill: "rgba(196,154,69,0.08)" }} content={<HoursTooltip meta={meta} />} />
           <ReferenceLine
             y={meta}
-            stroke="#0f4d68"
+            stroke={CHART_SERIES.ordens}
             strokeDasharray="5 4"
-            label={{ value: `Meta ${meta} h`, position: "right", fontSize: 11, fill: "#0f4d68" }}
+            label={{ value: `Meta ${meta} h`, position: "right", fontSize: 11, fill: CHART_SERIES.ordens }}
           />
           <Bar dataKey="hours" radius={[4, 4, 0, 0]} barSize={30}>
             {data.map((point) => (
-              <Cell key={point.ym} fill={point.hours > 0 && point.hours < meta ? "#a6192e" : "#3f8f6b"} />
+              <Cell key={point.ym} fill={point.hours > 0 && point.hours < meta ? SEMANTIC.danger.DEFAULT : CHART_SERIES.producao} />
             ))}
             <LabelList
               dataKey="hours"
@@ -65,7 +66,7 @@ function HoursTooltip({ active, payload, label, meta }: any) {
     <div className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs shadow">
       <div className="font-semibold text-zinc-800">{label}</div>
       <div className="text-zinc-600">{hours.toLocaleString("pt-BR")} h apontadas</div>
-      <div className={diff < 0 ? "text-danger" : "text-[#2f6e51]"}>
+      <div className={diff < 0 ? "text-danger" : "text-success-strong"}>
         {diff < 0 ? `Déficit de ${Math.abs(diff).toLocaleString("pt-BR")} h` : `+${diff.toLocaleString("pt-BR")} h vs meta`}
       </div>
     </div>

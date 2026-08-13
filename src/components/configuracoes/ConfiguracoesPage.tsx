@@ -124,7 +124,7 @@ export function ConfiguracoesPage({
   ];
 
   return (
-    <section className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#060707] shadow-premium">
+    <section className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink shadow-premium">
       <div className="login-marble-bg absolute inset-0 opacity-90" />
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.72),rgba(0,0,0,0.42)),radial-gradient(circle_at_84%_12%,rgba(196,154,69,0.16),transparent_24rem)]" />
 
@@ -278,7 +278,7 @@ function SectionPanel({
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={section.title}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <aside className="relative z-10 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-gold/30 bg-[#0a0b0b] shadow-2xl">
+      <aside className="relative z-10 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-gold/30 bg-ink shadow-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-gold/20 p-5">
           <div className="flex items-start gap-3">
             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-gold/35 bg-gold/10 text-gold">

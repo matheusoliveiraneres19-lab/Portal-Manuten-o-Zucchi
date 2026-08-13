@@ -51,13 +51,13 @@ type ProceduresCenterProps = {
 };
 
 /* Classes de contraste premium reutilizadas (fundo escuro + dourado, alta legibilidade). */
-const CARD = "rounded-xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0E0D0A] shadow-[0_16px_40px_rgba(0,0,0,0.35)]";
-const CARD_HOVER = "transition hover:border-[#D6AA3A]/70 hover:bg-[#1F1B13]";
-const BADGE = "rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/15 px-2.5 py-0.5 text-[11px] font-bold text-[#F6D98B]";
-const TXT_TITLE = "text-[#F8F3E7]";
-const TXT_DESC = "text-[#D7CDBA]";
-const TXT_MUTED = "text-[#B8AD9A]";
-const TXT_GOLD = "text-[#D6AA3A]";
+const CARD = "rounded-xl border border-gold/30 bg-gradient-to-br from-ink-card-top to-ink-card shadow-[0_16px_40px_rgba(0,0,0,0.35)]";
+const CARD_HOVER = "transition hover:border-gold/70 hover:bg-ink-hover";
+const BADGE = "rounded-full border border-gold/35 bg-gold/15 px-2.5 py-0.5 text-[11px] font-bold text-gold-soft";
+const TXT_TITLE = "text-surface";
+const TXT_DESC = "text-parchment";
+const TXT_MUTED = "text-parchment-dim";
+const TXT_GOLD = "text-gold";
 
 function normalize(value: string): string {
   return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
@@ -135,16 +135,16 @@ export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
   const actions: CardActions = canManage ? { onEdit: openEdit, onDelete: (procedure) => setDeleting(procedure) } : null;
 
   return (
-    <section className="space-y-6 text-[#F8F3E7]">
+    <section className="space-y-6 text-surface">
       {/* Hero */}
-      <header className="relative overflow-hidden rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#11100C] via-[#0B0A08] to-[#050504] p-5 shadow-[0_18px_45px_rgba(0,0,0,0.4)] sm:p-7">
+      <header className="relative overflow-hidden rounded-2xl border border-gold/30 bg-gradient-to-br from-ink-card via-ink to-[#050504] p-5 shadow-[0_18px_45px_rgba(0,0,0,0.4)] sm:p-7">
         <div className="login-marble-bg absolute inset-0 opacity-10" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_8%,rgba(214,170,58,0.14),transparent_22rem)]" />
         <div className="relative z-10">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <span className={`inline-flex items-center gap-3 ${TXT_GOLD}`}>
               <Library className="h-5 w-5" />
-              <span className="rounded-md border border-[#D6AA3A]/40 bg-[#D6AA3A]/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-[#F6D98B]">
+              <span className="rounded-md border border-gold/40 bg-gold/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-gold-soft">
                 Central de conhecimento da manutenção
               </span>
             </span>
@@ -152,7 +152,7 @@ export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
               <button
                 type="button"
                 onClick={() => setFormOpen(true)}
-                className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#D6AA3A]/60 bg-[#D6AA3A]/15 px-4 text-sm font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25"
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/60 bg-gold/15 px-4 text-sm font-bold text-gold-soft transition hover:bg-gold/25"
               >
                 <Plus className="h-4 w-4" /> Novo Procedimento
               </button>
@@ -198,7 +198,7 @@ export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Buscar procedimento, atividade, sistema ou equipamento..."
               aria-label="Buscar procedimento"
-              className="h-14 w-full rounded-2xl border border-[#C6A24A]/30 bg-[#11100C] pl-12 pr-12 text-sm text-[#F8F3E7] outline-none transition placeholder:text-[#8F846F] focus:border-[#D6AA3A] focus:ring-2 focus:ring-[#D6AA3A]/20 sm:text-base"
+              className="h-14 w-full rounded-2xl border border-gold/30 bg-ink-card pl-12 pr-12 text-sm text-surface outline-none transition placeholder:text-neutralized focus:border-gold focus:ring-2 focus:ring-gold/20 sm:text-base"
             />
             {query ? (
               <button type="button" onClick={() => setQuery("")} aria-label="Limpar busca" className={`absolute right-4 top-1/2 -translate-y-1/2 ${TXT_MUTED} transition hover:text-white`}>
@@ -252,21 +252,21 @@ function DeleteConfirm({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#15130E] to-[#0E0D0A] p-5 shadow-[0_24px_60px_rgba(0,0,0,0.5)]">
+      <div className="w-full max-w-md rounded-2xl border border-gold/30 bg-gradient-to-br from-ink-raised to-ink-card p-5 shadow-[0_24px_60px_rgba(0,0,0,0.5)]">
         <div className="mb-3 flex items-center gap-2">
           <span className="grid h-9 w-9 place-items-center rounded-lg border border-danger/40 bg-danger/10 text-danger">
             <AlertTriangle className="h-5 w-5" />
           </span>
-          <h2 className="font-serif text-lg font-semibold text-[#F8F3E7]">Excluir procedimento</h2>
+          <h2 className="font-serif text-lg font-semibold text-surface">Excluir procedimento</h2>
         </div>
-        <p className="text-sm leading-relaxed text-[#D7CDBA]">
+        <p className="text-sm leading-relaxed text-parchment">
           Tem certeza que deseja excluir <strong className="text-white">{title}</strong>? Essa ação não poderá ser desfeita.
         </p>
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
             onClick={onCancel}
-            className="h-10 rounded-lg border border-[#C6A24A]/30 px-4 text-sm font-semibold text-[#D7CDBA] transition hover:border-[#D6AA3A]/55 hover:text-white"
+            className="h-10 rounded-lg border border-gold/30 px-4 text-sm font-semibold text-parchment transition hover:border-gold/55 hover:text-white"
           >
             Cancelar
           </button>
@@ -303,7 +303,7 @@ function Indicators({ indicators }: { indicators: ProceduresIndicators }) {
       {cards.map((card) => (
         <div
           key={card.label}
-          className="rounded-2xl border border-[#C6A24A]/25 bg-gradient-to-br from-[#18150F] to-[#0D0C09] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.35)]"
+          className="rounded-2xl border border-gold/25 bg-gradient-to-br from-[#18150F] to-[#0D0C09] p-4 shadow-[0_16px_40px_rgba(0,0,0,0.35)]"
         >
           <div className={`mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${TXT_GOLD}`}>
             {card.icon}
@@ -351,10 +351,10 @@ function Categories({ categories, onPick }: { categories: ProcedureCategoryCount
               key={category.name}
               type="button"
               onClick={() => onPick(category.name)}
-              className="group flex h-full flex-col rounded-2xl border border-[#C6A24A]/25 bg-gradient-to-br from-[#1A1710] via-[#14120D] to-[#0B0A08] p-5 text-left shadow-[0_16px_40px_rgba(0,0,0,0.35)] transition-all duration-300 hover:-translate-y-1 hover:border-[#D6AA3A]/70 hover:shadow-[0_22px_55px_rgba(0,0,0,0.45)]"
+              className="group flex h-full flex-col rounded-2xl border border-gold/25 bg-gradient-to-br from-[#1A1710] via-[#14120D] to-ink p-5 text-left shadow-[0_16px_40px_rgba(0,0,0,0.35)] transition-all duration-300 hover:-translate-y-1 hover:border-gold/70 hover:shadow-[0_22px_55px_rgba(0,0,0,0.45)]"
             >
               <div className="mb-3 flex items-center justify-between">
-                <span className={`grid h-11 w-11 place-items-center rounded-xl border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 ${TXT_GOLD} transition group-hover:bg-[#D6AA3A]/22`}>
+                <span className={`grid h-11 w-11 place-items-center rounded-xl border border-gold/35 bg-gold/12 ${TXT_GOLD} transition group-hover:bg-gold/22`}>
                   <Icon className="h-5 w-5" />
                 </span>
                 <span className={BADGE + " tabular-nums"}>{category.count}</span>
@@ -383,27 +383,27 @@ function CardMenu({ procedure, actions }: { procedure: ProcedureListItem; action
         aria-label="Ações do procedimento"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="grid h-7 w-7 place-items-center rounded-md border border-[#C6A24A]/30 bg-black/40 text-[#D7CDBA] transition hover:border-[#D6AA3A]/55 hover:text-white"
+        className="grid h-7 w-7 place-items-center rounded-md border border-gold/30 bg-black/40 text-parchment transition hover:border-gold/55 hover:text-white"
       >
         <MoreVertical className="h-4 w-4" />
       </button>
       {open ? (
         <>
           <button type="button" aria-hidden tabIndex={-1} className="fixed inset-0 z-10 cursor-default" onClick={() => setOpen(false)} />
-          <div role="menu" className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-lg border border-[#C6A24A]/30 bg-[#15130E] shadow-[0_16px_40px_rgba(0,0,0,0.5)]">
+          <div role="menu" className="absolute right-0 z-20 mt-1 w-36 overflow-hidden rounded-lg border border-gold/30 bg-ink-raised shadow-[0_16px_40px_rgba(0,0,0,0.5)]">
             <button
               type="button"
               role="menuitem"
               onClick={() => { setOpen(false); actions.onEdit(procedure); }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] font-semibold text-[#D7CDBA] transition hover:bg-[#1F1B13] hover:text-white"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] font-semibold text-parchment transition hover:bg-ink-hover hover:text-white"
             >
-              <Pencil className="h-3.5 w-3.5 text-[#D6AA3A]" /> Editar
+              <Pencil className="h-3.5 w-3.5 text-gold" /> Editar
             </button>
             <button
               type="button"
               role="menuitem"
               onClick={() => { setOpen(false); actions.onDelete(procedure); }}
-              className="flex w-full items-center gap-2 border-t border-[#C6A24A]/15 px-3 py-2 text-left text-[12px] font-semibold text-danger transition hover:bg-danger/10"
+              className="flex w-full items-center gap-2 border-t border-gold/15 px-3 py-2 text-left text-[12px] font-semibold text-danger transition hover:bg-danger/10"
             >
               <Trash2 className="h-3.5 w-3.5" /> Excluir
             </button>
@@ -419,7 +419,7 @@ function ProcedureCard({ procedure, actions }: { procedure: ProcedureListItem; a
     <article className={`relative flex h-full flex-col p-4 ${CARD} ${CARD_HOVER}`}>
       {actions ? <CardMenu procedure={procedure} actions={actions} /> : null}
       <div className={`mb-2 flex flex-wrap items-center gap-2 ${actions ? "pr-8" : ""}`}>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 px-2.5 py-0.5 text-[11px] font-semibold text-[#F6D98B]">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-gold/35 bg-gold/12 px-2.5 py-0.5 text-[11px] font-semibold text-gold-soft">
           {procedure.categoryName}
         </span>
         <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${levelStyle(procedure.level)}`}>
@@ -443,7 +443,7 @@ function ProcedureCard({ procedure, actions }: { procedure: ProcedureListItem; a
       </dl>
       <Link
         href={detailHref(procedure.slug)}
-        className="mt-4 inline-flex h-9 items-center justify-center gap-2 self-start rounded-lg border border-[#D6AA3A]/50 bg-[#D6AA3A]/15 px-3 text-[12px] font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25"
+        className="mt-4 inline-flex h-9 items-center justify-center gap-2 self-start rounded-lg border border-gold/50 bg-gold/15 px-3 text-[12px] font-bold text-gold-soft transition hover:bg-gold/25"
       >
         <BookOpen className="h-4 w-4" /> Ver passo a passo
       </Link>
@@ -470,7 +470,7 @@ function OnboardingTrailBlock({
   const firstPending = procedures.find((procedure) => !readSet.has(procedure.id)) ?? procedures[0];
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#1B1812] to-[#0B0A08] p-5 shadow-[0_18px_45px_rgba(0,0,0,0.4)] sm:p-6">
+    <div className="relative overflow-hidden rounded-2xl border border-gold/30 bg-gradient-to-br from-ink-card-top to-ink p-5 shadow-[0_18px_45px_rgba(0,0,0,0.4)] sm:p-6">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_92%_0%,rgba(214,170,58,0.12),transparent_20rem)]" />
       <div className="relative z-10">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -482,7 +482,7 @@ function OnboardingTrailBlock({
           />
           <Link
             href={detailHref(firstPending.slug)}
-            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-[#D6AA3A]/60 bg-[#D6AA3A]/15 px-4 text-sm font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-gold/60 bg-gold/15 px-4 text-sm font-bold text-gold-soft transition hover:bg-gold/25"
           >
             <Route className="h-4 w-4" /> {progress.completed > 0 ? "Continuar trilha" : "Iniciar trilha"}
           </Link>
@@ -495,7 +495,7 @@ function OnboardingTrailBlock({
             <span className={TXT_GOLD}>{progress.percent}%</span>
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-black/60">
-            <div className="h-full rounded-full bg-[#D6AA3A] transition-all" style={{ width: `${progress.percent}%` }} />
+            <div className="h-full rounded-full bg-gold transition-all" style={{ width: `${progress.percent}%` }} />
           </div>
         </div>
 
@@ -506,17 +506,17 @@ function OnboardingTrailBlock({
               <li key={procedure.id}>
                 <Link
                   href={detailHref(procedure.slug)}
-                  className="group flex w-full items-center gap-3 rounded-xl border border-[#C6A24A]/20 bg-[#15130E] px-4 py-3 text-left transition hover:border-[#D6AA3A]/55 hover:bg-[#1F1B13]"
+                  className="group flex w-full items-center gap-3 rounded-xl border border-gold/20 bg-ink-raised px-4 py-3 text-left transition hover:border-gold/55 hover:bg-ink-hover"
                 >
                   <span
                     className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border font-serif text-sm font-bold ${
-                      done ? "border-[#3f8f6b]/55 bg-[#3f8f6b]/20 text-[#9be3c1]" : "border-[#D6AA3A]/45 bg-[#D6AA3A]/12 text-[#F6D98B]"
+                      done ? "border-success/55 bg-success/20 text-success-soft" : "border-gold/45 bg-gold/12 text-gold-soft"
                     }`}
                   >
                     {done ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
                   </span>
                   <span className={`flex-1 text-sm font-semibold ${TXT_TITLE}`}>{procedure.title}</span>
-                  {done ? <span className="text-[11px] font-semibold uppercase tracking-wide text-[#9be3c1]">Lido</span> : null}
+                  {done ? <span className="text-[11px] font-semibold uppercase tracking-wide text-success-soft">Lido</span> : null}
                   <ArrowRight className={`h-4 w-4 ${TXT_GOLD} opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100`} />
                 </Link>
               </li>
@@ -548,7 +548,7 @@ function SearchResults({ results, query, onClear, actions }: { results: Procedur
 
       {results.length === 0 ? (
         <div className={`p-10 text-center ${CARD}`}>
-          <span className={`mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full border border-[#D6AA3A]/35 bg-[#D6AA3A]/12 ${TXT_GOLD}`}>
+          <span className={`mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full border border-gold/35 bg-gold/12 ${TXT_GOLD}`}>
             <Gauge className="h-6 w-6" />
           </span>
           <p className={`text-base font-semibold ${TXT_TITLE}`}>Nenhum procedimento encontrado para sua busca.</p>
@@ -574,7 +574,7 @@ function SearchResults({ results, query, onClear, actions }: { results: Procedur
 function SectionTitle({ icon, title, subtitle, flush = false }: { icon: React.ReactNode; title: string; subtitle?: string; flush?: boolean }) {
   return (
     <div className={flush ? "" : "mb-3"}>
-      <h2 className="flex items-center gap-2 font-serif text-2xl font-semibold text-[#F8F3E7]">
+      <h2 className="flex items-center gap-2 font-serif text-2xl font-semibold text-surface">
         <span className={TXT_GOLD}>{icon}</span>
         {title}
       </h2>

@@ -35,7 +35,7 @@ export function ProcedureTabs({ passoAPasso, videoaula, materiais, videoCount = 
       <div
         role="tablist"
         aria-label="Seções do procedimento"
-        className="flex flex-wrap gap-1.5 rounded-2xl border border-[#C6A24A]/25 bg-[#11100C]/70 p-1.5"
+        className="flex flex-wrap gap-1.5 rounded-2xl border border-gold/25 bg-ink-card/70 p-1.5"
       >
         {TABS.map(({ key, label, icon: Icon }) => {
           const isActive = active === key;
@@ -49,14 +49,14 @@ export function ProcedureTabs({ passoAPasso, videoaula, materiais, videoCount = 
               onClick={() => setActive(key)}
               className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold transition sm:flex-none ${
                 isActive
-                  ? "border border-[#D6AA3A]/55 bg-[#D6AA3A]/15 text-[#F6D98B] shadow-[0_6px_18px_rgba(0,0,0,0.25)]"
-                  : "border border-transparent text-[#B8AD9A] hover:text-white"
+                  ? "border border-gold/55 bg-gold/15 text-gold-soft shadow-[0_6px_18px_rgba(0,0,0,0.25)]"
+                  : "border border-transparent text-parchment-dim hover:text-white"
               }`}
             >
-              <Icon className={`h-4 w-4 ${isActive ? "text-[#D6AA3A]" : ""}`} />
+              <Icon className={`h-4 w-4 ${isActive ? "text-gold" : ""}`} />
               <span className="whitespace-nowrap">{label}</span>
               {count != null && count > 0 ? (
-                <span className="ml-0.5 rounded-full bg-[#D6AA3A]/20 px-1.5 text-[10px] font-bold text-[#F6D98B]">{count}</span>
+                <span className="ml-0.5 rounded-full bg-gold/20 px-1.5 text-[10px] font-bold text-gold-soft">{count}</span>
               ) : null}
             </button>
           );

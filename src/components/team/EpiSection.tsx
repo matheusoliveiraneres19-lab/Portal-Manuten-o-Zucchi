@@ -20,9 +20,9 @@ function statusBadge(status: EpiDerivedStatus, days: number) {
     return { label: `Vencido há ${Math.abs(days)} d`, cls: "bg-danger/15 text-danger border border-danger/30" };
   }
   if (status === "A_VENCER") {
-    return { label: days === 0 ? "Vence hoje" : `Vence em ${days} d`, cls: "bg-gold/20 text-[#8a6516] border border-gold/40" };
+    return { label: days === 0 ? "Vence hoje" : `Vence em ${days} d`, cls: "bg-gold/20 text-warning-strong border border-gold/40" };
   }
-  return { label: "Válido", cls: "bg-[#3f8f6b]/15 text-[#2f6e51] border border-[#3f8f6b]/30" };
+  return { label: "Válido", cls: "bg-success/15 text-success-strong border border-success/30" };
 }
 
 type FormState = { name: string; caNumber: string; caValidUntil: string; deliveredAt: string; notes: string };
@@ -115,8 +115,8 @@ export function EpiSection({
     <article className="panel rounded-lg p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <HardHat className="h-4 w-4 text-[#5a3d12]" />
-          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">EPIs</h3>
+          <HardHat className="h-4 w-4 text-gold-deep" />
+          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">EPIs</h3>
         </div>
         {canManage ? (
           <button

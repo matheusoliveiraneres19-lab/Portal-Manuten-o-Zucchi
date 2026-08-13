@@ -21,6 +21,7 @@ import { goodsGroupsToRank } from "@/components/purchases/PurchaseInsightCharts"
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import { formatCurrency } from "@/utils/formatters";
 import type { CompletedPurchasesPageData } from "@/types/purchases";
+import { CHART_SERIES } from "@/constants/theme";
 
 const PurchaseMonthlyCountChart = dynamic(
   () => import("@/components/purchases/PurchaseInsightCharts").then((m) => m.PurchaseMonthlyCountChart),
@@ -110,7 +111,7 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
 
   return (
     <section className={`space-y-4 text-champagne transition ${isPending || isRefreshing ? "opacity-70" : ""}`}>
-      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-6">
+      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-5 shadow-premium sm:p-6">
         <div className="login-marble-bg absolute inset-0 opacity-80" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78),rgba(0,0,0,0.44)),radial-gradient(circle_at_88%_8%,rgba(196,154,69,0.15),transparent_22rem)]" />
         <div className="relative z-10">
@@ -168,19 +169,19 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
               className="xl:col-span-6"
               title="Recebidos por mês"
               subtitle="Itens recebidos pela data de recebimento."
-              color="#4ade80"
+              color={CHART_SERIES.producao}
               points={data.receivedByMonth}
             />
             <PurchaseRankBarChart
               className="xl:col-span-6"
               title="Recebidos por grupo de mercadoria"
-              color="#0f4d68"
+              color={CHART_SERIES.ordens}
               items={goodsGroupsToRank(data.receivedByGoodsGroup)}
             />
             <PurchaseRankBarChart
               className="xl:col-span-6"
               title="Regularização Y04 por grupo de mercadoria"
-              color="#c084fc"
+              color={CHART_SERIES.automacao}
               items={goodsGroupsToRank(data.regularizationByGoodsGroup)}
             />
             <PurchaseProcessTimeChart className="xl:col-span-6" times={data.processTimes} />

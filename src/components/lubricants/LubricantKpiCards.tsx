@@ -16,7 +16,7 @@ const toneClass: Record<Tone, string> = {
   blue: "bg-petroleum text-white",
   gold: "bg-gold text-white",
   red: "bg-danger text-white",
-  green: "bg-[#3f8f6b] text-white"
+  green: "bg-success text-white"
 };
 
 export function LubricantKpiCards({ kpis, reference }: LubricantKpiCardsProps) {

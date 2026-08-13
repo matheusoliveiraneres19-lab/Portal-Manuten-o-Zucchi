@@ -97,7 +97,7 @@ export function CollaboratorFormModal({ open, initial, onClose, onSaved }: Colla
           onClick={onClose}
         >
           <m.div
-            className="w-full max-w-lg overflow-hidden rounded-lg border border-gold/25 bg-[#0a0b0b] shadow-premium"
+            className="w-full max-w-lg overflow-hidden rounded-lg border border-gold/25 bg-ink shadow-premium"
             initial={{ opacity: 0, y: 14, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 14, scale: 0.98 }}
@@ -134,7 +134,7 @@ export function CollaboratorFormModal({ open, initial, onClose, onSaved }: Colla
                   <label className={labelClass}>Área</label>
                   <select className={inputClass} value={form.area} disabled={saving} onChange={(e) => update("area", e.target.value as CollaboratorArea)}>
                     {(Object.keys(AREA_LABELS) as CollaboratorArea[]).map((area) => (
-                      <option key={area} value={area} className="bg-[#0a0b0b]">{AREA_LABELS[area]}</option>
+                      <option key={area} value={area} className="bg-ink">{AREA_LABELS[area]}</option>
                     ))}
                   </select>
                 </div>
@@ -155,7 +155,7 @@ export function CollaboratorFormModal({ open, initial, onClose, onSaved }: Colla
                     <label className={labelClass}>Status</label>
                     <select className={inputClass} value={form.status} disabled={saving} onChange={(e) => update("status", e.target.value as CollaboratorStatus)}>
                       {(Object.keys(STATUS_LABELS) as CollaboratorStatus[]).map((status) => (
-                        <option key={status} value={status} className="bg-[#0a0b0b]">{STATUS_LABELS[status]}</option>
+                        <option key={status} value={status} className="bg-ink">{STATUS_LABELS[status]}</option>
                       ))}
                     </select>
                   </div>

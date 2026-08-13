@@ -40,6 +40,7 @@ import {
   isProgrammedPreventiveOrder
 } from "@/utils/service-order-classification";
 import { toInputDate } from "@/utils/period";
+import { CHART_SERIES } from "@/constants/theme";
 
 /**
  * Período padrão quando não há dados no banco: mês atual → hoje (dinâmico).
@@ -623,8 +624,8 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       fechadas: item.fechadas
     })),
     correctivePreventive: [
-      { name: "Corretiva", value: data.correctivePreventiveChart.corrective, color: "#b51f32" },
-      { name: "Preventiva", value: data.correctivePreventiveChart.preventive, color: "#2f6384" }
+      { name: "Corretiva", value: data.correctivePreventiveChart.corrective, color: CHART_SERIES.corretiva },
+      { name: "Preventiva", value: data.correctivePreventiveChart.preventive, color: CHART_SERIES.preventiva }
     ],
     criticalEquipment: data.topCriticalEquipments.map((item) => ({
       name: item.equipmentName,

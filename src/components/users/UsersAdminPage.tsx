@@ -211,7 +211,7 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
   return (
     <section className="space-y-4 text-champagne">
       {/* Hero */}
-      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#070808] p-5 shadow-premium sm:p-6">
+      <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-5 shadow-premium sm:p-6">
         <div className="login-marble-bg absolute inset-0 opacity-80" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.78),rgba(0,0,0,0.44)),radial-gradient(circle_at_88%_8%,rgba(196,154,69,0.15),transparent_22rem)]" />
         <div className="relative z-10">
@@ -231,7 +231,7 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
         {/* Form de criação */}
         <article className="panel rounded-lg p-5 xl:col-span-5">
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-extrabold uppercase tracking-wide text-[#5a3d12]">
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-extrabold uppercase tracking-wide text-gold-deep">
             <UserPlus className="h-4 w-4" /> Novo usuário
           </h2>
 
@@ -284,7 +284,7 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
             </Field>
 
             <label className="flex items-center gap-2 pt-1 text-sm text-zinc-700">
-              <input type="checkbox" checked={requireChange} onChange={(e) => setRequireChange(e.target.checked)} className="h-4 w-4 accent-[#c49a45]" disabled={submitting} />
+              <input type="checkbox" checked={requireChange} onChange={(e) => setRequireChange(e.target.checked)} className="h-4 w-4 accent-gold" disabled={submitting} />
               Exigir troca de senha no primeiro acesso
             </label>
 
@@ -295,7 +295,7 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
             <button
               type="submit"
               disabled={submitting}
-              className="mt-1 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-gold/55 bg-[linear-gradient(180deg,#f5d48a,#d49c45_55%,#b77b2c)] text-sm font-bold text-[#11100d] transition hover:brightness-110 disabled:opacity-70"
+              className="mt-1 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-gold/55 bg-[linear-gradient(180deg,#f5d48a,#d49c45_55%,#b77b2c)] text-sm font-bold text-ink-card transition hover:brightness-110 disabled:opacity-70"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
               {submitting ? "Criando..." : "Criar usuário"}
@@ -303,7 +303,7 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
           </form>
 
           {created ? (
-            <div className="mt-4 rounded-lg border border-[#3f8f6b]/40 bg-[#3f8f6b]/10 p-3 text-sm text-[#2f6e51]">
+            <div className="mt-4 rounded-lg border border-success/40 bg-success/10 p-3 text-sm text-success-strong">
               <div className="mb-1 flex items-center gap-2 font-semibold">
                 <CheckCircle2 className="h-4 w-4" /> Usuário criado — entregue as credenciais com segurança
               </div>
@@ -312,7 +312,7 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
                 <br />
                 Senha temporária: <strong>{created.password}</strong>
               </p>
-              <button onClick={copyCredentials} className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-[#3f8f6b]/40 px-2.5 py-1 text-xs font-semibold transition hover:bg-[#3f8f6b]/15">
+              <button onClick={copyCredentials} className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-success/40 px-2.5 py-1 text-xs font-semibold transition hover:bg-success/15">
                 <Copy className="h-3.5 w-3.5" /> Copiar credenciais
               </button>
             </div>
@@ -321,16 +321,16 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
 
         {/* Tabela de usuários */}
         <article className="panel rounded-lg p-5 xl:col-span-7">
-          <h2 className="mb-3 flex items-center justify-between text-sm font-extrabold uppercase tracking-wide text-[#5a3d12]">
+          <h2 className="mb-3 flex items-center justify-between text-sm font-extrabold uppercase tracking-wide text-gold-deep">
             <span>Usuários cadastrados ({users.length})</span>
             {isPending ? <Loader2 className="h-4 w-4 animate-spin text-gold" /> : null}
           </h2>
 
           {resetInfo ? (
-            <div className="mb-3 rounded-lg border border-[#3f8f6b]/40 bg-[#3f8f6b]/10 p-3 text-sm text-[#2f6e51]">
+            <div className="mb-3 rounded-lg border border-success/40 bg-success/10 p-3 text-sm text-success-strong">
               <div className="mb-1 flex items-center justify-between font-semibold">
                 <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> Nova senha temporária gerada</span>
-                <button onClick={() => setResetInfo(null)} className="text-[#2f6e51]/70 hover:text-[#2f6e51]" aria-label="Fechar">
+                <button onClick={() => setResetInfo(null)} className="text-success-strong/70 hover:text-success-strong" aria-label="Fechar">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -339,7 +339,7 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
               </p>
               <button
                 onClick={async () => { try { await navigator.clipboard.writeText(`Login: ${resetInfo.login}\nSenha temporária: ${resetInfo.password}`); toast.success("Credenciais copiadas."); } catch { toast.error("Não foi possível copiar."); } }}
-                className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-[#3f8f6b]/40 px-2.5 py-1 text-xs font-semibold transition hover:bg-[#3f8f6b]/15"
+                className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-success/40 px-2.5 py-1 text-xs font-semibold transition hover:bg-success/15"
               >
                 <Copy className="h-3.5 w-3.5" /> Copiar credenciais
               </button>
@@ -372,13 +372,13 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
                         </td>
                         <td className="px-2 py-2">{ROLE_LABEL[user.role] ?? user.role}</td>
                         <td className="px-2 py-2">
-                          <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold ${user.status === "ATIVO" ? "bg-[#3f8f6b]/15 text-[#2f6e51]" : "bg-zinc-200 text-zinc-600"}`}>
+                          <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold ${user.status === "ATIVO" ? "bg-success/15 text-success-strong" : "bg-zinc-200 text-zinc-600"}`}>
                             {user.status === "ATIVO" ? "Ativo" : "Inativo"}
                           </span>
                         </td>
                         <td className="px-2 py-2">
                           {user.mustChangePassword ? (
-                            <span className="inline-flex items-center gap-1 rounded-md bg-gold/15 px-2 py-0.5 text-xs font-bold text-[#7a5a16]">
+                            <span className="inline-flex items-center gap-1 rounded-md bg-gold/15 px-2 py-0.5 text-xs font-bold text-gold-deep">
                               <ShieldAlert className="h-3 w-3" /> Trocar senha
                             </span>
                           ) : (
@@ -399,7 +399,7 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
                               disabled={busy}
                               onClick={() => resetPassword(user)}
                               title="Gerar nova senha temporária"
-                              className="inline-flex items-center gap-1 rounded-md border border-gold/30 px-2 py-1 text-[11px] font-semibold text-[#7a5a16] transition hover:bg-gold/10 disabled:opacity-50"
+                              className="inline-flex items-center gap-1 rounded-md border border-gold/30 px-2 py-1 text-[11px] font-semibold text-gold-deep transition hover:bg-gold/10 disabled:opacity-50"
                             >
                               {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <KeyRound className="h-3 w-3" />} Resetar senha
                             </button>
@@ -408,7 +408,7 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
                                 disabled={busy}
                                 onClick={() => patchUser(user.id, { mustChangePassword: true }, "Troca de senha exigida no próximo acesso.")}
                                 title="Forçar troca de senha no próximo acesso"
-                                className="inline-flex items-center gap-1 rounded-md border border-gold/30 px-2 py-1 text-[11px] font-semibold text-[#7a5a16] transition hover:bg-gold/10 disabled:opacity-50"
+                                className="inline-flex items-center gap-1 rounded-md border border-gold/30 px-2 py-1 text-[11px] font-semibold text-gold-deep transition hover:bg-gold/10 disabled:opacity-50"
                               >
                                 <RefreshCw className="h-3 w-3" /> Forçar troca
                               </button>
@@ -440,7 +440,7 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
         <div className="fixed inset-0 z-[90] grid place-items-center bg-black/60 p-4" onMouseDown={() => setEditing(null)}>
           <div className="panel w-full max-w-md rounded-lg p-5" onMouseDown={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-sm font-extrabold uppercase tracking-wide text-[#5a3d12]">
+              <h3 className="flex items-center gap-2 text-sm font-extrabold uppercase tracking-wide text-gold-deep">
                 <Pencil className="h-4 w-4" /> Editar usuário
               </h3>
               <button onClick={() => setEditing(null)} className="text-zinc-500 hover:text-zinc-800" aria-label="Fechar">
@@ -474,7 +474,7 @@ export function UsersAdminPage({ users, currentLogin }: UsersAdminPageProps) {
                 <button type="button" onClick={() => setEditing(null)} disabled={editSaving} className="inline-flex h-10 items-center rounded-lg border border-zinc-300 px-4 text-sm font-semibold text-zinc-600 transition hover:bg-zinc-100 disabled:opacity-60">
                   Cancelar
                 </button>
-                <button type="submit" disabled={editSaving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/55 bg-[linear-gradient(180deg,#f5d48a,#d49c45_55%,#b77b2c)] px-4 text-sm font-bold text-[#11100d] transition hover:brightness-110 disabled:opacity-70">
+                <button type="submit" disabled={editSaving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/55 bg-[linear-gradient(180deg,#f5d48a,#d49c45_55%,#b77b2c)] px-4 text-sm font-bold text-ink-card transition hover:brightness-110 disabled:opacity-70">
                   {editSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   Salvar
                 </button>

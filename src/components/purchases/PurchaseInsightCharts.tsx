@@ -3,13 +3,14 @@
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
 import type { PurchaseClassificationSlice, PurchaseGroupCount, PurchaseMonthlyPoint, PurchaseRequesterCount, PurchaseStatusSlice, PurchaseSupplierSlice } from "@/types/purchases";
+import { CHART_CHROME, CHART_SERIES, GOLD } from "@/constants/theme";
 
 type CardProps = { title: string; subtitle?: string; className?: string };
 
 function ChartCard({ title, subtitle, className = "", children }: CardProps & { children: React.ReactNode }) {
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">{title}</h3>
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">{title}</h3>
       {subtitle ? <p className="mb-3 text-[11px] text-zinc-500">{subtitle}</p> : <div className="mb-3" />}
       {children}
     </article>
@@ -23,7 +24,7 @@ function truncate(value: string): string {
 /** Contagem por mês (barras verticais). */
 export function PurchaseMonthlyCountChart({
   points,
-  color = "#c49a45",
+  color = CHART_SERIES.compras,
   ...card
 }: CardProps & { points: PurchaseMonthlyPoint[]; color?: string }) {
   return (
@@ -34,7 +35,7 @@ export function PurchaseMonthlyCountChart({
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={points} margin={{ left: 8, right: 12, top: 8, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_CHROME.onLight.grid} vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11 }} />
               <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
               <Tooltip formatter={(value: number) => [`${value.toLocaleString("pt-BR")} item(ns)`, "Qtd"]} cursor={{ fill: "rgba(196,154,69,0.08)" }} />
@@ -52,7 +53,7 @@ type RankItem = { label: string; count: number; color?: string };
 /** Ranking horizontal por contagem (fornecedores, grupos, requisitantes). */
 export function PurchaseRankBarChart({
   items,
-  color = "#7b551f",
+  color = GOLD.deep,
   emptyDescription = "Nenhum registro no intervalo.",
   ...card
 }: CardProps & { items: RankItem[]; color?: string; emptyDescription?: string }) {

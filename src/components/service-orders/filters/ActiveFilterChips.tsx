@@ -20,7 +20,7 @@ type ActiveFilterChipsProps = {
 
 export function ActiveFilterChips({ chips, onClearAll }: ActiveFilterChipsProps) {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gold/15 bg-[#080909] p-3 shadow-premium">
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gold/15 bg-ink p-3 shadow-premium">
       <span className="inline-flex items-center gap-2 rounded-md border border-gold/25 bg-gold/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-gold">
         Filtros ativos: {chips.length}
       </span>

@@ -4,6 +4,7 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { EmptyState } from "@/components/EmptyState";
 import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryProductionLineRow } from "@/types/pc-factory";
+import { CHART_CHROME } from "@/constants/theme";
 
 type PcFactoryCompositionChartProps = {
   rows: PcFactoryProductionLineRow[];
@@ -25,7 +26,7 @@ export function PcFactoryCompositionChart({ rows, className = "" }: PcFactoryCom
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Tempo planejado: produção × manutenção × perdas</h3>
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Tempo planejado: produção × manutenção × perdas</h3>
       <p className="mb-3 text-[11px] text-zinc-500">Composição do tempo planejado por linha de produção (horas).</p>
 
       {data.length === 0 ? (
@@ -34,7 +35,7 @@ export function PcFactoryCompositionChart({ rows, className = "" }: PcFactoryCom
         <div className="h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data} margin={{ left: 0, right: 12, top: 12, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_CHROME.onLight.grid} vertical={false} />
               <XAxis dataKey="line" tick={{ fontSize: 11 }} tickFormatter={truncate} interval={0} angle={-12} textAnchor="end" height={50} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${v}h`} />
               <Tooltip formatter={(value: number, name) => [`${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h`, name]} />

@@ -16,6 +16,7 @@ import {
   YAxis
 } from "recharts";
 import type { TooltipProps } from "recharts";
+import { CHART_CHROME, CHART_SERIES, GOLD } from "@/constants/theme";
 import type {
   PreventiveAreaBreakdown,
   PreventiveMachineRow,
@@ -26,15 +27,15 @@ import type {
 
 const nf = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
 
-const AXIS_TICK = { fontSize: 11, fill: "#a1a1aa" };
+const AXIS_TICK = { fontSize: 11, fill: CHART_CHROME.onDark.axis };
 const GRID_STROKE = "rgba(196,154,69,0.12)";
 
 const COLORS = {
-  total: "#c49a45",
-  realizadas: "#10b981",
-  naoRealizadas: "#dc2626",
-  horas: "#38bdf8",
-  area: "#c49a45"
+  total: GOLD.DEFAULT,
+  realizadas: CHART_SERIES.producao,
+  naoRealizadas: CHART_SERIES.corretiva,
+  horas: CHART_SERIES.preventiva,
+  area: GOLD.DEFAULT
 };
 
 function DarkEmpty({ message }: { message: string }) {
@@ -48,7 +49,7 @@ function DarkEmpty({ message }: { message: string }) {
 function DarkTooltip({ active, payload, label }: TooltipProps<number, string>) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-md border border-gold/30 bg-[#0a0b0b]/95 px-3 py-2 text-xs text-zinc-100 shadow-lg">
+    <div className="rounded-md border border-gold/30 bg-ink/95 px-3 py-2 text-xs text-zinc-100 shadow-lg">
       {label ? <p className="mb-1 font-semibold text-champagne">{label}</p> : null}
       {payload.map((entry) => (
         <p key={String(entry.dataKey)} className="flex items-center gap-1.5">
@@ -60,7 +61,7 @@ function DarkTooltip({ active, payload, label }: TooltipProps<number, string>) {
   );
 }
 
-const legendStyle = { fontSize: 11, color: "#a1a1aa" };
+const legendStyle = { fontSize: 11, color: CHART_CHROME.onDark.axis };
 
 // 1 — PL × PV (quantidades + horas)
 export function PlPvChart({ data }: { data: PreventiveTypeBreakdown[] }) {
@@ -199,7 +200,7 @@ export function TopMachinesChart({ data }: { data: PreventiveMachineRow[] }) {
           type="category"
           dataKey="name"
           width={150}
-          tick={{ fontSize: 10, fill: "#d4d4d8" }}
+          tick={{ fontSize: 10, fill: CHART_CHROME.onDark.label }}
           axisLine={false}
           tickLine={false}
           tickFormatter={(v: string) => (v.length > 22 ? `${v.slice(0, 21)}…` : v)}

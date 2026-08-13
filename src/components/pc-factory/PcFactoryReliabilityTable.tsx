@@ -34,7 +34,7 @@ export function PcFactoryReliabilityTable({ rows, className = "", onSelect }: Pc
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Confiabilidade por máquina</h3>
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Confiabilidade por máquina</h3>
       <p className="mb-3 text-[11px] text-zinc-500">
         Quebras, MTBF (tempo médio entre falhas), MTTR (reparo), MTTA (aguardando) e disponibilidade. Base: Tempo
         Decorrido. Passe o mouse nos títulos para ver as fórmulas. Clique para detalhar.
@@ -108,7 +108,7 @@ function formatPercent(value: number | null): string {
 /** Verde ≥ 90%, âmbar 70-90%, vermelho < 70% (metas usuais de disponibilidade). */
 function availabilityClass(value: number | null): string {
   if (value === null) return "bg-zinc-200 text-zinc-600";
-  if (value >= 90) return "bg-[#3f8f6b]/15 text-[#2f6e51]";
-  if (value >= 70) return "bg-gold/20 text-[#7a5a16]";
+  if (value >= 90) return "bg-success/15 text-success-strong";
+  if (value >= 70) return "bg-gold/20 text-gold-deep";
   return "bg-danger/15 text-danger";
 }

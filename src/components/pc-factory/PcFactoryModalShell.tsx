@@ -44,9 +44,9 @@ export function PcFactoryModalShell({ open, title, subtitle, onClose, children }
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.22, ease: [0.22, 0.61, 0.36, 1] }}
-            className="relative z-10 w-full max-w-lg overflow-hidden rounded-xl border border-gold/25 bg-[#0a0b0b] text-champagne shadow-[0_24px_70px_rgba(0,0,0,0.6)]"
+            className="relative z-10 w-full max-w-lg overflow-hidden rounded-xl border border-gold/25 bg-ink text-champagne shadow-[0_24px_70px_rgba(0,0,0,0.6)]"
           >
-            <div className="flex items-start justify-between gap-3 border-b border-gold/20 bg-[#070808] px-5 py-4">
+            <div className="flex items-start justify-between gap-3 border-b border-gold/20 bg-ink px-5 py-4">
               <div className="min-w-0">
                 <h2 className="font-serif text-lg text-white">{title}</h2>
                 {subtitle ? <p className="mt-0.5 text-xs text-zinc-400">{subtitle}</p> : null}

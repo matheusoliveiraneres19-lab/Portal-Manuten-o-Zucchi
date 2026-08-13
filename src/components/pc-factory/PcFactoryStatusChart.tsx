@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
 import type { PcFactoryStatusSlice } from "@/types/pc-factory";
+import { CHART_CHROME, CHART_SERIES } from "@/constants/theme";
 
 type PcFactoryStatusChartProps = {
   slices: PcFactoryStatusSlice[];
@@ -12,7 +13,7 @@ type PcFactoryStatusChartProps = {
   topN?: number;
 };
 
-const OUTROS_COLOR = "#9CA3AF";
+const OUTROS_COLOR = CHART_SERIES.outros;
 
 const fmtHours = (h: number) => `${h.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h`;
 const fmtPercent = (p: number) =>
@@ -58,7 +59,7 @@ export function PcFactoryStatusChart({ slices, className = "", topN = 12 }: PcFa
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Distribuição de horas por classificação</h3>
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Distribuição de horas por classificação</h3>
       <p className="mb-3 text-[11px] text-zinc-500">Status reais da planilha importada — horas (Tempo Decorrido) e participação.</p>
 
       {data.length === 0 ? (
@@ -90,7 +91,7 @@ export function PcFactoryStatusChart({ slices, className = "", topN = 12 }: PcFa
                   ]}
                 />
                 <Legend
-                  formatter={(value) => <span style={{ fontSize: 11, color: "#52525b" }}>{value}</span>}
+                  formatter={(value) => <span style={{ fontSize: 11, color: CHART_CHROME.onLight.axis }}>{value}</span>}
                   iconType="circle"
                   wrapperStyle={{ fontSize: 11 }}
                 />

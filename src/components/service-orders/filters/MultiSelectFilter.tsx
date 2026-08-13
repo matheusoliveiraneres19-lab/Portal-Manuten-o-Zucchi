@@ -83,7 +83,7 @@ export function MultiSelectFilter({
       {open ? (
         <div
           role="listbox"
-          className="absolute z-50 mt-1.5 max-h-72 w-full min-w-[220px] overflow-hidden rounded-lg border border-gold/25 bg-[#0a0b0b]/98 shadow-[0_18px_44px_rgba(0,0,0,0.55)] backdrop-blur"
+          className="absolute z-50 mt-1.5 max-h-72 w-full min-w-[220px] overflow-hidden rounded-lg border border-gold/25 bg-ink/98 shadow-[0_18px_44px_rgba(0,0,0,0.55)] backdrop-blur"
         >
           {searchable && options.length > 6 ? (
             <div className="border-b border-gold/10 p-2">

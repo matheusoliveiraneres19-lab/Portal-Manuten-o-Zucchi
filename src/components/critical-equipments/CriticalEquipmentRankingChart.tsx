@@ -4,6 +4,7 @@ import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YA
 import { EmptyState } from "@/components/EmptyState";
 import { CRITICALITY_COLORS } from "@/components/critical-equipments/criticality";
 import type { CriticalEquipmentItem } from "@/types/critical-equipments";
+import { INK } from "@/constants/theme";
 
 type CriticalEquipmentRankingChartProps = {
   items: CriticalEquipmentItem[];
@@ -32,7 +33,7 @@ export function CriticalEquipmentRankingChart({ items, selectedId, onSelect }: C
   return (
     <article className="panel rounded-lg p-4 xl:col-span-7">
       <div className="mb-1 flex items-center justify-between gap-3">
-        <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">
+        <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
           Equipamentos com maior volume de ordens
         </h3>
         <Legend />
@@ -76,7 +77,7 @@ export function CriticalEquipmentRankingChart({ items, selectedId, onSelect }: C
                   <Cell
                     key={entry.name}
                     fill={entry.color}
-                    stroke={selectedId === entry.id ? "#0a0b0b" : undefined}
+                    stroke={selectedId === entry.id ? INK.DEFAULT : undefined}
                     strokeWidth={selectedId === entry.id ? 2 : 0}
                     fillOpacity={selectedId && selectedId !== entry.id ? 0.55 : 1}
                   />

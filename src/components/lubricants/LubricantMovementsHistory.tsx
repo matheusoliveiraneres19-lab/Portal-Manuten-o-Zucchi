@@ -92,7 +92,7 @@ export function LubricantMovementsHistory({ initial, filters }: LubricantMovemen
   return (
     <article className="panel overflow-hidden rounded-lg">
       <div className="flex flex-col gap-2 border-b border-[#3e311d1f] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">
+        <div className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
           <History className="h-4 w-4" />
           Histórico de movimentações
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-gold" /> : null}
@@ -115,7 +115,7 @@ export function LubricantMovementsHistory({ initial, filters }: LubricantMovemen
 
       <div className="max-h-[560px] overflow-auto">
         <table className="w-full min-w-[920px] border-collapse text-left text-xs">
-          <thead className="sticky top-0 z-10 bg-[#efe7d6] text-[10px] uppercase tracking-wide text-[#5a3d12]">
+          <thead className="sticky top-0 z-10 bg-surface text-[10px] uppercase tracking-wide text-gold-deep">
             <tr>
               <Th>Data</Th>
               <Th>Hora</Th>
@@ -212,7 +212,7 @@ function PageButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="grid h-8 w-8 place-items-center rounded-md border border-zinc-300 text-zinc-600 transition hover:border-gold hover:text-[#5a3d12] disabled:cursor-not-allowed disabled:opacity-40"
+      className="grid h-8 w-8 place-items-center rounded-md border border-zinc-300 text-zinc-600 transition hover:border-gold hover:text-gold-deep disabled:cursor-not-allowed disabled:opacity-40"
     >
       {children}
     </button>

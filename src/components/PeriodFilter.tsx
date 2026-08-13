@@ -79,7 +79,7 @@ export function PeriodFilter({ defaultStartDate, defaultEndDate }: PeriodFilterP
         <div
           role="dialog"
           aria-label="Selecionar período"
-          className="absolute right-0 z-40 mt-2 w-[320px] rounded-lg border border-gold/25 bg-[#0a0b0b]/98 p-4 shadow-[0_18px_44px_rgba(0,0,0,0.55)] backdrop-blur"
+          className="absolute right-0 z-40 mt-2 w-[320px] rounded-lg border border-gold/25 bg-ink/98 p-4 shadow-[0_18px_44px_rgba(0,0,0,0.55)] backdrop-blur"
         >
           <p className="mb-3 text-[11px] font-bold uppercase tracking-[0.22em] text-gold">Filtrar por período</p>
 

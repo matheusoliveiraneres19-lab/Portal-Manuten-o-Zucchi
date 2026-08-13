@@ -17,7 +17,7 @@ export function Header({ defaultStartDate, defaultEndDate }: HeaderProps) {
   const today = formatDatePtBr(getTodayDate());
 
   return (
-    <header className="sticky top-0 z-30 border-b border-gold/20 bg-[#070808]/95 px-4 py-3 text-white shadow-[0_8px_24px_rgba(0,0,0,0.24)] backdrop-blur sm:px-6 lg:px-7">
+    <header className="sticky top-0 z-30 border-b border-gold/20 bg-ink/95 px-4 py-3 text-white shadow-[0_8px_24px_rgba(0,0,0,0.24)] backdrop-blur sm:px-6 lg:px-7">
       <div className="mx-auto flex max-w-[1780px] flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-3">

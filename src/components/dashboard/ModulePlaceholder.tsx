@@ -7,7 +7,7 @@ type ModulePlaceholderProps = {
 
 export function ModulePlaceholder({ title, description }: ModulePlaceholderProps) {
   return (
-    <section className="relative min-h-[calc(100vh-112px)] overflow-hidden rounded-lg border border-gold/20 bg-[#060707] shadow-premium">
+    <section className="relative min-h-[calc(100vh-112px)] overflow-hidden rounded-lg border border-gold/20 bg-ink shadow-premium">
       <div className="login-marble-bg absolute inset-0 opacity-90" />
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.72),rgba(0,0,0,0.42)),radial-gradient(circle_at_84%_12%,rgba(196,154,69,0.16),transparent_24rem)]" />
 

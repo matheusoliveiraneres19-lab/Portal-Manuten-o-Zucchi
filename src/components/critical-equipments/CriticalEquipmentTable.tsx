@@ -19,14 +19,14 @@ export function CriticalEquipmentTable({ items, onSelect }: CriticalEquipmentTab
             Ordens somadas por equipamento raiz (ramificações incluídas). Clique para o detalhe.
           </p>
         </div>
-        <span className="rounded-md border border-gold/40 bg-gold/15 px-2.5 py-1 text-[11px] font-bold text-[#7a5a16]">
+        <span className="rounded-md border border-gold/40 bg-gold/15 px-2.5 py-1 text-[11px] font-bold text-gold-deep">
           {items.length} equipamento(s)
         </span>
       </div>
 
       <div className="max-h-[60vh] overflow-auto">
         <table className="w-full min-w-[1620px] border-collapse text-left text-xs">
-          <thead className="sticky top-0 z-10 bg-[#efe7d8] text-[10px] uppercase tracking-wide text-[#5a3d12]">
+          <thead className="sticky top-0 z-10 bg-surface text-[10px] uppercase tracking-wide text-gold-deep">
             <tr className="border-b border-zinc-300">
               <th className="px-3 py-2.5 font-bold">#</th>
               <th className="px-3 py-2.5 font-bold">Equipamento raiz</th>

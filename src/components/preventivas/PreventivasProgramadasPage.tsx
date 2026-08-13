@@ -142,7 +142,7 @@ export function PreventivasProgramadasPage({ data, applied }: PreventivasProgram
   ];
 
   return (
-    <section className="relative overflow-hidden rounded-lg border border-gold/20 bg-[#060707] shadow-premium">
+    <section className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink shadow-premium">
       <div className="login-marble-bg absolute inset-0 opacity-90" />
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.72),rgba(0,0,0,0.42)),radial-gradient(circle_at_84%_12%,rgba(196,154,69,0.16),transparent_24rem)]" />
 
@@ -585,7 +585,7 @@ function SectionTable({
       ) : (
         <div className={`overflow-x-auto ${maxHeight ? "max-h-[420px] overflow-y-auto" : ""}`}>
           <table className="w-full min-w-[820px] text-left text-sm">
-            <thead className="sticky top-0 bg-[#0b0c0c]">
+            <thead className="sticky top-0 bg-ink">
               <tr className="border-b border-gold/15">
                 {columns.map((col, index) => (
                   <th key={col} className={`whitespace-nowrap px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-champagne/70 ${index === 0 ? "" : "text-right"}`}>{col}</th>

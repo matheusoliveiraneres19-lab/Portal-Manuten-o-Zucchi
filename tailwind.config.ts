@@ -18,11 +18,30 @@ const config: Config = {
     extend: {
       colors: {
         // --- Identidade Zucchi ------------------------------------------
+        /**
+         * Escala de ELEVAÇÃO do escuro (ver INK em theme.ts): página → base do
+         * card → topo do gradiente → superfície elevada → hover. Os degraus
+         * intermediários é que separam card de fundo numa tela escura.
+         */
         ink: {
           DEFAULT: "#0B0A08",
-          raised: "#15130E"
+          card: "#0E0D0A",
+          "card-top": "#1B1812",
+          raised: "#15130E",
+          hover: "#1F1B13"
         },
         graphite: "#141617",
+        /**
+         * Texto quente sobre superfície escura. Substitui os cinzas puros
+         * (zinc/gray), que brigam com a identidade de mármore.
+         *   text-surface        → título
+         *   text-parchment      → corpo
+         *   text-parchment-dim  → secundário
+         */
+        parchment: {
+          DEFAULT: "#D7CDBA",
+          dim: "#B8AD9A"
+        },
         /**
          * Dourado da marca. `DEFAULT` foi unificado no tom vivo que já
          * predominava no módulo de Procedimentos (era #c49a45, mais apagado).

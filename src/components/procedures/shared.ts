@@ -30,7 +30,7 @@ export function categoryIcon(name: string): LucideIcon {
 
 /** Cores do badge de nível (consistentes em cards, tabela e detalhe). */
 export const LEVEL_STYLES: Record<ProcedureLevel, string> = {
-  Básico: "border-[#3f8f6b]/40 bg-[#3f8f6b]/15 text-[#7fd0ab]",
+  Básico: "border-success/40 bg-success/15 text-[#7fd0ab]",
   Intermediário: "border-gold/40 bg-gold/15 text-champagne",
   Avançado: "border-danger/40 bg-danger/15 text-danger"
 };

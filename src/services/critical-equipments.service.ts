@@ -59,6 +59,7 @@ import type {
   TrendDirection
 } from "@/types/critical-equipments";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
+import { GOLD, SEMANTIC } from "@/constants/theme";
 
 const DEFAULT_LIMIT = 10;
 const NO_NAME = "EQUIPAMENTO NÃO INFORMADO";
@@ -66,12 +67,12 @@ const NO_CODE = "SEM CÓDIGO";
 const NOT_INFORMED = "Não informado";
 
 const STATUS_META: Record<ServiceOrderStatusLabel, { label: string; color: string }> = {
-  ABERTA: { label: "Aberta", color: "#c49a45" },
-  LIBERADA: { label: "Liberada", color: "#2f6384" },
-  EM_ANDAMENTO: { label: "Em andamento", color: "#3f7da6" },
-  AGUARDANDO_MATERIAL: { label: "Aguardando material", color: "#d8a657" },
-  FECHADA: { label: "Fechada", color: "#3f8f6b" },
-  CANCELADA: { label: "Cancelada", color: "#b51f32" }
+  ABERTA: { label: "Aberta", color: GOLD.DEFAULT },
+  LIBERADA: { label: "Liberada", color: SEMANTIC.petroleum.DEFAULT },
+  EM_ANDAMENTO: { label: "Em andamento", color: SEMANTIC.petroleum.on_dark },
+  AGUARDANDO_MATERIAL: { label: "Aguardando material", color: SEMANTIC.warning.DEFAULT },
+  FECHADA: { label: "Fechada", color: SEMANTIC.success.DEFAULT },
+  CANCELADA: { label: "Cancelada", color: SEMANTIC.danger.DEFAULT }
 };
 
 const STATUS_ORDER: ServiceOrderStatusLabel[] = [

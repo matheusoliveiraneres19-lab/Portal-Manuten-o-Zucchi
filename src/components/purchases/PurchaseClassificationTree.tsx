@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, Layers } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import type { PurchaseClassificationNode } from "@/types/purchases";
+import { CHART_SERIES, GOLD, SEMANTIC } from "@/constants/theme";
 
 type PurchaseClassificationTreeProps = {
   nodes: PurchaseClassificationNode[];
@@ -14,7 +15,8 @@ type PurchaseClassificationTreeProps = {
 };
 
 /** Cor por profundidade (N1 → N4), mantendo a paleta premium Zucchi. */
-const DEPTH_COLORS = ["#c49a45", "#0f4d68", "#7b551f", "#5a7d8c"];
+// Um tom por nível N1..N4 da classificação de compras.
+const DEPTH_COLORS = [CHART_SERIES.compras, CHART_SERIES.ordens, GOLD.deep, SEMANTIC.petroleum.on_dark];
 
 /**
  * Visão hierárquica "Classificação das Pendências" (TAREFA 9):
@@ -25,8 +27,8 @@ export function PurchaseClassificationTree({ nodes, total, unclassified }: Purch
   return (
     <article className="panel rounded-lg p-4">
       <div className="mb-1 flex items-center gap-2">
-        <Layers className="h-4 w-4 text-[#5a3d12]" />
-        <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">
+        <Layers className="h-4 w-4 text-gold-deep" />
+        <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
           Classificação das Pendências
         </h3>
       </div>

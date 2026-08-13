@@ -19,7 +19,7 @@ export function PcFactoryQualityPanel({ quality }: PcFactoryQualityPanelProps) {
   const hasIssues = quality.recordsWithIssue > 0;
 
   return (
-    <section className="rounded-lg border border-gold/20 bg-[#080909] p-4 shadow-premium sm:p-5">
+    <section className="rounded-lg border border-gold/20 bg-ink p-4 shadow-premium sm:p-5">
       <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-gold">
         <Database className="h-4 w-4" />
         Qualidade da importação

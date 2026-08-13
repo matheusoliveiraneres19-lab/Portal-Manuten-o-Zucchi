@@ -288,10 +288,10 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-sm">
-      <div className="my-8 w-full max-w-2xl rounded-2xl border border-[#C6A24A]/30 bg-gradient-to-br from-[#15130E] to-[#0E0D0A] shadow-[0_24px_60px_rgba(0,0,0,0.5)]">
-        <div className="flex items-center justify-between border-b border-[#C6A24A]/25 px-5 py-4">
-          <h2 className="font-serif text-xl font-semibold text-[#F8F3E7]">{isEditing ? "Editar procedimento" : "Novo procedimento"}</h2>
-          <button type="button" onClick={onClose} aria-label="Fechar" className="text-[#B8AD9A] transition hover:text-white">
+      <div className="my-8 w-full max-w-2xl rounded-2xl border border-gold/30 bg-gradient-to-br from-ink-raised to-ink-card shadow-[0_24px_60px_rgba(0,0,0,0.5)]">
+        <div className="flex items-center justify-between border-b border-gold/25 px-5 py-4">
+          <h2 className="font-serif text-xl font-semibold text-surface">{isEditing ? "Editar procedimento" : "Novo procedimento"}</h2>
+          <button type="button" onClick={onClose} aria-label="Fechar" className="text-parchment-dim transition hover:text-white">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -362,37 +362,37 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
           </Field>
 
           <div className="flex flex-wrap gap-5">
-            <label className="flex items-center gap-2 text-sm text-[#D7CDBA]">
-              <input type="checkbox" checked={form.isFeatured} onChange={(e) => update("isFeatured", e.target.checked)} className="h-4 w-4 accent-[#D6AA3A]" />
+            <label className="flex items-center gap-2 text-sm text-parchment">
+              <input type="checkbox" checked={form.isFeatured} onChange={(e) => update("isFeatured", e.target.checked)} className="h-4 w-4 accent-gold" />
               Marcar como “Mais acessado / Destaque”
             </label>
-            <label className="flex items-center gap-2 text-sm text-[#D7CDBA]">
-              <input type="checkbox" checked={form.isOnboarding} onChange={(e) => update("isOnboarding", e.target.checked)} className="h-4 w-4 accent-[#D6AA3A]" />
+            <label className="flex items-center gap-2 text-sm text-parchment">
+              <input type="checkbox" checked={form.isOnboarding} onChange={(e) => update("isOnboarding", e.target.checked)} className="h-4 w-4 accent-gold" />
               Marcar como “Funcionário Novo”
             </label>
           </div>
 
           {/* Videoaula do procedimento — salva como anexo de vídeo (arquivo ou link) */}
-          <div className="space-y-3 rounded-xl border border-[#C6A24A]/25 bg-[#11100C]/50 p-4">
+          <div className="space-y-3 rounded-xl border border-gold/25 bg-ink-card/50 p-4">
             <div className="flex items-center gap-2">
-              <PlayCircle className="h-4 w-4 text-[#D6AA3A]" />
-              <span className="text-[11px] font-bold uppercase tracking-wide text-[#D6AA3A]">Videoaula do procedimento</span>
-              {videoLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-[#8F846F]" /> : null}
+              <PlayCircle className="h-4 w-4 text-gold" />
+              <span className="text-[11px] font-bold uppercase tracking-wide text-gold">Videoaula do procedimento</span>
+              {videoLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-neutralized" /> : null}
             </div>
 
             {videoIsUploaded ? (
-              <p className="rounded-lg border border-[#C6A24A]/20 bg-black/25 px-3 py-2 text-[12px] leading-relaxed text-[#D7CDBA]">
+              <p className="rounded-lg border border-gold/20 bg-black/25 px-3 py-2 text-[12px] leading-relaxed text-parchment">
                 A videoaula atual é um <strong>arquivo enviado</strong>. Envie outro arquivo ou cole um link para substituí-la.
               </p>
             ) : null}
 
             {/* Enviar arquivo (arrastar ou clicar) */}
             {videoFile ? (
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-[#D6AA3A]/40 bg-[#D6AA3A]/10 px-3 py-2.5">
-                <span className="flex min-w-0 items-center gap-2 text-[12px] text-[#F8F3E7]">
-                  <Video className="h-4 w-4 shrink-0 text-[#D6AA3A]" />
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold/10 px-3 py-2.5">
+                <span className="flex min-w-0 items-center gap-2 text-[12px] text-surface">
+                  <Video className="h-4 w-4 shrink-0 text-gold" />
                   <span className="truncate" title={videoFile.name}>{videoFile.name}</span>
-                  <span className="shrink-0 text-[#8F846F]">({(videoFile.size / (1024 * 1024)).toFixed(1)} MB)</span>
+                  <span className="shrink-0 text-neutralized">({(videoFile.size / (1024 * 1024)).toFixed(1)} MB)</span>
                 </span>
                 <button
                   type="button"
@@ -400,7 +400,7 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
                     setVideoFile(null);
                     if (videoFileInputRef.current) videoFileInputRef.current.value = "";
                   }}
-                  className="shrink-0 text-[#B8AD9A] transition hover:text-white"
+                  className="shrink-0 text-parchment-dim transition hover:text-white"
                   aria-label="Remover arquivo selecionado"
                 >
                   <X className="h-4 w-4" />
@@ -423,12 +423,12 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
                 tabIndex={0}
                 aria-label="Enviar arquivo de vídeo"
                 className={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-6 text-center transition ${
-                  videoDragOver ? "border-[#D6AA3A] bg-[#D6AA3A]/10" : "border-[#C6A24A]/30 bg-black/30 hover:border-[#D6AA3A]/55"
+                  videoDragOver ? "border-gold bg-gold/10" : "border-gold/30 bg-black/30 hover:border-gold/55"
                 }`}
               >
-                <UploadCloud className="h-6 w-6 text-[#D6AA3A]" />
-                <p className="text-[13px] font-semibold text-[#F8F3E7]">Arraste o vídeo aqui ou clique para enviar</p>
-                <p className="text-[11px] text-[#8F846F]">Formato MP4, até {PROCEDURE_VIDEO_MAX_MB} MB. Hospedado no portal.</p>
+                <UploadCloud className="h-6 w-6 text-gold" />
+                <p className="text-[13px] font-semibold text-surface">Arraste o vídeo aqui ou clique para enviar</p>
+                <p className="text-[11px] text-neutralized">Formato MP4, até {PROCEDURE_VIDEO_MAX_MB} MB. Hospedado no portal.</p>
               </div>
             )}
             <input ref={videoFileInputRef} type="file" accept="video/mp4" onChange={(e) => handleVideoFile(e.target.files?.[0])} className="hidden" />
@@ -436,8 +436,8 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
             {/* Link externo — apenas quando nenhum arquivo foi selecionado */}
             {!videoFile ? (
               <>
-                <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wide text-[#8F846F]">
-                  <span className="h-px flex-1 bg-[#C6A24A]/20" /> ou cole um link <span className="h-px flex-1 bg-[#C6A24A]/20" />
+                <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wide text-neutralized">
+                  <span className="h-px flex-1 bg-gold/20" /> ou cole um link <span className="h-px flex-1 bg-gold/20" />
                 </div>
                 <input
                   className={inputClass}
@@ -448,7 +448,7 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
                 {videoUrl.trim() ? (
                   <span
                     className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
-                      videoKnown ? "border-[#D6AA3A]/30 bg-[#D6AA3A]/10 text-[#F6D98B]" : "border-danger/40 bg-danger/10 text-danger"
+                      videoKnown ? "border-gold/30 bg-gold/10 text-gold-soft" : "border-danger/40 bg-danger/10 text-danger"
                     }`}
                   >
                     <Video className="h-3.5 w-3.5" /> Tipo de vídeo: {videoProviderLabel(videoProvider)}
@@ -466,16 +466,16 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
               </Field>
             </div>
 
-            <p className="text-[11px] leading-relaxed text-[#8F846F]">
+            <p className="text-[11px] leading-relaxed text-neutralized">
               Envie um arquivo MP4 ou cole um link (YouTube, Google Drive, Vimeo, <code>.mp4</code>). {videoIsUploaded ? null : "Deixe ambos em branco para remover a videoaula."}
             </p>
           </div>
 
-          <div className="flex justify-end gap-2 border-t border-[#C6A24A]/25 pt-4">
-            <button type="button" onClick={onClose} className="h-10 rounded-lg border border-[#C6A24A]/30 px-4 text-sm font-semibold text-[#D7CDBA] transition hover:border-[#D6AA3A]/55 hover:text-white">
+          <div className="flex justify-end gap-2 border-t border-gold/25 pt-4">
+            <button type="button" onClick={onClose} className="h-10 rounded-lg border border-gold/30 px-4 text-sm font-semibold text-parchment transition hover:border-gold/55 hover:text-white">
               Cancelar
             </button>
-            <button type="submit" disabled={saving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#D6AA3A]/60 bg-[#D6AA3A]/15 px-4 text-sm font-bold text-[#F6D98B] transition hover:bg-[#D6AA3A]/25 disabled:opacity-60">
+            <button type="submit" disabled={saving} className="inline-flex h-10 items-center gap-2 rounded-lg border border-gold/60 bg-gold/15 px-4 text-sm font-bold text-gold-soft transition hover:bg-gold/25 disabled:opacity-60">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {saving && videoFile ? "Enviando vídeo…" : isEditing ? "Salvar alterações" : "Criar procedimento"}
             </button>
@@ -487,14 +487,14 @@ export function ProcedureForm({ open, onClose, initial, onSaved }: ProcedureForm
 }
 
 const inputClass =
-  "h-10 w-full rounded-lg border border-[#C6A24A]/30 bg-[#11100C] px-3 text-sm text-[#F8F3E7] outline-none transition placeholder:text-[#8F846F] focus:border-[#D6AA3A] focus:ring-2 focus:ring-[#D6AA3A]/20";
+  "h-10 w-full rounded-lg border border-gold/30 bg-ink-card px-3 text-sm text-surface outline-none transition placeholder:text-neutralized focus:border-gold focus:ring-2 focus:ring-gold/20";
 const textareaClass =
-  "w-full rounded-lg border border-[#C6A24A]/30 bg-[#11100C] px-3 py-2 text-sm leading-relaxed text-[#F8F3E7] outline-none transition placeholder:text-[#8F846F] focus:border-[#D6AA3A] focus:ring-2 focus:ring-[#D6AA3A]/20";
+  "w-full rounded-lg border border-gold/30 bg-ink-card px-3 py-2 text-sm leading-relaxed text-surface outline-none transition placeholder:text-neutralized focus:border-gold focus:ring-2 focus:ring-gold/20";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-[#D6AA3A]">{label}</span>
+      <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-gold">{label}</span>
       {children}
     </label>
   );

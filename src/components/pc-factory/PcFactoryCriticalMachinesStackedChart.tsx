@@ -88,7 +88,7 @@ export function PcFactoryCriticalMachinesStackedChart({ rows, className = "", on
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-[#5a3d12]">Ranking de máquinas críticas</h3>
+      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Ranking de máquinas críticas</h3>
       <p className="mb-3 text-[11px] text-zinc-500">
         Top 10 por horas de manutenção (grupo Manutenção do PC-Factory): Mecânica, Elétrica, Automação, Planejada, Terceiros e Aguardando.
       </p>
@@ -181,7 +181,7 @@ function CriticalMachineTooltip({ active, payload }: TooltipProps) {
   if (!row) return null;
 
   return (
-    <div className="rounded-lg border border-gold/30 bg-[#0a0b0b]/95 px-3 py-2.5 shadow-premium backdrop-blur-sm">
+    <div className="rounded-lg border border-gold/30 bg-ink/95 px-3 py-2.5 shadow-premium backdrop-blur-sm">
       <p className="mb-1.5 max-w-[220px] truncate text-[12px] font-bold text-champagne">{row.name}</p>
       <p className="mb-2 text-[11px] text-zinc-400">
         Total: <span className="font-semibold text-champagne">{formatHours(row.total)}</span>

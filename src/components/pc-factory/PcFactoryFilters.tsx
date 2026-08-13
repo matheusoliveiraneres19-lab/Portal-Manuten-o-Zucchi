@@ -26,7 +26,7 @@ const TOGGLES: Array<{ key: keyof AppliedPcFactoryFilters; label: string }> = [
 
 export function PcFactoryFilters({ draft, options, isPending, onChange, onApply, onClear }: PcFactoryFiltersProps) {
   return (
-    <div className="rounded-lg border border-gold/20 bg-[#080909] p-4 shadow-premium sm:p-5">
+    <div className="rounded-lg border border-gold/20 bg-ink p-4 shadow-premium sm:p-5">
       <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-gold">
         <SlidersHorizontal className="h-4 w-4" />
         Filtros do módulo

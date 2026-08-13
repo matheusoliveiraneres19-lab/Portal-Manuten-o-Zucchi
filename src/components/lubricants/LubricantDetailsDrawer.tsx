@@ -72,9 +72,9 @@ export function LubricantDetailsDrawer({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ duration: 0.3, ease: [0.22, 0.61, 0.36, 1] }}
-            className="absolute right-0 top-0 flex h-full w-full max-w-[540px] flex-col border-l border-gold/25 bg-[#0a0b0b] text-champagne shadow-[0_0_60px_rgba(0,0,0,0.6)]"
+            className="absolute right-0 top-0 flex h-full w-full max-w-[540px] flex-col border-l border-gold/25 bg-ink text-champagne shadow-[0_0_60px_rgba(0,0,0,0.6)]"
           >
-            <div className="flex items-start justify-between gap-3 border-b border-gold/20 bg-[#070808] px-5 py-4">
+            <div className="flex items-start justify-between gap-3 border-b border-gold/20 bg-ink px-5 py-4">
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-gold">Detalhe do lubrificante</p>
                 <h2 className="mt-1 truncate font-serif text-xl text-white" title={details?.description}>
