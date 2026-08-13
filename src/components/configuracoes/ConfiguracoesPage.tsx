@@ -28,6 +28,7 @@ import {
   X
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { formatDatePtBr } from "@/utils/date";
 import type { PortalSettingDTO } from "@/types/settings";
 import type { AuditLogDTO, ImportHistoryDTO, SystemTechnicalStatus } from "@/types/audit";
 import { SettingsForm } from "@/components/configuracoes/SettingsForm";
@@ -106,7 +107,7 @@ export function ConfiguracoesPage({
     .filter((i) => i.at)
     .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))[0];
   const lastImportValue = lastImport?.at
-    ? new Date(lastImport.at).toLocaleDateString("pt-BR")
+    ? formatDatePtBr(lastImport.at)
     : "—";
   const lastImportDescription = lastImport
     ? `${lastImport.moduleLabel}${lastImport.fileName ? ` · ${lastImport.fileName}` : ""}`

@@ -16,6 +16,24 @@ export function getTodayDate(): Date {
 }
 
 /**
+ * Fuso de EXIBIÇÃO do portal. Zucchi opera em horário de Brasília.
+ *
+ * Declarar o fuso é OBRIGATÓRIO em qualquer formatação de TIMESTAMP renderizada
+ * pelo React, e não um detalhe de estilo: sem ele, `toLocaleString` usa o fuso do
+ * ambiente — a função serverless da Vercel roda em UTC e o navegador do usuário em
+ * UTC−3. O servidor emite "16:31", o cliente hidrata "13:31", os textos não batem e
+ * o React descarta o HTML do servidor com erro de hidratação (#425/#422).
+ *
+ * Foi exatamente o que aconteceu na aba Configurações: 183 datas divergindo entre
+ * servidor e navegador.
+ *
+ * Use para TIMESTAMPS (auditoria, importação, "agora"). Para datas PURAS vindas do
+ * SAP (gravadas à meia-noite UTC), continue usando `timeZone: "UTC"` como o resto
+ * do portal — converter para Brasília voltaria um dia.
+ */
+export const PORTAL_TIME_ZONE = "America/Sao_Paulo";
+
+/**
  * Formata uma data no padrão pt-BR (dd/mm/yyyy). Aceita `Date` ou string
  * (ISO ou yyyy-mm-dd). Datas inválidas viram "--/--/----" para nunca quebrar a UI.
  */
@@ -27,9 +45,28 @@ export function formatDatePtBr(value: Date | string = getTodayDate()): string {
   }
 
   return date.toLocaleDateString("pt-BR", {
+    timeZone: PORTAL_TIME_ZONE,
     day: "2-digit",
     month: "2-digit",
     year: "numeric"
+  });
+}
+
+/**
+ * Formata um TIMESTAMP no padrão pt-BR (dd/mm/yyyy hh:mm) no fuso do portal.
+ * Valores inválidos viram "--/--/---- --:--".
+ */
+export function formatDateTimePtBr(value: Date | string): string {
+  const date = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "--/--/---- --:--";
+  }
+
+  return date.toLocaleString("pt-BR", {
+    timeZone: PORTAL_TIME_ZONE,
+    dateStyle: "short",
+    timeStyle: "short"
   });
 }
 

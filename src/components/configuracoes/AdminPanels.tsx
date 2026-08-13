@@ -15,6 +15,7 @@ import {
   XCircle
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { formatDateTimePtBr } from "@/utils/date";
 import {
   AUDIT_ACTION_LABELS,
   AUDIT_MODULE_LABELS,
@@ -35,10 +36,16 @@ const inputClass =
   "rounded-lg border border-gold/25 bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-gold/60";
 const labelClass = "text-[11px] font-semibold uppercase tracking-wide text-champagne/70";
 
+/**
+ * Delega ao formatador central, que declara o fuso do portal.
+ *
+ * A versão anterior chamava `toLocaleString` sem `timeZone`, assumindo que este
+ * componente só renderizava no cliente. Componentes client TAMBÉM são renderizados
+ * no servidor pelo Next: na Vercel (UTC) o SSR emitia "16:31" e o navegador
+ * (UTC−3) hidratava "13:31", quebrando a hidratação da aba inteira.
+ */
 function formatDateTime(iso: string): string {
-  // Renderiza no client; mantém consistência com o restante do portal (pt-BR).
-  const d = new Date(iso);
-  return d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  return formatDateTimePtBr(iso);
 }
 
 /** Converte um input date (yyyy-mm-dd) para limites do dia, ou null. */

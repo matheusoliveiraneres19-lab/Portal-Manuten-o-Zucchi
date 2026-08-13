@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Archive, ArrowLeft, Check, CheckCircle2, Loader2, Pencil, Printer, Star } from "lucide-react";
 import { ProcedureForm } from "@/components/procedures/ProcedureForm";
 import type { ProcedureDetail } from "@/types/procedures";
+import { formatDatePtBr } from "@/utils/date";
 
 type ProcedureDetailActionsProps = {
   detail: ProcedureDetail;
@@ -15,9 +16,14 @@ type ProcedureDetailActionsProps = {
   readConfirmedAt: string | null;
 };
 
+/**
+ * Data da confirmação de leitura. Usa o formatador central, que declara o fuso do
+ * portal — sem isso, servidor (UTC na Vercel) e navegador (UTC−3) discordam da data
+ * entre 00:00 e 03:00 UTC e o React quebra a hidratação.
+ */
 function formatDate(iso: string): string {
   const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("pt-BR");
+  return Number.isNaN(date.getTime()) ? "" : formatDatePtBr(date);
 }
 
 /* Botões neutros (Voltar/Imprimir) e dourados (Editar) com alto contraste. */
