@@ -45,6 +45,9 @@ yarn-error.log*
 /imports/**/*.xls
 /imports/**/*.csv
 
+# Backups de linhas removidas em migracao (dados de negocio - nunca versionar)
+/imports/**/backups/
+
 # Editor
 .vscode/*
 !.vscode/extensions.json

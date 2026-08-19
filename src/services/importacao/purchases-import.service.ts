@@ -3,6 +3,7 @@ import { ImportStatus, ImportType, ItemNature, PurchaseRecordSource } from "@pri
 import { prisma } from "@/lib/prisma";
 import { limparTexto, normalizarNomeColuna } from "@/utils/importacao";
 import {
+  buildPurchaseGroupKey,
   buildPurchaseTechnicalKey,
   computeProcessTimes,
   computeStatusFlags,
@@ -244,11 +245,23 @@ export async function importPurchaseRows(
   const now = options.now ?? new Date();
 
   // 1) Parse + dedupe por technicalKey (em memória; não toca o banco).
+  //
+  // O ordinal da ocorrência acompanha a ORDEM DE LEITURA da planilha: a n-ésima
+  // linha de um mesmo (requisição|material|descrição) recebe `#n`, e é assim que
+  // ela reencontra a linha correspondente da importação anterior. Ver
+  // `buildPurchaseTechnicalKey`.
+  const occurrences = new Map<string, number>();
+  const nextOccurrence = (groupKey: string): number => {
+    const next = (occurrences.get(groupKey) ?? 0) + 1;
+    occurrences.set(groupKey, next);
+    return next;
+  };
+
   const parsedByKey = new Map<string, ParsedPurchaseRecord>();
   for (let index = 0; index < rows.length; index += 1) {
     const line = index + 2; // +1 cabeçalho, +1 base 1
     try {
-      const parsed = parseRow(rows[index], line, now);
+      const parsed = parseRow(rows[index], line, now, nextOccurrence);
       if (!parsed) {
         continue; // linha vazia — não conta como importada nem erro
       }
@@ -528,7 +541,12 @@ function accumulate(result: PurchaseImportResult, parsed: ParsedPurchaseRecord):
   }
 }
 
-function parseRow(row: PurchaseExcelRow, line: number, now: Date): ParsedPurchaseRecord | null {
+function parseRow(
+  row: PurchaseExcelRow,
+  line: number,
+  now: Date,
+  nextOccurrence: (groupKey: string) => number
+): ParsedPurchaseRecord | null {
   const itemDescription = limparTexto(row.itemDescription);
   const materialCode = optionalText(row.materialCode);
   const requisitionNumber = optionalText(row.requisitionNumber);
@@ -595,13 +613,10 @@ function parseRow(row: PurchaseExcelRow, line: number, now: Date): ParsedPurchas
     now
   );
 
+  const identity = { requisitionNumber, materialCode, itemDescription: description };
   const technicalKey = buildPurchaseTechnicalKey({
-    requisitionNumber,
-    purchaseOrderNumber,
-    materialCode,
-    itemDescription: description,
-    quantity,
-    netTotal
+    ...identity,
+    occurrence: nextOccurrence(buildPurchaseGroupKey(identity))
   });
 
   return {

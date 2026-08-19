@@ -436,23 +436,46 @@ export function resolvePurchaseValue(netTotal: number | null, grossTotal: number
 /* Chave técnica de deduplicação                                      */
 /* ------------------------------------------------------------------ */
 
-/** requisição + pedido + material + descrição + quantidade + total líquido. */
-export function buildPurchaseTechnicalKey(parts: {
+/**
+ * Identidade ESTÁVEL da linha: requisição + material + descrição.
+ *
+ * Só campos que NÃO mudam quando a requisição vira pedido. Ficaram de fora, de
+ * propósito, `purchaseOrderNumber`, `quantity` e `netTotal`: os três só ganham
+ * (ou mudam de) valor depois do pedido, e usá-los na chave fazia a reimportação
+ * criar uma linha NOVA em vez de atualizar a existente — deixando a versão
+ * antiga, sem pedido, eternamente listada como "pendente de compra".
+ */
+export function buildPurchaseGroupKey(parts: {
   requisitionNumber: string | null;
-  purchaseOrderNumber: string | null;
   materialCode: string | null;
   itemDescription: string;
-  quantity: number | null;
-  netTotal: number | null;
 }): string {
-  return [
-    parts.requisitionNumber ?? "",
-    parts.purchaseOrderNumber ?? "",
-    parts.materialCode ?? "",
-    parts.itemDescription,
-    parts.quantity ?? "",
-    parts.netTotal ?? ""
-  ].join("|");
+  return [parts.requisitionNumber ?? "", parts.materialCode ?? "", parts.itemDescription].join("|");
+}
+
+/**
+ * Chave técnica de deduplicação: identidade estável + ordinal da ocorrência.
+ *
+ * O ordinal existe porque a planilha do SAP NÃO traz número de item da
+ * requisição: uma mesma requisição/material pode render várias linhas, iguais em
+ * tudo menos no valor (itens distintos do mesmo pedido). Sem o ordinal a chave
+ * colidiria dentro da própria planilha e a importação perderia linhas; com ele,
+ * a n-ésima ocorrência de um grupo casa sempre com a n-ésima da carga anterior.
+ *
+ * `occurrence` é 1-based e vem da ORDEM DE LEITURA da planilha. Se duas linhas
+ * do mesmo grupo trocarem de posição entre um export e outro, elas trocam de
+ * identidade entre si — inofensivo, já que pertencem ao mesmo grupo e todos os
+ * campos são sobrescritos no update. Quando o grupo CRESCE (a requisição vira
+ * três itens de pedido), a ocorrência 1 é atualizada e as demais são criadas:
+ * nenhuma linha órfã sobra.
+ */
+export function buildPurchaseTechnicalKey(parts: {
+  requisitionNumber: string | null;
+  materialCode: string | null;
+  itemDescription: string;
+  occurrence: number;
+}): string {
+  return `${buildPurchaseGroupKey(parts)}|#${parts.occurrence}`;
 }
 
 /* ------------------------------------------------------------------ */
