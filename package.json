@@ -17,6 +17,8 @@
     "import:purchases": "tsx scripts/import-purchases.ts",
     "import:pc-factory": "tsx scripts/import-pc-factory.ts",
     "import:functional-locations": "tsx scripts/import-functional-locations.ts",
+    "test:purchases": "tsx scripts/test-purchase-classification.ts",
+    "test:purchases-v31": "tsx scripts/test-purchase-classification-v31.ts",
     "auth:hash-passwords": "tsx scripts/hash-passwords.ts",
     "auth:set-password": "tsx scripts/set-password.ts",
     "capture": "node scripts/capture-portal.mjs",

@@ -13,7 +13,7 @@ import {
   parsePurchaseNumber,
   resolvePurchaseValue
 } from "@/utils/purchases-normalizer";
-import { classifyPurchaseRecord } from "@/utils/purchase-classification";
+import { classifyPurchaseRecord, summarizePurchaseV31 } from "@/utils/purchase-classification";
 import type {
   ParsedPurchaseRecord,
   PurchaseClassificationAudit,
@@ -25,7 +25,21 @@ import type {
 
 const SHEET_NAME = "Data";
 
-/** Mapa: cabeçalho normalizado (sem acento, com "_") -> chave da linha. */
+/**
+ * Mapa: cabeçalho normalizado -> chave da linha.
+ *
+ * A normalização (`normalizarNomeColuna`) é equivalente à do HTML v3.1
+ * (`normalize('NFD')` + remove acentos + `toLowerCase()` + `trim()`), com a
+ * diferença de trocar separadores por "_". Por isso **cada cabeçalho é aceito
+ * com ou sem acento** com uma única entrada: "Descrição Fornecedor" e
+ * "Descricao Fornecedor" caem os dois em `descricao_fornecedor`; o mesmo vale
+ * para "Previsão/Previsao de entrega" e "Requisição/Requisicao".
+ *
+ * As 14 colunas do layout v3.1 estão todas cobertas: Data do Pedido, Pedido de
+ * Compra, Material, Texto breve material, Quantid, Quant Pendente, Fornecedor,
+ * Descrição Fornecedor, Data Recebimento, Requisitante, Previsão de entrega,
+ * Requisição, Grupo Comp e Descr grupo Merc.
+ */
 const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   pedido_de_compra: "purchaseOrderNumber",
   pedido_compra: "purchaseOrderNumber",
@@ -39,6 +53,9 @@ const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   material: "materialCode",
   texto_breve_do_pedido: "itemDescription",
   texto_breve_pedido: "itemDescription",
+  // Layout v3.1 do HTML: a descrição do item vem como "Texto breve material".
+  texto_breve_material: "itemDescription",
+  texto_breve_do_material: "itemDescription",
   quantid: "quantity",
   quantidade: "quantity",
   qtd: "quantity",
@@ -272,7 +289,24 @@ export async function importPurchaseRows(
   result.warnings = buildWarnings(parsedList);
   result.missingColumns = [];
 
-  // 6) Auditoria da classificação N1..N4 (TAREFA 11).
+  // 6) Auditoria da REGRA OFICIAL v3.1 (TAREFA 16).
+  //
+  // Roda sobre as linhas CRUAS lidas da planilha — antes da deduplicação por
+  // technicalKey e sem descartar linha vazia — porque é assim que o HTML conta
+  // (`raw.length`). Só assim os totais são comparáveis 1:1 com o painel.
+  result.v31Audit = summarizePurchaseV31(
+    rows,
+    (row) => ({
+      goodsGroupDescription: row.goodsGroupDescription,
+      purchasingGroup: row.purchasingGroup,
+      purchaseOrderNumber: row.purchaseOrderNumber,
+      receiptDate: row.receiptDate,
+      expectedDeliveryDate: parsePurchaseDate(row.expectedDeliveryDate)
+    }),
+    now
+  );
+
+  // 7) Auditoria da classificação N1..N4 (TAREFA 11).
   result.classificationAudit = buildClassificationAudit(parsedList, rows);
   if (!result.classificationAudit.columnsDetected.length) {
     result.warnings.push(

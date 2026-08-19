@@ -153,6 +153,60 @@ export function isRegularizationByGroup(purchasingGroup: unknown): boolean {
   return normalizeText(purchasingGroup).includes("y04");
 }
 
+/* ------------------------------------------------------------------ */
+/* Predicados da REGRA v3.1 do HTML (acompanhamento_compras_v3.1)      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * "Célula preenchida" com a MESMA semântica do HTML, que testa a veracidade do
+ * valor cru da planilha (`!!get(row, 'Pedido de Compra')`). Por isso:
+ *  - `null` / `undefined` / `""` / `0` / `false` → vazio;
+ *  - qualquer outro texto, número ou `Date` válido → preenchido.
+ *
+ * Repare que NÃO há trim: no HTML uma célula com espaços conta como preenchida.
+ * Os campos do portal já chegam limpos por `limparTexto`/`optionalText`, então a
+ * diferença é inócua — mas o comportamento fica idêntico ao original.
+ */
+export function hasSpreadsheetValue(value: unknown): boolean {
+  if (value === null || value === undefined || value === false) {
+    return false;
+  }
+  if (value instanceof Date) {
+    return !Number.isNaN(value.getTime());
+  }
+  if (typeof value === "number") {
+    return value !== 0 && !Number.isNaN(value);
+  }
+  return String(value).length > 0;
+}
+
+/**
+ * SERVIÇO na regra v3.1: `Descr grupo Merc` contém "servi".
+ * No HTML: `(get(row,'Descr grupo Merc')||'').toLowerCase().includes('servi')`.
+ *
+ * Aqui a comparação também remove acentos — como o radical "servi" não tem
+ * acento, o conjunto de linhas casadas é EXATAMENTE o mesmo ("Serviço",
+ * "SERVIÇOS", "servicos", "Prest. Serviços"), só que tolerante a variações de
+ * codificação vindas do Excel.
+ *
+ * ATENÇÃO: esta regra NÃO usa Grupo Merc = Y0008. A detecção por Y0008 é da
+ * regra gerencial do portal (`isServiceByGoodsGroup`) e não existe no HTML.
+ */
+export function isServiceByGoodsGroupDescription(goodsGroupDescription: unknown): boolean {
+  return normalizeText(goodsGroupDescription).includes("servi");
+}
+
+/**
+ * REGULARIZAÇÃO na regra v3.1: `Grupo Comp` é EXATAMENTE "Y04".
+ * No HTML: `(get(row,'Grupo Comp')||'').trim().toUpperCase() === 'Y04'`.
+ *
+ * Diferente de `isRegularizationByGroup` (gerencial), que aceita qualquer grupo
+ * que CONTENHA "Y04" — aqui a igualdade é exata, como no original.
+ */
+export function isRegularizationGroupExact(purchasingGroup: unknown): boolean {
+  return normalizeText(purchasingGroup).toUpperCase() === "Y04";
+}
+
 /**
  * Fornecedores eliminados (TAREFA 6): não entram nos relatórios de compras.
  * Match PARCIAL, case/acento-insensível (cobre "Auren Energia", "Equatorial

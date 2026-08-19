@@ -1,11 +1,19 @@
 /**
- * REGRA CENTRAL de classificação de compras — FONTE ÚNICA.
+ * REGRAS CENTRAIS de classificação de compras — FONTE ÚNICA.
  *
- * `classifyPurchaseRecord(record, today)` é a ÚNICA regra usada por importador,
- * services, KPIs, tabelas, filtros, gráficos e dashboard. Nenhuma tela pode ter
- * regra própria.
+ * O módulo expõe DOIS modos, e nenhuma tela pode ter regra própria:
  *
- * PRECEDÊNCIA OBRIGATÓRIA (TAREFA 3):
+ * 1. `classifyPurchaseV31HtmlRule(record, today)` — REGRA OFICIAL v3.1,
+ *    idêntica ao painel `acompanhamento_compras_v3.1.html`. É a regra da aba
+ *    **Compras Pendentes**. Não conhece "Ignorados", não exclui por fornecedor,
+ *    Bloq/Frete ou CódElim, e identifica serviço pelo TEXTO de `Descr grupo Merc`.
+ *
+ * 2. `classifyPurchaseRecord(record, today)` — modo `regraPortalGerencial`
+ *    (alias `classifyPurchaseRegraPortalGerencial`), com as exclusões
+ *    operacionais do portal. Continua servindo Compras Realizadas, os KPIs
+ *    gerenciais e a auditoria de itens fora do relatório.
+ *
+ * PRECEDÊNCIA do modo gerencial (TAREFA 3):
  *   1. CódElim = "L"                       → IGNORADO
  *   2. Descrição contém Bloqueado/Frete    → IGNORADO
  *   3. Fornecedor eliminado                → IGNORADO
@@ -22,11 +30,14 @@ import { CHART_SERIES, SEMANTIC } from "@/constants/theme";
 import {
   classifyPurchaseType,
   detectIgnoredDescriptionTerm,
+  hasSpreadsheetValue,
   isDeletionExcludedCode,
   isEliminatedSupplierName,
   isRegularizationByGroup,
+  isRegularizationGroupExact,
   isMarkedX,
   isServiceByGoodsGroup,
+  isServiceByGoodsGroupDescription,
   isValidSapDocument
 } from "@/utils/purchases-normalizer";
 
@@ -111,6 +122,225 @@ function startOfDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
+/* ================================================================== */
+/* REGRA OFICIAL v3.1 — idêntica ao acompanhamento_compras_v3.1.html   */
+/* ================================================================== */
+
+/**
+ * Os SEIS grupos da regra v3.1. São mutuamente exclusivos e cobrem 100% das
+ * linhas lidas — não existe categoria "Ignorados" neste modo.
+ *
+ * Equivalência com o HTML:
+ *   SERVICOS        ← `servicos = raw.filter(ehServ)`
+ *   REGULARIZACAO   ← `y04      = raw.filter(!ehServ && ehY04)`
+ *   RECEBIDOS       ← `recebidos = ana.filter(!!Data Recebimento)`
+ *   PENDENTE_COMPRA ← `semPed   = ana.filter(!Pedido de Compra && !Data Recebimento)`
+ *   EM_ATRASO       ← `comPed.filter(Previsão && Previsão < hoje)`
+ *   NAO_ENTREGUES   ← `comPed.filter(!Previsão || Previsão >= hoje)`
+ * onde `ana = raw.filter(!ehServ && !ehY04)`.
+ */
+export type PurchaseV31Group =
+  | "SERVICOS"
+  | "REGULARIZACAO"
+  | "RECEBIDOS"
+  | "PENDENTE_COMPRA"
+  | "EM_ATRASO"
+  | "NAO_ENTREGUES";
+
+/**
+ * Colunas do HTML de que a regra v3.1 depende. São só CINCO — qualquer outro
+ * campo (CódElim, Recbconcl, fornecedor, MIGO/MIRO, valores) é irrelevante aqui,
+ * e é justamente essa a diferença para a regra gerencial.
+ */
+export type PurchaseV31Input = {
+  /** Descr grupo Merc — único critério de serviço. */
+  goodsGroupDescription: unknown;
+  /** Grupo Comp — "Y04" exato = regularização. */
+  purchasingGroup: unknown;
+  /** Pedido de Compra — vazio = ainda pendente de compra. */
+  purchaseOrderNumber: unknown;
+  /** Data Recebimento — preenchida = recebido. */
+  receiptDate: unknown;
+  /** Previsão de entrega, já convertida em data (ou null quando ausente/inválida). */
+  expectedDeliveryDate: Date | null;
+};
+
+export type PurchaseV31Classification = {
+  group: PurchaseV31Group;
+  isService: boolean;
+  isRegularization: boolean;
+  /** Está na base de análise: não é serviço e não é Y04. */
+  inAnalysisBase: boolean;
+  hasPurchaseOrder: boolean;
+  hasReceipt: boolean;
+  /** Previsão de entrega vencida (só faz sentido dentro de `comPed`). */
+  isOverdue: boolean;
+  /** Frase de auditoria: por que a linha caiu neste grupo. */
+  reason: string;
+};
+
+export const PURCHASE_V31_GROUP_LABELS: Record<PurchaseV31Group, string> = {
+  SERVICOS: "Serviços",
+  REGULARIZACAO: "Regularização Y04",
+  RECEBIDOS: "Recebidos",
+  PENDENTE_COMPRA: "Pendente de Compra",
+  EM_ATRASO: "Em Atraso",
+  NAO_ENTREGUES: "Não Entregues"
+};
+
+/**
+ * Classifica uma linha pela REGRA OFICIAL v3.1 do HTML.
+ *
+ * A ORDEM é obrigatória e é a mesma do arquivo original:
+ *   1. Serviço (`Descr grupo Merc` contém "servi")  → sai da base
+ *   2. Regularização (não-serviço e `Grupo Comp` = "Y04") → sai da base
+ *   3. Base de análise (nem serviço, nem Y04), e dentro dela:
+ *      3.1 Data Recebimento preenchida                        → RECEBIDOS
+ *      3.2 sem Pedido de Compra e sem Data Recebimento        → PENDENTE_COMPRA
+ *      3.3 com Pedido, sem recebimento e previsão vencida     → EM_ATRASO
+ *      3.4 com Pedido, sem recebimento, sem previsão ou futura→ NAO_ENTREGUES
+ *
+ * O que esta regra deliberadamente NÃO faz (por não existir no HTML): excluir
+ * por CódElim "L", por fornecedor eliminado, por Bloq/Frete, tratar Y0008 como
+ * serviço, exigir `Requisição` preenchida ou produzir "Ignorados".
+ *
+ * `today` é injetado (nunca lido de `new Date()` aqui dentro) para manter a
+ * função pura e reproduzível nos testes.
+ */
+export function classifyPurchaseV31HtmlRule(
+  input: PurchaseV31Input,
+  today: Date
+): PurchaseV31Classification {
+  const isService = isServiceByGoodsGroupDescription(input.goodsGroupDescription);
+  const isRegularization = !isService && isRegularizationGroupExact(input.purchasingGroup);
+  const inAnalysisBase = !isService && !isRegularization;
+
+  const hasPurchaseOrder = hasSpreadsheetValue(input.purchaseOrderNumber);
+  const hasReceipt = hasSpreadsheetValue(input.receiptDate);
+  // `hoje` com hora zerada, como no HTML (`hoje.setHours(0,0,0,0)`): a previsão
+  // que cai HOJE ainda não está atrasada.
+  const isOverdue =
+    input.expectedDeliveryDate !== null &&
+    startOfDay(input.expectedDeliveryDate).getTime() < startOfDay(today).getTime();
+
+  const base = { isService, isRegularization, inAnalysisBase, hasPurchaseOrder, hasReceipt, isOverdue };
+
+  if (isService) {
+    return { ...base, group: "SERVICOS", reason: 'Serviço: "Descr grupo Merc" contém "servi"' };
+  }
+  if (isRegularization) {
+    return { ...base, group: "REGULARIZACAO", reason: 'Regularização: não é serviço e "Grupo Comp" = Y04' };
+  }
+  if (hasReceipt) {
+    return { ...base, group: "RECEBIDOS", reason: "Recebido: base de análise com Data Recebimento preenchida" };
+  }
+  if (!hasPurchaseOrder) {
+    return {
+      ...base,
+      group: "PENDENTE_COMPRA",
+      reason: "Pendente de Compra: base de análise sem Pedido de Compra e sem Data Recebimento"
+    };
+  }
+  if (isOverdue) {
+    return { ...base, group: "EM_ATRASO", reason: "Em Atraso: com pedido, sem recebimento e previsão vencida" };
+  }
+  return {
+    ...base,
+    group: "NAO_ENTREGUES",
+    reason: "Não Entregue: com pedido, sem recebimento e previsão vazia ou futura"
+  };
+}
+
+/** Auditoria da regra v3.1 (TAREFA 16) — os mesmos totais que o HTML imprime. */
+export type PurchaseV31Audit = {
+  totalLido: number;
+  servicosExcluidos: number;
+  regularizacaoY04: number;
+  baseAnalise: number;
+  recebidos: number;
+  pendenteCompra: number;
+  emAtraso: number;
+  naoEntregues: number;
+};
+
+export function emptyPurchaseV31Audit(): PurchaseV31Audit {
+  return {
+    totalLido: 0,
+    servicosExcluidos: 0,
+    regularizacaoY04: 0,
+    baseAnalise: 0,
+    recebidos: 0,
+    pendenteCompra: 0,
+    emAtraso: 0,
+    naoEntregues: 0
+  };
+}
+
+/** Soma uma linha já classificada na auditoria (muta e devolve o acumulador). */
+export function accumulatePurchaseV31Audit(audit: PurchaseV31Audit, group: PurchaseV31Group): PurchaseV31Audit {
+  audit.totalLido += 1;
+  switch (group) {
+    case "SERVICOS":
+      audit.servicosExcluidos += 1;
+      break;
+    case "REGULARIZACAO":
+      audit.regularizacaoY04 += 1;
+      break;
+    case "RECEBIDOS":
+      audit.baseAnalise += 1;
+      audit.recebidos += 1;
+      break;
+    case "PENDENTE_COMPRA":
+      audit.baseAnalise += 1;
+      audit.pendenteCompra += 1;
+      break;
+    case "EM_ATRASO":
+      audit.baseAnalise += 1;
+      audit.emAtraso += 1;
+      break;
+    case "NAO_ENTREGUES":
+      audit.baseAnalise += 1;
+      audit.naoEntregues += 1;
+      break;
+  }
+  return audit;
+}
+
+/** Classifica uma coleção inteira e devolve a auditoria da TAREFA 16. */
+export function summarizePurchaseV31<T>(
+  records: readonly T[],
+  toInput: (record: T) => PurchaseV31Input,
+  today: Date
+): PurchaseV31Audit {
+  const audit = emptyPurchaseV31Audit();
+  for (const record of records) {
+    accumulatePurchaseV31Audit(audit, classifyPurchaseV31HtmlRule(toInput(record), today).group);
+  }
+  return audit;
+}
+
+/**
+ * Status operacional equivalente a cada grupo v3.1 — usado só para reaproveitar
+ * o badge/rotulagem existente na tabela. A REGRA continua sendo a v3.1; este
+ * mapa não reintroduz o funil gerencial.
+ */
+export function operationalStatusForV31Group(group: PurchaseV31Group): PurchaseOperationalStatus {
+  switch (group) {
+    case "SERVICOS":
+      return OS.SERVICO;
+    case "REGULARIZACAO":
+      return OS.REGULARIZACAO;
+    case "RECEBIDOS":
+      return OS.ENTREGUE;
+    case "EM_ATRASO":
+      return OS.ATRASADO;
+    case "NAO_ENTREGUES":
+      return OS.COMPRADO;
+    default:
+      return OS.PENDENTE_COMPRA;
+  }
+}
+
 /** Mapa status → grupo de relatório. */
 export function reportGroupFor(status: PurchaseOperationalStatus): PurchaseReportGroup {
   switch (status) {
@@ -174,7 +404,14 @@ function natureForStatus(status: PurchaseOperationalStatus): PurchaseNature {
 }
 
 /**
- * Classifica uma linha de compra aplicando a precedência da TAREFA 3.
+ * Modo `regraPortalGerencial`: classifica uma linha aplicando a precedência da
+ * TAREFA 3, COM as exclusões operacionais do portal (CódElim "L", Bloq/Frete,
+ * fornecedor eliminado, serviço por Y0008).
+ *
+ * NÃO é a regra da aba Compras Pendentes — essa é `classifyPurchaseV31HtmlRule`.
+ * Continua sendo a regra de Compras Realizadas, dos KPIs gerenciais e da
+ * auditoria de itens fora do relatório.
+ *
  * `today` é injetado (data dinâmica) para manter a função pura/testável.
  */
 export function classifyPurchaseRecord(
@@ -272,6 +509,9 @@ export function classifyPurchaseRecord(
     isLateReceived
   };
 }
+
+/** Nome explícito do modo gerencial, para quem lê a chamada e não o JSDoc. */
+export { classifyPurchaseRecord as classifyPurchaseRegraPortalGerencial };
 
 /**
  * Recalcula o status a partir de flags JÁ persistidas (colunas do banco) + hoje.

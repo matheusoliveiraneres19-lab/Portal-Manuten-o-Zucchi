@@ -28,6 +28,15 @@ type PurchaseFiltersProps = {
    * Realizadas segue exatamente como estava).
    */
   classificationOptions?: PurchaseClassificationOptions;
+  /**
+   * Mostra os filtros "Tipo" e "Status", que falam o vocabulário da regra
+   * gerencial (serviço Y0008, Y04, ignorado, comprado, entregue...).
+   *
+   * A aba Compras Pendentes passa `false`: ela segue a regra v3.1 e exibe um
+   * único status ("Pendente de Compra"), então oferecer esses filtros só
+   * permitiria montar combinações que devolvem lista vazia sem explicação.
+   */
+  showStatusAndKindFilters?: boolean;
 };
 
 const selectClassName =
@@ -44,7 +53,8 @@ export function PurchaseFilters({
   onChange,
   onApply,
   onClear,
-  classificationOptions
+  classificationOptions,
+  showStatusAndKindFilters = true
 }: PurchaseFiltersProps) {
   /**
    * Ao mudar um nível, LIMPA os níveis abaixo dele: uma seleção de N3 herdada de
@@ -90,21 +100,25 @@ export function PurchaseFilters({
           placeholder="Todos os grupos"
           searchPlaceholder="Buscar grupo..."
         />
-        <MultiSelectFilter
-          label="Tipo"
-          options={KIND_OPTIONS}
-          selected={draft.kinds}
-          onChange={(values) => onChange("kinds", values)}
-          placeholder="Material, serviço, Y04, ignorado"
-        />
-        <MultiSelectFilter
-          label="Status"
-          options={options.statuses.map((status) => ({ value: status, label: PURCHASE_OPERATIONAL_STATUS_LABELS[status] }))}
-          selected={draft.statuses}
-          onChange={(values) => onChange("statuses", values)}
-          placeholder="Todos os status"
-          searchPlaceholder="Buscar status..."
-        />
+        {showStatusAndKindFilters && (
+          <>
+            <MultiSelectFilter
+              label="Tipo"
+              options={KIND_OPTIONS}
+              selected={draft.kinds}
+              onChange={(values) => onChange("kinds", values)}
+              placeholder="Material, serviço, Y04, ignorado"
+            />
+            <MultiSelectFilter
+              label="Status"
+              options={options.statuses.map((status) => ({ value: status, label: PURCHASE_OPERATIONAL_STATUS_LABELS[status] }))}
+              selected={draft.statuses}
+              onChange={(values) => onChange("statuses", values)}
+              placeholder="Todos os status"
+              searchPlaceholder="Buscar status..."
+            />
+          </>
+        )}
         <MultiSelectFilter
           label="Requisitante"
           options={options.requesters.map((requester) => ({ value: requester, label: requester }))}

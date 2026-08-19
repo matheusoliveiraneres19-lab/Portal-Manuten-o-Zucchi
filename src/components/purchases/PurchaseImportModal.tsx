@@ -144,6 +144,25 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
               </dd>
             </div>
           ) : null}
+          {/* Auditoria da REGRA OFICIAL v3.1 (TAREFA 16): os mesmos oito totais do
+              painel HTML, para conferir a importação contra o arquivo original. */}
+          {result.v31Audit ? (
+            <div className="col-span-2 border-t border-gold/10 pt-2">
+              <dt className="text-zinc-400">
+                Regra oficial v3.1 <span className="font-normal text-zinc-500">(mesma classificação do painel HTML)</span>
+              </dt>
+              <dd className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-zinc-300">
+                <span>Total lido: <strong className="text-champagne">{result.v31Audit.totalLido}</strong></span>
+                <span>Serviços: <strong className="text-champagne">{result.v31Audit.servicosExcluidos}</strong></span>
+                <span>Regularização Y04: <strong className="text-champagne">{result.v31Audit.regularizacaoY04}</strong></span>
+                <span>Base análise: <strong className="text-champagne">{result.v31Audit.baseAnalise}</strong></span>
+                <span>Recebidos: <strong className="text-champagne">{result.v31Audit.recebidos}</strong></span>
+                <span>Pendente compra: <strong className="text-gold">{result.v31Audit.pendenteCompra}</strong></span>
+                <span>Em atraso: <strong className="text-champagne">{result.v31Audit.emAtraso}</strong></span>
+                <span>Não entregues: <strong className="text-champagne">{result.v31Audit.naoEntregues}</strong></span>
+              </dd>
+            </div>
+          ) : null}
           {/* Auditoria da classificação N1..N4 (TAREFA 11). */}
           {result.classificationAudit ? (
             <div className="col-span-2 border-t border-gold/10 pt-2">

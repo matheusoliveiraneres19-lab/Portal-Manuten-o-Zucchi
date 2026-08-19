@@ -95,10 +95,12 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
   }
 
   const pendingCount = data.purchases.total;
+  // Os QUATRO cards da TAREFA 13, todos sobre o MESMO conjunto `pendente_compra`
+  // que alimenta a tabela. Sem "Valor Pendente", "Ignorados", "Atrasados",
+  // "Serviços" ou "Regularizações Y04" — nada disso existe nesta regra.
+  // `data.pendingValue` continua vindo do service só para auditoria/log.
   const cards: PurchaseKpiCard[] = [
-    // O card "Valor Pendente" saiu da tela; data.pendingValue continua vindo do
-    // service para o log de auditoria e para os KPIs canônicos de compras.
-    { title: "Requisições Pendentes", value: int(pendingCount), description: "Requisições Y01 sem pedido de compra", icon: FileX2, tone: "gold" },
+    { title: "Requisições Pendentes", value: int(pendingCount), description: "Sem pedido de compra e sem recebimento", icon: FileX2, tone: "gold" },
     { title: "Materiais Pendentes", value: int(data.materialsPending), description: "Materiais distintos sem pedido", icon: Boxes, tone: "blue" },
     { title: "Requisitantes", value: int(data.requestersPending), description: "Requisitantes com pendências", icon: Users, tone: "blue" },
     { title: "Mais Antiga", value: oldestLabel(data.oldestPendingDate), description: oldestDescription(data.oldestPendingDate), icon: CalendarClock, tone: "red" }
@@ -118,13 +120,15 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
           <div className="mb-3 flex flex-wrap items-center gap-3 text-gold">
             <ShoppingCart className="h-5 w-5" />
             <span className="rounded-md border border-gold/40 bg-gold/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.24em] text-champagne/80">
-              Dados importados de planilha SAP/Fiori
+              Regra oficial v3.1 · planilha SAP/Fiori
             </span>
           </div>
           <h1 className="font-serif text-3xl leading-tight text-white sm:text-4xl">Compras Pendentes</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-300 sm:text-base">
-            Apenas requisições de compra Y01 que ainda não viraram pedido de compra. Itens com
-            pedido, atrasados, serviços (Y0008), regularizações (Y04) e ignorados não aparecem aqui.
+            Base de análise (o que não é serviço nem regularização Y04) <strong>sem Pedido de Compra</strong> e{" "}
+            <strong>sem Data de Recebimento</strong>. Serviços são identificados pelo texto de
+            &quot;Descr grupo Merc&quot;; Y04 sai antes da análise. Recebidos, em atraso e não entregues
+            ficam fora — e não existe categoria &quot;ignorados&quot; nesta regra.
           </p>
         </div>
       </header>
@@ -149,6 +153,7 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
         onApply={applyFilters}
         onClear={clearFilters}
         classificationOptions={data.classification.available ? data.classificationOptions : undefined}
+        showStatusAndKindFilters={false}
       />
 
       <PurchaseActiveChips filters={appliedFilters} onRemove={removeChip} />

@@ -22,9 +22,14 @@ import {
 import {
   PURCHASE_OPERATIONAL_STATUS_LABELS,
   classificationReasonFor,
+  classifyPurchaseV31HtmlRule,
+  emptyPurchaseV31Audit,
+  operationalStatusForV31Group,
   reportGroupFor,
   resolveOperationalStatusFromFlags,
-  type PurchaseKind
+  type PurchaseKind,
+  type PurchaseV31Audit,
+  type PurchaseV31Group
 } from "@/utils/purchase-classification";
 import { getTodayDate } from "@/utils/date";
 import type { PendingPurchaseData, PurchasesByMonthData } from "@/types/dashboard";
@@ -53,13 +58,11 @@ const DEFAULT_PAGE_SIZE = 50;
 const OS = PurchaseOperationalStatus;
 
 /**
- * Status que compõem a página de Compras Pendentes (tabela).
- * REGRA OFICIAL: "Pedido de Compra vazio = Pendente de Compra". Portanto a aba
- * lista APENAS `PENDENTE_COMPRA` (requisição sem pedido). `ATRASADO` foi removido
- * — todo atrasado já possui pedido de compra, logo não é "pendente de compra".
+ * A aba Compras Pendentes NÃO usa o vocabulário de status gerencial: ela segue a
+ * REGRA OFICIAL v3.1 (`v31Where("PENDENTE_COMPRA")`), definida mais abaixo.
+ *
+ * Status que compõem a página de Compras Realizadas (tabela).
  */
-const PENDING_TABLE_STATUSES: PurchaseOperationalStatus[] = [OS.PENDENTE_COMPRA];
-/** Status que compõem a página de Compras Realizadas (tabela). */
 const COMPLETED_TABLE_STATUSES: PurchaseOperationalStatus[] = [OS.COMPRADO, OS.ENTREGUE];
 
 /** Início do dia atual em UTC — referência da comparação de atraso (dia-calendário). */
@@ -111,6 +114,112 @@ function statusWhere(status: PurchaseOperationalStatus, today: Date): Prisma.Pur
     default:
       return {};
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* REGRA OFICIAL v3.1 (HTML) — escopo da aba Compras Pendentes         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Tradução para SQL da `classifyPurchaseV31HtmlRule`. As cláusulas leem as
+ * COLUNAS CRUAS gravadas na importação (`goodsGroupDescription`,
+ * `purchasingGroup`, `purchaseOrderNumber`, `receiptDate`,
+ * `expectedDeliveryDate`) — de propósito NÃO usam as flags derivadas
+ * (`ignored`, `isService`, `purchaseType`), que carregam as exclusões da regra
+ * gerencial e não existem no HTML.
+ *
+ * Consequência prática: nenhuma reimportação é necessária para a aba passar a
+ * seguir a regra v3.1, e a regra não pode "envelhecer" junto com as flags.
+ *
+ * Toda negação é escrita com `OR [{campo: null}, {NOT ...}]` porque em SQL
+ * `NOT (coluna ILIKE ...)` é NULL quando a coluna é NULL — e a linha sumiria da
+ * base de análise em vez de entrar nela.
+ */
+const V31_SERVICE: Prisma.PurchaseRecordWhereInput = {
+  goodsGroupDescription: { contains: "servi", mode: "insensitive" }
+};
+const V31_NOT_SERVICE: Prisma.PurchaseRecordWhereInput = {
+  OR: [{ goodsGroupDescription: null }, { NOT: V31_SERVICE }]
+};
+const V31_Y04: Prisma.PurchaseRecordWhereInput = {
+  purchasingGroup: { equals: "Y04", mode: "insensitive" }
+};
+const V31_NOT_Y04: Prisma.PurchaseRecordWhereInput = {
+  OR: [{ purchasingGroup: null }, { NOT: V31_Y04 }]
+};
+/** Base de análise = não é serviço E não é Y04. */
+const V31_ANALYSIS_BASE: Prisma.PurchaseRecordWhereInput = { AND: [V31_NOT_SERVICE, V31_NOT_Y04] };
+
+/** "Pedido de Compra"/"Data Recebimento" preenchidos — vazio vira NULL na importação. */
+const V31_HAS_ORDER: Prisma.PurchaseRecordWhereInput = { NOT: { purchaseOrderNumber: null } };
+const V31_NO_ORDER: Prisma.PurchaseRecordWhereInput = { purchaseOrderNumber: null };
+const V31_RECEIVED: Prisma.PurchaseRecordWhereInput = { NOT: { receiptDate: null } };
+const V31_NOT_RECEIVED: Prisma.PurchaseRecordWhereInput = { receiptDate: null };
+
+/** Cláusula Prisma de cada grupo da regra v3.1 (mutuamente exclusivos). */
+function v31Where(group: PurchaseV31Group, today: Date): Prisma.PurchaseRecordWhereInput {
+  const startToday = startOfTodayUtc(today);
+  switch (group) {
+    case "SERVICOS":
+      return V31_SERVICE;
+    case "REGULARIZACAO":
+      return { AND: [V31_NOT_SERVICE, V31_Y04] };
+    case "RECEBIDOS":
+      return { AND: [V31_ANALYSIS_BASE, V31_RECEIVED] };
+    case "PENDENTE_COMPRA":
+      return { AND: [V31_ANALYSIS_BASE, V31_NO_ORDER, V31_NOT_RECEIVED] };
+    case "EM_ATRASO":
+      return {
+        AND: [V31_ANALYSIS_BASE, V31_HAS_ORDER, V31_NOT_RECEIVED, { expectedDeliveryDate: { lt: startToday } }]
+      };
+    case "NAO_ENTREGUES":
+      return {
+        AND: [
+          V31_ANALYSIS_BASE,
+          V31_HAS_ORDER,
+          V31_NOT_RECEIVED,
+          { OR: [{ expectedDeliveryDate: null }, { expectedDeliveryDate: { gte: startToday } }] }
+        ]
+      };
+    default:
+      return {};
+  }
+}
+
+/**
+ * Auditoria da regra v3.1 sobre a base já importada (TAREFA 16), no MESMO
+ * formato do painel HTML. Os oito totais saem de contagens SQL derivadas de
+ * `v31Where`, então batem exatamente com o que a tabela e os cards exibem.
+ */
+export async function getPurchaseV31Audit(
+  params: PurchaseQueryParams = {},
+  today: Date = getTodayDate()
+): Promise<PurchaseV31Audit> {
+  const base = buildFilterWhere(params, today);
+  const count = (group: PurchaseV31Group) =>
+    prisma.purchaseRecord.count({ where: mergeWhere(base, v31Where(group, today)) });
+
+  const [totalLido, servicosExcluidos, regularizacaoY04, recebidos, pendenteCompra, emAtraso, naoEntregues] =
+    await Promise.all([
+      prisma.purchaseRecord.count({ where: base }),
+      count("SERVICOS"),
+      count("REGULARIZACAO"),
+      count("RECEBIDOS"),
+      count("PENDENTE_COMPRA"),
+      count("EM_ATRASO"),
+      count("NAO_ENTREGUES")
+    ]);
+
+  return {
+    totalLido,
+    servicosExcluidos,
+    regularizacaoY04,
+    baseAnalise: recebidos + pendenteCompra + emAtraso + naoEntregues,
+    recebidos,
+    pendenteCompra,
+    emAtraso,
+    naoEntregues
+  };
 }
 
 /** Comprados = base Y01 material com pedido de compra (COMPRADO + ATRASADO + ENTREGUE). */
@@ -243,12 +352,16 @@ function scopeByKind(
 }
 
 /**
- * Página Pendentes: SOMENTE `PENDENTE_COMPRA` (requisição sem pedido).
- * O escopo é fixo — o filtro "Tipo" (serviço/regularização/ignorado) não se
- * aplica aqui, pois esses registros nunca são pendentes de compra.
+ * Página Pendentes: SOMENTE o grupo `PENDENTE_COMPRA` da REGRA OFICIAL v3.1 —
+ * base de análise (não serviço, não Y04), sem Pedido de Compra e sem Data
+ * Recebimento.
+ *
+ * O escopo é fixo: os filtros "Tipo" e "Status" (vocabulário gerencial) não se
+ * aplicam aqui e nem são oferecidos na tela, para não misturar as duas regras.
+ * Também NÃO se exige `Requisição` preenchida — o HTML não exige.
  */
 function pendingWhere(params: PurchaseQueryParams, today: Date): Prisma.PurchaseRecordWhereInput {
-  return mergeWhere(buildFilterWhere(params, today), statusWhere(OS.PENDENTE_COMPRA, today));
+  return mergeWhere(buildFilterWhere(params, today), v31Where("PENDENTE_COMPRA", today));
 }
 
 /** Página Realizadas: COMPRADO + ENTREGUE (respeita o filtro "Tipo"). */
@@ -355,6 +468,7 @@ const rowSelect = {
   id: true,
   purchaseOrderNumber: true,
   requisitionNumber: true,
+  supplierCode: true,
   supplierName: true,
   materialCode: true,
   itemDescription: true,
@@ -396,24 +510,59 @@ function purchaseKindFromType(type: PurchaseType): PurchaseKind {
   return "OUTROS";
 }
 
-function toRow(record: RowRecord, today: Date): PurchaseRow {
-  const isRegularization = record.purchaseType === PurchaseType.REGULARIZACAO;
-  const operationalStatus = resolveOperationalStatusFromFlags(
+/** Qual regra descreve a linha na tabela. Ver o cabeçalho de purchase-classification. */
+type PurchaseRuleMode = "v31Html" | "regraPortalGerencial";
+
+/**
+ * Status/natureza/motivo da linha sob a REGRA v3.1. Recalcula a classificação a
+ * partir das colunas cruas para que o badge da tabela NUNCA divirja da cláusula
+ * SQL que selecionou a linha — inclusive para registros que a regra gerencial
+ * marcaria como "Ignorado" e que na v3.1 são pendências legítimas.
+ */
+function describeV31(record: RowRecord, today: Date) {
+  const v31 = classifyPurchaseV31HtmlRule(
     {
-      isIgnored: record.ignored,
-      isService: record.isService,
-      isRegularization,
-      hasPurchaseOrder: record.hasPurchaseOrder,
-      isReceiptConfirmed: record.isReceiptConfirmed,
+      goodsGroupDescription: record.goodsGroupDescription,
+      purchasingGroup: record.purchasingGroup,
+      purchaseOrderNumber: record.purchaseOrderNumber,
       receiptDate: record.receiptDate,
       expectedDeliveryDate: record.expectedDeliveryDate
     },
     today
   );
   return {
+    operationalStatus: operationalStatusForV31Group(v31.group),
+    isService: v31.isService,
+    isRegularization: v31.isRegularization,
+    reason: v31.reason
+  };
+}
+
+function toRow(record: RowRecord, today: Date, rule: PurchaseRuleMode = "regraPortalGerencial"): PurchaseRow {
+  const isV31 = rule === "v31Html";
+  const v31 = isV31 ? describeV31(record, today) : null;
+
+  const isRegularization = v31 ? v31.isRegularization : record.purchaseType === PurchaseType.REGULARIZACAO;
+  const isService = v31 ? v31.isService : record.isService;
+  const operationalStatus =
+    v31?.operationalStatus ??
+    resolveOperationalStatusFromFlags(
+      {
+        isIgnored: record.ignored,
+        isService: record.isService,
+        isRegularization,
+        hasPurchaseOrder: record.hasPurchaseOrder,
+        isReceiptConfirmed: record.isReceiptConfirmed,
+        receiptDate: record.receiptDate,
+        expectedDeliveryDate: record.expectedDeliveryDate
+      },
+      today
+    );
+  return {
     id: record.id,
     purchaseOrderNumber: record.purchaseOrderNumber,
     requisitionNumber: record.requisitionNumber,
+    supplierCode: record.supplierCode,
     supplierName: record.supplierName,
     materialCode: record.materialCode,
     itemDescription: record.itemDescription,
@@ -436,12 +585,14 @@ function toRow(record: RowRecord, today: Date): PurchaseRow {
             ? "Y04_REGULARIZACAO"
             : "Y01_COMPRA_NORMAL",
     reportGroup: reportGroupFor(operationalStatus),
-    classificationReason: classificationReasonFor(operationalStatus, record.ignoredReason),
-    isService: record.isService,
+    classificationReason: v31 ? v31.reason : classificationReasonFor(operationalStatus, record.ignoredReason),
+    isService,
     isBlocked: record.isBlocked,
     isRegularization,
-    isIgnored: record.ignored,
-    ignoreReason: record.ignoredReason,
+    // Na regra v3.1 não existe categoria "Ignorados": as flags de exclusão da
+    // regra gerencial são zeradas para não vazarem em rótulo, chip ou filtro.
+    isIgnored: isV31 ? false : record.ignored,
+    ignoreReason: isV31 ? null : record.ignoredReason,
     purchaseKind: purchaseKindFromType(record.purchaseType),
     delayDays: record.delayDays,
     hasPurchaseOrder: record.hasPurchaseOrder,
@@ -464,7 +615,8 @@ async function paginate(
   where: Prisma.PurchaseRecordWhereInput,
   params: PurchaseQueryParams,
   today: Date,
-  orderBy: Prisma.PurchaseRecordOrderByWithRelationInput[]
+  orderBy: Prisma.PurchaseRecordOrderByWithRelationInput[],
+  rule: PurchaseRuleMode = "regraPortalGerencial"
 ): Promise<PaginatedPurchases> {
   const page = Math.max(1, params.page ?? 1);
   const pageSize = clampPageSize(params.pageSize);
@@ -475,7 +627,7 @@ async function paginate(
   ]);
 
   return {
-    data: records.map((record) => toRow(record, today)),
+    data: records.map((record) => toRow(record, today, rule)),
     total,
     page,
     pageSize,
@@ -483,9 +635,19 @@ async function paginate(
   };
 }
 
-/** Compras pendentes (paginadas) — REGRA 11. */
+/**
+ * Compras pendentes (paginadas) — REGRA OFICIAL v3.1, grupo `pendente_compra`.
+ * Ordena pela requisição mais antiga primeiro: pendências não têm previsão de
+ * entrega (não há pedido), então a idade da requisição é o critério útil.
+ */
 export async function getPendingPurchasesList(params: PurchaseQueryParams = {}, today: Date = getTodayDate()): Promise<PaginatedPurchases> {
-  return paginate(pendingWhere(params, today), params, today, [{ expectedDeliveryDate: "asc" }, { requisitionDate: "desc" }]);
+  return paginate(
+    pendingWhere(params, today),
+    params,
+    today,
+    [{ requisitionDate: "asc" }, { requisitionNumber: "asc" }],
+    "v31Html"
+  );
 }
 
 /** Compras realizadas (paginadas) — REGRA 12. */
@@ -524,38 +686,19 @@ const analysisSelect = {
 
 type AnalysisRow = Prisma.PurchaseRecordGetPayload<{ select: typeof analysisSelect }>;
 
-type StatusFlags = {
-  ignored: boolean;
-  isService: boolean;
-  purchaseType: PurchaseType;
-  hasPurchaseOrder: boolean;
-  isReceiptConfirmed: boolean;
-  receiptDate: Date | null;
-  expectedDeliveryDate: Date | null;
-};
-
-function effStatus(row: StatusFlags, today: Date): PurchaseOperationalStatus {
-  return resolveOperationalStatusFromFlags(
-    {
-      isIgnored: row.ignored,
-      isService: row.isService,
-      isRegularization: row.purchaseType === PurchaseType.REGULARIZACAO,
-      hasPurchaseOrder: row.hasPurchaseOrder,
-      isReceiptConfirmed: row.isReceiptConfirmed,
-      receiptDate: row.receiptDate,
-      expectedDeliveryDate: row.expectedDeliveryDate
-    },
-    today
-  );
-}
-
-/** Todos os registros do relatório (não excluídos) — os gráficos filtram por status. */
-const loadPendingAnalysisRows = cache(async (params: PurchaseQueryParams = {}): Promise<AnalysisRow[]> =>
-  prisma.purchaseRecord.findMany({
-    where: mergeWhere(buildFilterWhere(params, getTodayDate()), { ignored: false }),
+/**
+ * Registros da aba Compras Pendentes — SOMENTE o grupo `pendente_compra` da
+ * regra v3.1 (TAREFA 15). Cards, gráficos e dashboards N1..N4 leem daqui, então
+ * é impossível um deles somar serviços, Y04, recebidos, atrasados ou não
+ * entregues: o recorte já vem do mesmo SQL que alimenta a tabela.
+ */
+const loadPendingAnalysisRows = cache(async (params: PurchaseQueryParams = {}): Promise<AnalysisRow[]> => {
+  const today = getTodayDate();
+  return prisma.purchaseRecord.findMany({
+    where: mergeWhere(buildFilterWhere(params, today), v31Where("PENDENTE_COMPRA", today)),
     select: analysisSelect
-  })
-);
+  });
+});
 
 /** Entregues (recebimento lançado + Recbconcl "X") — gráficos de recebimento. */
 const loadCompletedAnalysisRows = cache(async (params: PurchaseQueryParams = {}): Promise<AnalysisRow[]> =>
@@ -952,21 +1095,23 @@ export async function getPurchaseFilterOptions(): Promise<PurchaseFilterOptions>
 /* Dashboard principal — assinaturas preservadas                      */
 /* ------------------------------------------------------------------ */
 
-/** Quantidade de compras pendentes Y01 (KPI do dashboard). */
+/**
+ * Quantidade de compras pendentes (KPI do dashboard principal).
+ * Usa a MESMA regra v3.1 da aba Compras Pendentes — se divergisse, o card do
+ * dashboard e a aba mostrariam números diferentes para o mesmo indicador.
+ */
 export async function getPendingPurchasesCount(): Promise<number> {
   const today = getTodayDate();
-  return prisma.purchaseRecord.count({
-    where: { OR: PENDING_TABLE_STATUSES.map((status) => statusWhere(status, today)) }
-  });
+  return prisma.purchaseRecord.count({ where: v31Where("PENDENTE_COMPRA", today) });
 }
 
-/** Lista de compras pendentes para a tabela do dashboard. */
+/** Lista de compras pendentes para a tabela do dashboard (regra v3.1). */
 export async function getPendingPurchases(limit = 5): Promise<PendingPurchaseData[]> {
   const today = getTodayDate();
   const records = await prisma.purchaseRecord.findMany({
-    where: { OR: PENDING_TABLE_STATUSES.map((status) => statusWhere(status, today)) },
-    select: { itemDescription: true, supplierName: true, expectedDeliveryDate: true, netTotal: true, grossTotal: true, hasPurchaseOrder: true, receiptDate: true, isService: true, ignored: true, isReceiptConfirmed: true, purchaseType: true },
-    orderBy: [{ expectedDeliveryDate: "asc" }, { requisitionDate: "desc" }],
+    where: v31Where("PENDENTE_COMPRA", today),
+    select: { itemDescription: true, supplierName: true, expectedDeliveryDate: true, netTotal: true, grossTotal: true },
+    orderBy: [{ requisitionDate: "asc" }, { requisitionNumber: "asc" }],
     take: limit
   });
 
@@ -975,7 +1120,8 @@ export async function getPendingPurchases(limit = 5): Promise<PendingPurchaseDat
     supplier: record.supplierName,
     expectedDate: record.expectedDeliveryDate,
     totalValue: resolvePurchaseValue(record.netTotal, record.grossTotal),
-    status: effStatus(record, today) === OS.ATRASADO ? PurchaseStatus.ATRASADA : PurchaseStatus.SOLICITADA
+    // Pendente de compra nunca tem pedido, logo nunca é "atrasada" na regra v3.1.
+    status: PurchaseStatus.SOLICITADA
   }));
 }
 
@@ -1026,6 +1172,7 @@ function emptyPendingPurchasesPageData(
   return {
     period: resolvePeriodWindow(params),
     kpis: emptyKpis(),
+    v31Audit: emptyPurchaseV31Audit(),
     pendingByMonth: [],
     topPendingSuppliers: [],
     pendingByGoodsGroup: [],
@@ -1075,18 +1222,17 @@ async function loadPendingPurchasesPageData(params: PurchaseQueryParams): Promis
     classificationsN4: []
   };
 
-  const [kpis, analysisRows, purchases, filterOptions, classificationAvailable] = await Promise.all([
+  const [kpis, v31Audit, pendingRowsUnfiltered, purchases, filterOptions, classificationAvailable] = await Promise.all([
     getPurchaseSummary(params),
+    getPurchaseV31Audit(params, today),
     loadPendingAnalysisRows(paramsWithoutClassification),
     getPendingPurchasesList(params, today),
     getPurchaseFilterOptions(),
     hasClassificationData()
   ]);
 
-  // Conjunto pendente REAL (mesma regra da tabela): Y01 sem pedido, com requisição.
-  const pendingRowsUnfiltered = analysisRows.filter(
-    (row) => effStatus(row, today) === OS.PENDENTE_COMPRA && hasRequisitionNumber(row.requisitionNumber)
-  );
+  // `pendingRowsUnfiltered` JÁ vem do SQL como `pendente_compra` da regra v3.1 —
+  // não há recorte adicional por status aqui, e `Requisição` NÃO é exigida.
   // Recorte final: aplica os filtros N1..N4 — mesma semântica do SQL da tabela.
   const pendingRows = pendingRowsUnfiltered.filter((row) => matchesClassificationFilters(row, params));
 
@@ -1099,24 +1245,19 @@ async function loadPendingPurchasesPageData(params: PurchaseQueryParams): Promis
     null
   );
 
-  // Auditoria de classificação (TAREFA 17) — ajuda a validar por que os números mudaram.
+  // Auditoria da REGRA v3.1 (TAREFA 16) — comparável linha a linha com o painel HTML.
   if (process.env.NODE_ENV !== "production") {
-    console.debug("[compras-pendentes] auditoria", {
-      totalImportado: total,
-      totalY01: kpis.baseY01,
-      totalComPedido: kpis.purchased,
-      totalSemPedido: kpis.pendingPurchase,
-      totalY04Removido: kpis.regularizations,
-      totalY0008Removido: kpis.services,
-      totalIgnoradoRemovido: kpis.ignored,
+    console.debug("[compras-pendentes] auditoria regra v3.1", {
+      ...v31Audit,
       totalExibidoEmPendentes: purchases.total,
-      valorPendenteFiltrado: pendingValue
+      totalNaTabelaAposFiltrosN1aN4: pendingRows.length
     });
   }
 
   return {
     period,
     kpis,
+    v31Audit,
     pendingByMonth: bucketByMonth(pendingRows, "requisitionDate"),
     topPendingSuppliers: topSuppliersByCount(pendingRows),
     pendingByGoodsGroup: groupCountByGoodsGroup(pendingRows),
@@ -1212,11 +1353,6 @@ function clampPageSize(value?: number): number {
 
 function toIso(date: Date | null): string | null {
   return date ? date.toISOString() : null;
-}
-
-/** Requisição de compra preenchida (texto não vazio). */
-function hasRequisitionNumber(value: string | null): boolean {
-  return Boolean(value && value.trim());
 }
 
 function round(value: number): number {

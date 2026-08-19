@@ -1,8 +1,23 @@
 import type { ItemNature, PurchaseOperationalStatus, PurchaseType } from "@prisma/client";
-import type { PurchaseKind, PurchaseNature, PurchaseReportGroup } from "@/utils/purchase-classification";
+import type {
+  PurchaseKind,
+  PurchaseNature,
+  PurchaseReportGroup,
+  PurchaseV31Audit,
+  PurchaseV31Group
+} from "@/utils/purchase-classification";
 import type { PageDataSource } from "@/types/page-data";
 
-export type { ItemNature, PurchaseOperationalStatus, PurchaseType, PurchaseKind, PurchaseNature, PurchaseReportGroup };
+export type {
+  ItemNature,
+  PurchaseOperationalStatus,
+  PurchaseType,
+  PurchaseKind,
+  PurchaseNature,
+  PurchaseReportGroup,
+  PurchaseV31Audit,
+  PurchaseV31Group
+};
 
 /* ------------------------------------------------------------------ */
 /* Importação                                                         */
@@ -161,6 +176,11 @@ export type PurchaseImportResult = {
   missingColumns?: string[];
   /** Auditoria da classificação N1..N4 lida da planilha (TAREFA 11). */
   classificationAudit?: PurchaseClassificationAudit;
+  /**
+   * Auditoria da REGRA OFICIAL v3.1 (TAREFA 16) — os mesmos oito totais que o
+   * painel `acompanhamento_compras_v3.1.html` imprime, para conferência direta.
+   */
+  v31Audit?: PurchaseV31Audit;
 };
 
 /* ------------------------------------------------------------------ */
@@ -256,6 +276,9 @@ export type PurchaseRow = {
   id: string;
   purchaseOrderNumber: string | null;
   requisitionNumber: string | null;
+  /** Fornecedor (código SAP) — coluna "Fornecedor" da planilha. */
+  supplierCode: string | null;
+  /** Fornecedor (razão social) — coluna "Descrição Fornecedor". */
   supplierName: string | null;
   materialCode: string | null;
   itemDescription: string;
@@ -517,7 +540,13 @@ export type PurchasesPeriodWindow = {
 
 export type PendingPurchasesPageData = {
   period: PurchasesPeriodWindow;
+  /** KPIs gerenciais da base inteira (não são os cards desta aba). */
   kpis: PurchaseKpis;
+  /**
+   * Auditoria da REGRA OFICIAL v3.1 sobre a base filtrada (TAREFA 16): os oito
+   * totais do painel HTML, para conferir a aba contra o arquivo original.
+   */
+  v31Audit: PurchaseV31Audit;
   /** Gráficos da aba — todos restritos a requisições pendentes (sem pedido). */
   pendingByMonth: PurchaseMonthlyPoint[];
   topPendingSuppliers: PurchaseSupplierSlice[];
