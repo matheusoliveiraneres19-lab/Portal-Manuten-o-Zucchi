@@ -130,6 +130,10 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
             &quot;Descr grupo Merc&quot;; Y04 sai antes da análise. Recebidos, em atraso e não entregues
             ficam fora — e não existe categoria &quot;ignorados&quot; nesta regra.
           </p>
+          <p className="mt-2 max-w-3xl text-xs leading-relaxed text-zinc-400">
+            Mostra o retrato da <strong className="text-zinc-300">última planilha importada</strong>. Requisições de
+            importações anteriores que já viraram pedido não contam como pendência.
+          </p>
         </div>
       </header>
 

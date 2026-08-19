@@ -187,15 +187,48 @@ function v31Where(group: PurchaseV31Group, today: Date): Prisma.PurchaseRecordWh
 }
 
 /**
+ * RETRATO ATUAL: só as linhas presentes na importação mais recente.
+ *
+ * O painel HTML sempre parte da planilha INTEIRA (`raw`), então o retrato dele é
+ * sempre o do arquivo carregado. O portal acumula: a `technicalKey` inclui o
+ * Pedido de Compra, de modo que, quando a requisição vira pedido, uma linha NOVA
+ * é criada e a antiga (sem pedido) fica no banco para sempre — aparecendo como
+ * "pendente" mesmo depois de comprada e recebida.
+ *
+ * Limitar a aba ao último lote elimina esse resíduo sem apagar histórico algum:
+ * cada importação regrava `importBatch` em toda linha que veio na planilha, logo
+ * "último lote" == "presente no export atual do SAP".
+ *
+ * Compras Realizadas NÃO usa este recorte de propósito: lá o histórico das
+ * planilhas anteriores é justamente o que se quer ver.
+ */
+const loadLatestImportBatch = cache(async (): Promise<string | null> => {
+  const latest = await prisma.purchaseRecord.findFirst({
+    where: { importBatch: { not: null } },
+    orderBy: { updatedAt: "desc" },
+    select: { importBatch: true }
+  });
+  return latest?.importBatch ?? null;
+});
+
+/** Cláusula do retrato atual (vazia quando não há nenhuma importação). */
+async function latestImportWhere(): Promise<Prisma.PurchaseRecordWhereInput> {
+  const batch = await loadLatestImportBatch();
+  return batch ? { importBatch: batch } : {};
+}
+
+/**
  * Auditoria da regra v3.1 sobre a base já importada (TAREFA 16), no MESMO
  * formato do painel HTML. Os oito totais saem de contagens SQL derivadas de
  * `v31Where`, então batem exatamente com o que a tabela e os cards exibem.
+ *
+ * `totalLido` é o total do RETRATO ATUAL — equivalente ao `raw.length` do HTML.
  */
 export async function getPurchaseV31Audit(
   params: PurchaseQueryParams = {},
   today: Date = getTodayDate()
 ): Promise<PurchaseV31Audit> {
-  const base = buildFilterWhere(params, today);
+  const base = mergeWhere(buildFilterWhere(params, today), await latestImportWhere());
   const count = (group: PurchaseV31Group) =>
     prisma.purchaseRecord.count({ where: mergeWhere(base, v31Where(group, today)) });
 
@@ -359,9 +392,11 @@ function scopeByKind(
  * O escopo é fixo: os filtros "Tipo" e "Status" (vocabulário gerencial) não se
  * aplicam aqui e nem são oferecidos na tela, para não misturar as duas regras.
  * Também NÃO se exige `Requisição` preenchida — o HTML não exige.
+ *
+ * Restrito ao RETRATO ATUAL (última importação) — ver `latestImportWhere`.
  */
-function pendingWhere(params: PurchaseQueryParams, today: Date): Prisma.PurchaseRecordWhereInput {
-  return mergeWhere(buildFilterWhere(params, today), v31Where("PENDENTE_COMPRA", today));
+async function pendingWhere(params: PurchaseQueryParams, today: Date): Promise<Prisma.PurchaseRecordWhereInput> {
+  return mergeWhere(buildFilterWhere(params, today), await latestImportWhere(), v31Where("PENDENTE_COMPRA", today));
 }
 
 /** Página Realizadas: COMPRADO + ENTREGUE (respeita o filtro "Tipo"). */
@@ -642,7 +677,7 @@ async function paginate(
  */
 export async function getPendingPurchasesList(params: PurchaseQueryParams = {}, today: Date = getTodayDate()): Promise<PaginatedPurchases> {
   return paginate(
-    pendingWhere(params, today),
+    await pendingWhere(params, today),
     params,
     today,
     [{ requisitionDate: "asc" }, { requisitionNumber: "asc" }],
@@ -695,7 +730,7 @@ type AnalysisRow = Prisma.PurchaseRecordGetPayload<{ select: typeof analysisSele
 const loadPendingAnalysisRows = cache(async (params: PurchaseQueryParams = {}): Promise<AnalysisRow[]> => {
   const today = getTodayDate();
   return prisma.purchaseRecord.findMany({
-    where: mergeWhere(buildFilterWhere(params, today), v31Where("PENDENTE_COMPRA", today)),
+    where: mergeWhere(buildFilterWhere(params, today), await latestImportWhere(), v31Where("PENDENTE_COMPRA", today)),
     select: analysisSelect
   });
 });
@@ -1102,14 +1137,16 @@ export async function getPurchaseFilterOptions(): Promise<PurchaseFilterOptions>
  */
 export async function getPendingPurchasesCount(): Promise<number> {
   const today = getTodayDate();
-  return prisma.purchaseRecord.count({ where: v31Where("PENDENTE_COMPRA", today) });
+  return prisma.purchaseRecord.count({
+    where: mergeWhere(await latestImportWhere(), v31Where("PENDENTE_COMPRA", today))
+  });
 }
 
 /** Lista de compras pendentes para a tabela do dashboard (regra v3.1). */
 export async function getPendingPurchases(limit = 5): Promise<PendingPurchaseData[]> {
   const today = getTodayDate();
   const records = await prisma.purchaseRecord.findMany({
-    where: v31Where("PENDENTE_COMPRA", today),
+    where: mergeWhere(await latestImportWhere(), v31Where("PENDENTE_COMPRA", today)),
     select: { itemDescription: true, supplierName: true, expectedDeliveryDate: true, netTotal: true, grossTotal: true },
     orderBy: [{ requisitionDate: "asc" }, { requisitionNumber: "asc" }],
     take: limit
