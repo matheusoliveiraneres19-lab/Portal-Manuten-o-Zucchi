@@ -6,6 +6,7 @@ import { hashPassword, isBcryptHash, verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
 import { createAuditLog } from "@/services/audit.service";
 import { getClientIp } from "@/lib/request-ip";
+import { checkRateLimit, registerFailure, resetRateLimit } from "@/lib/rate-limit";
 import { AUDIT_ACTIONS, AUDIT_MODULES } from "@/types/audit";
 
 export const runtime = "nodejs";
@@ -15,6 +16,25 @@ const INVALID_CREDENTIALS_MESSAGE = "Login ou senha inválidos. Verifique suas c
 const INACTIVE_USER_MESSAGE = "Usuário inativo. Entre em contato com o administrador.";
 const GENERIC_ERROR_MESSAGE = "Não foi possível validar o acesso. Verifique suas credenciais ou tente novamente.";
 const MISSING_SECRET_MESSAGE = "Configuração de segurança ausente (AUTH_SECRET). Contate o administrador.";
+const EXPIRED_TEMP_PASSWORD_MESSAGE =
+  "A senha temporária expirou. Solicite uma nova ao administrador para acessar o portal.";
+
+/**
+ * Limites de tentativas FALHAS por janela deslizante (ver src/lib/rate-limit.ts
+ * para a limitação de contador em memória).
+ *
+ * Por conta: 5 em 15 min — folga para erro de digitação, longe de força bruta.
+ * Por IP: 30 em 15 min, porque a Zucchi sai por um único IP de NAT e vários
+ * usuários errando a senha no mesmo intervalo é normal; o teto só corta a
+ * varredura de logins em sequência.
+ */
+const LOGIN_RULE_PER_ACCOUNT = { limit: 5, windowMs: 15 * 60 * 1000 };
+const LOGIN_RULE_PER_IP = { limit: 30, windowMs: 15 * 60 * 1000 };
+
+function tooManyAttemptsMessage(retryAfterSeconds: number): string {
+  const minutes = Math.ceil(retryAfterSeconds / 60);
+  return `Muitas tentativas de acesso. Aguarde ${minutes} minuto(s) e tente novamente.`;
+}
 
 const roleLabels: Record<string, string> = {
   ADMIN: "Administrador",
@@ -94,12 +114,49 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, message: INVALID_CREDENTIALS_MESSAGE }, { status: 400 });
     }
 
+    // Freio de força bruta ANTES de validar a senha: uma chave já bloqueada não
+    // deve pagar o custo do bcrypt (senão o próprio limitador vira alavanca de
+    // CPU). Duas chaves: o login barra o ataque a UMA conta; o IP barra a
+    // varredura de vários logins da mesma origem.
+    const clientIp = getClientIp(request);
+    const loginKey = `login:${login}`;
+    const ipKey = `ip:${clientIp ?? "desconhecido"}`;
+    for (const [key, rule] of [
+      [loginKey, LOGIN_RULE_PER_ACCOUNT],
+      [ipKey, LOGIN_RULE_PER_IP]
+    ] as const) {
+      const state = checkRateLimit(key, rule);
+      if (!state.allowed) {
+        console.warn("[auth] Login bloqueado por excesso de tentativas.", { key, retryAfterSeconds: state.retryAfterSeconds });
+        return NextResponse.json(
+          { ok: false, message: tooManyAttemptsMessage(state.retryAfterSeconds) },
+          { status: 429, headers: { "Retry-After": String(state.retryAfterSeconds) } }
+        );
+      }
+    }
+
+    /** Contabiliza a falha nas duas chaves e devolve a resposta de credencial inválida. */
+    const invalidCredentials = () => {
+      registerFailure(loginKey, LOGIN_RULE_PER_ACCOUNT);
+      registerFailure(ipKey, LOGIN_RULE_PER_IP);
+      return NextResponse.json({ ok: false, message: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
+    };
+
     // 1) Autenticação via banco (Prisma) quando há DATABASE_URL e o banco responde.
     if (databaseConfigured()) {
       try {
         const user = await prisma.user.findUnique({
           where: { login },
-          select: { id: true, login: true, name: true, passwordHash: true, role: true, status: true, mustChangePassword: true }
+          select: {
+            id: true,
+            login: true,
+            name: true,
+            passwordHash: true,
+            role: true,
+            status: true,
+            mustChangePassword: true,
+            temporaryPasswordExpiresAt: true
+          }
         });
 
         if (user && user.passwordHash) {
@@ -113,10 +170,22 @@ export async function POST(request: NextRequest) {
             ? await verifyPassword(password, user.passwordHash)
             : password === user.passwordHash;
           if (!passwordOk) {
-            return NextResponse.json({ ok: false, message: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
+            return invalidCredentials();
           }
+          // Credencial correta: zera o contador das duas chaves.
+          resetRateLimit(loginKey);
+          resetRateLimit(ipKey);
           // Primeiro acesso: senha correta, mas precisa redefinir antes de entrar.
           const mustChange = user.mustChangePassword === true;
+
+          // Senha TEMPORÁRIA vencida não entra. O prazo (TEMP_PASSWORD_TTL_DAYS em
+          // users.service) só faz sentido enquanto a senha ainda é temporária: a troca
+          // zera `temporaryPasswordExpiresAt` junto com `mustChangePassword`, então
+          // gatilhamos pelos dois para nunca barrar quem já definiu a senha própria.
+          if (mustChange && user.temporaryPasswordExpiresAt && user.temporaryPasswordExpiresAt < new Date()) {
+            console.warn("[auth] Login bloqueado: senha temporária expirada.", { userId: user.id });
+            return NextResponse.json({ ok: false, message: EXPIRED_TEMP_PASSWORD_MESSAGE }, { status: 403 });
+          }
 
           // Migração transparente: se a senha ainda estava em texto puro, re-hasheia
           // com bcrypt no primeiro login bem-sucedido (best-effort, não bloqueia).
@@ -169,6 +238,8 @@ export async function POST(request: NextRequest) {
     if (fallbackAllowed()) {
       const fallback = TEST_FALLBACK_USERS[login];
       if (fallback && password === fallback.password) {
+        resetRateLimit(loginKey);
+        resetRateLimit(ipKey);
         return await buildSessionResponse(
           secret,
           { login, name: fallback.name, role: fallback.role },
@@ -177,7 +248,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ok: false, message: INVALID_CREDENTIALS_MESSAGE }, { status: 401 });
+    // Login inexistente (ou fallback recusado): conta como falha, senão a
+    // varredura de logins sairia de graça.
+    return invalidCredentials();
   } catch (error) {
     // Garante que o front sempre receba JSON com mensagem amigável (evita tela branca/500 cru).
     console.error("[auth] Erro inesperado no login.", error instanceof Error ? error.message : "erro desconhecido");

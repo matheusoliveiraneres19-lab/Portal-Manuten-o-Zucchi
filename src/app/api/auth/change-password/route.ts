@@ -47,11 +47,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, message: GENERIC_ERROR }, { status: 500 });
   }
 
-  // Sessão (temporária de primeiro acesso ou normal) precisa ser válida.
+  // Esta rota está FORA da checagem do middleware (ver o bypass de /api/auth/),
+  // então a validação da sessão acontece aqui e é a única barreira.
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   const session = await verifySession(token, secret);
   if (!session) {
     return NextResponse.json({ ok: false, message: "Sessão expirada. Faça login novamente." }, { status: 401 });
+  }
+
+  // SOMENTE a sessão limitada de primeiro acesso troca a senha por aqui.
+  //
+  // O motivo é reduzir superfície: o único cliente desta rota é o
+  // FirstAccessForm, e não existe tela de troca voluntária no portal (o reset é
+  // feito pelo ADMIN, que gera nova senha temporária). Aceitar sessão normal
+  // deixava uma sessão esquecida aberta trocar a senha sem informar a atual.
+  //
+  // Se um dia existir "alterar minha senha" para o usuário logado, o caminho é
+  // liberar a sessão normal AQUI exigindo também a senha atual no corpo — não
+  // remover esta checagem.
+  if (session.mustChange !== true) {
+    return NextResponse.json(
+      { ok: false, message: "Troca de senha indisponível. Solicite um reset ao administrador." },
+      { status: 403 }
+    );
   }
 
   try {
