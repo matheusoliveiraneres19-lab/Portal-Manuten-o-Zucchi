@@ -15,16 +15,14 @@ import { PurchaseImportModal } from "@/components/purchases/PurchaseImportModal"
 import {
   EMPTY_PURCHASE_FILTERS,
   purchaseFiltersToParams,
+  removePurchaseFilter,
   type AppliedPurchaseFilters
 } from "@/components/purchases/filters";
+import { goodsGroupsToRank, requestersToRank, suppliersToRank } from "@/components/purchases/PurchaseInsightCharts";
 import {
-  classificationToRank,
-  goodsGroupsToRank,
-  requestersToRank,
-  suppliersToRank
-} from "@/components/purchases/PurchaseInsightCharts";
-import { PurchaseClassificationNotice } from "@/components/purchases/PurchaseClassificationNotice";
-import { PurchaseClassificationTree } from "@/components/purchases/PurchaseClassificationTree";
+  PENDING_CLASSIFICATION_COPY,
+  PurchaseClassificationSection
+} from "@/components/purchases/PurchaseClassificationSection";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import type { PendingPurchasesPageData } from "@/types/purchases";
 import { CHART_SERIES, GOLD } from "@/constants/theme";
@@ -82,14 +80,7 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
   }
 
   function removeChip(key: keyof AppliedPurchaseFilters, value?: string) {
-    let next: AppliedPurchaseFilters;
-    if (key === "startDate") {
-      next = { ...appliedFilters, startDate: "", endDate: "" };
-    } else if (value !== undefined && Array.isArray(appliedFilters[key])) {
-      next = { ...appliedFilters, [key]: (appliedFilters[key] as string[]).filter((item) => item !== value) };
-    } else {
-      next = { ...appliedFilters, [key]: "" };
-    }
+    const next = removePurchaseFilter(appliedFilters, key, value);
     setDraft(next);
     navigate(next);
   }
@@ -208,42 +199,12 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
           </section>
 
           {/* Análise por classificação N1 > N2 > N3 > N4 (TAREFAS 5, 6, 7, 9 e 10). */}
-          {data.classification.available ? (
-            <>
-              <ClassificationSummary classification={data.classification} pendingCount={pendingCount} />
-
-              <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-                <PurchaseRankBarChart
-                  className="xl:col-span-6"
-                  title="Compras pendentes por N1"
-                  subtitle="Requisições sem pedido, agrupadas pelo 1º nível de classificação."
-                  color={CHART_SERIES.compras}
-                  items={classificationToRank(data.classification.byN1)}
-                  emptyDescription="Nenhuma requisição pendente com N1 preenchido."
-                />
-                <PurchaseRankBarChart
-                  className="xl:col-span-6"
-                  title="Compras pendentes por N2"
-                  subtitle={
-                    appliedFilters.classificationsN1.length
-                      ? `Restrito a N1: ${appliedFilters.classificationsN1.join(", ")}.`
-                      : "Selecione um N1 nos filtros para ver apenas os N2 daquele grupo."
-                  }
-                  color={CHART_SERIES.ordens}
-                  items={classificationToRank(data.classification.byN2)}
-                  emptyDescription="Nenhuma requisição pendente com N2 preenchido."
-                />
-              </section>
-
-              <PurchaseClassificationTree
-                nodes={data.classification.tree}
-                total={pendingCount}
-                unclassified={data.classification.unclassified}
-              />
-            </>
-          ) : (
-            <PurchaseClassificationNotice />
-          )}
+          <PurchaseClassificationSection
+            classification={data.classification}
+            total={pendingCount}
+            selectedN1={appliedFilters.classificationsN1}
+            copy={PENDING_CLASSIFICATION_COPY}
+          />
 
           <PurchaseTable data={data.purchases} variant="pending" onPageChange={(page) => navigate(appliedFilters, page)} />
         </>
@@ -254,70 +215,8 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
   );
 }
 
-/**
- * Faixa de apoio da classificação (TAREFA 5). Os "mais recorrentes" ficam AQUI,
- * e não nos cards principais, para a tela não ficar carregada — os quatro cards
- * do topo seguem sendo Requisições, Materiais, Requisitantes e Mais Antiga.
- */
-function ClassificationSummary({
-  classification,
-  pendingCount
-}: {
-  classification: PendingPurchasesPageData["classification"];
-  pendingCount: number;
-}) {
-  const items = [
-    {
-      label: "N1 mais recorrente",
-      value: classification.topN1?.label ?? "—",
-      hint: classification.topN1 ? `${int(classification.topN1.count)} requisição(ões)` : "Sem N1 no recorte"
-    },
-    {
-      label: "N2 mais recorrente",
-      value: classification.topN2?.label ?? "—",
-      hint: classification.topN2 ? `${int(classification.topN2.count)} requisição(ões)` : "Sem N2 no recorte"
-    },
-    {
-      label: "Cobertura da classificação",
-      value: percent(classification.coverage.n1, pendingCount),
-      hint: `${int(classification.coverage.n1)} de ${int(pendingCount)} com N1 preenchido`
-    },
-    {
-      label: "Sem classificação",
-      value: int(classification.unclassified),
-      hint: "Pendências sem nenhum nível N1..N4"
-    }
-  ];
-
-  return (
-    <section className="panel rounded-lg p-4">
-      <h3 className="mb-3 text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
-        Resumo da classificação
-      </h3>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {items.map((item) => (
-          <div key={item.label} className="rounded-lg border border-zinc-200 bg-white/60 px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{item.label}</p>
-            <p className="mt-0.5 truncate text-lg font-light text-zinc-950" title={item.value}>
-              {item.value}
-            </p>
-            <p className="text-[10px] text-zinc-500">{item.hint}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function int(value: number): string {
   return Number.isFinite(value) ? value.toLocaleString("pt-BR") : "0";
-}
-
-/** Percentual de uma parte sobre o total — nunca exibe NaN/Infinity. */
-function percent(part: number, total: number): string {
-  const value = total > 0 ? (part / total) * 100 : 0;
-  const safe = Number.isFinite(value) ? value : 0;
-  return `${safe.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 
 /** Data (curta) da requisição pendente mais antiga, ou "—". */

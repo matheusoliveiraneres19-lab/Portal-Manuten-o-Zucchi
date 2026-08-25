@@ -8,10 +8,18 @@ import { CHART_SERIES, GOLD, SEMANTIC } from "@/constants/theme";
 
 type PurchaseClassificationTreeProps = {
   nodes: PurchaseClassificationNode[];
-  /** Total de pendências no recorte — base das barras de proporção. */
+  /** Total de registros no recorte — base das barras de proporção. */
   total: number;
-  /** Pendências sem nenhum nível preenchido (rodapé informativo). */
+  /** Registros sem nenhum nível preenchido (rodapé informativo). */
   unclassified: number;
+  /** Título do painel ("Classificação das Pendências"/"das Realizadas"). */
+  title: string;
+  /** Uma linha explicando o que a hierarquia conta nesta aba. */
+  description: string;
+  /** Texto do estado vazio (nenhum registro do recorte tem N1). */
+  emptyDescription: string;
+  /** Substantivo contado no rodapé: "N <noun> sem nenhum nível...". */
+  unclassifiedNoun: string;
 };
 
 /** Cor por profundidade (N1 → N4), mantendo a paleta premium Zucchi. */
@@ -19,28 +27,32 @@ type PurchaseClassificationTreeProps = {
 const DEPTH_COLORS = [CHART_SERIES.compras, CHART_SERIES.ordens, GOLD.deep, SEMANTIC.petroleum.on_dark];
 
 /**
- * Visão hierárquica "Classificação das Pendências" (TAREFA 9):
- * N1 > N2 > N3 > N4 com a quantidade de requisições em cada nível.
- * Os N1 já vêm abertos; os níveis mais profundos abrem sob demanda.
+ * Visão hierárquica da classificação (TAREFA 9): N1 > N2 > N3 > N4 com a
+ * quantidade de registros em cada nível. Os N1 já vêm abertos; os níveis mais
+ * profundos abrem sob demanda.
+ *
+ * O texto vem por prop porque as duas abas de Compras usam o MESMO componente
+ * sobre recortes diferentes (pendências e realizadas).
  */
-export function PurchaseClassificationTree({ nodes, total, unclassified }: PurchaseClassificationTreeProps) {
+export function PurchaseClassificationTree({
+  nodes,
+  total,
+  unclassified,
+  title,
+  description,
+  emptyDescription,
+  unclassifiedNoun
+}: PurchaseClassificationTreeProps) {
   return (
     <article className="panel rounded-lg p-4">
       <div className="mb-1 flex items-center gap-2">
         <Layers className="h-4 w-4 text-gold-deep" />
-        <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
-          Classificação das Pendências
-        </h3>
+        <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">{title}</h3>
       </div>
-      <p className="mb-3 text-[11px] text-zinc-500">
-        Hierarquia N1 &rsaquo; N2 &rsaquo; N3 &rsaquo; N4 com a quantidade de requisições pendentes em cada nível.
-      </p>
+      <p className="mb-3 text-[11px] text-zinc-500">{description}</p>
 
       {nodes.length === 0 ? (
-        <EmptyState
-          title="Sem classificação no recorte"
-          description="Nenhuma requisição pendente filtrada possui N1 preenchido."
-        />
+        <EmptyState title="Sem classificação no recorte" description={emptyDescription} />
       ) : (
         <>
           <div className="space-y-1">
@@ -50,8 +62,8 @@ export function PurchaseClassificationTree({ nodes, total, unclassified }: Purch
           </div>
           {unclassified > 0 ? (
             <p className="mt-3 border-t border-zinc-200 pt-2 text-[11px] text-zinc-500">
-              <strong className="font-semibold text-zinc-700">{int(unclassified)}</strong> requisição(ões) pendente(s)
-              sem nenhum nível de classificação preenchido.
+              <strong className="font-semibold text-zinc-700">{int(unclassified)}</strong> {unclassifiedNoun} sem nenhum
+              nível de classificação preenchido.
             </p>
           ) : null}
         </>

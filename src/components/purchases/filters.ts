@@ -16,11 +16,17 @@ export type AppliedPurchaseFilters = {
   /** Status operacional canônico (enum). */
   statuses: string[];
   requesters: string[];
-  /** Classificação N1..N4 (só usada na aba Compras Pendentes). */
+  /** Classificação N1..N4 (Compras Pendentes e Compras Realizadas). */
   classificationsN1: string[];
   classificationsN2: string[];
   classificationsN3: string[];
   classificationsN4: string[];
+  /**
+   * "Retrato atual": só as linhas da última planilha importada. Controle da aba
+   * Compras Realizadas — false (histórico completo) é o padrão, para não perder
+   * de vista as compras de planilhas anteriores.
+   */
+  latestImportOnly: boolean;
   /** "" = data de referência (padrão); senão um campo de data específico. */
   dateField: string;
   startDate: string;
@@ -39,6 +45,7 @@ export const EMPTY_PURCHASE_FILTERS: AppliedPurchaseFilters = {
   classificationsN2: [],
   classificationsN3: [],
   classificationsN4: [],
+  latestImportOnly: false,
   dateField: "",
   startDate: "",
   endDate: ""
@@ -86,7 +93,35 @@ export function countActiveFilters(filters: AppliedPurchaseFilters): number {
   }
   if (filters.search.trim()) count += 1;
   if (filters.startDate || filters.endDate) count += 1;
+  if (filters.latestImportOnly) count += 1;
   return count;
+}
+
+/**
+ * Remove um valor de um grupo (com `value`) ou zera o filtro inteiro (sem
+ * `value`), respeitando o TIPO de cada chave. Fica aqui, e não nas páginas,
+ * porque as duas abas removem chips do mesmo jeito — e porque um `[key]: ""`
+ * genérico gravaria string vazia em `latestImportOnly`, que é booleano.
+ */
+export function removePurchaseFilter(
+  filters: AppliedPurchaseFilters,
+  key: keyof AppliedPurchaseFilters,
+  value?: string
+): AppliedPurchaseFilters {
+  // O chip de período cobre as duas pontas do intervalo: limpa as duas juntas.
+  if (key === "startDate" || key === "endDate") {
+    return { ...filters, startDate: "", endDate: "" };
+  }
+  const current = filters[key];
+  if (Array.isArray(current)) {
+    return value === undefined
+      ? { ...filters, [key]: [] }
+      : { ...filters, [key]: current.filter((item) => item !== value) };
+  }
+  if (typeof current === "boolean") {
+    return { ...filters, [key]: false };
+  }
+  return { ...filters, [key]: "" };
 }
 
 /** Converte os filtros aplicados em query string da URL (arrays como CSV). */
@@ -108,6 +143,7 @@ export function purchaseFiltersToParams(filters: AppliedPurchaseFilters): URLSea
   setCsv("n2", filters.classificationsN2);
   setCsv("n3", filters.classificationsN3);
   setCsv("n4", filters.classificationsN4);
+  if (filters.latestImportOnly) params.set("retrato", "atual");
   if (filters.dateField) params.set("campoData", filters.dateField);
   if (filters.startDate) params.set("startDate", filters.startDate);
   if (filters.endDate) params.set("endDate", filters.endDate);
@@ -157,6 +193,9 @@ export function parsePurchaseQueryParams(searchParams: SearchParams): PurchaseQu
     classificationsN2: csvParam(searchParams.n2),
     classificationsN3: csvParam(searchParams.n3),
     classificationsN4: csvParam(searchParams.n4),
+    // Só "retrato=atual" liga o recorte da última planilha; qualquer outro valor
+    // (ou a ausência do parâmetro) mantém o histórico completo.
+    latestImportOnly: firstParam(searchParams.retrato) === "atual",
     dateField: dateFieldRaw && DATE_FIELDS.includes(dateFieldRaw) ? (dateFieldRaw as PurchaseDateField) : undefined,
     startDate: firstParam(searchParams.startDate),
     endDate: firstParam(searchParams.endDate),
@@ -179,6 +218,7 @@ export function queryParamsToFilters(params: PurchaseQueryParams): AppliedPurcha
     classificationsN2: params.classificationsN2 ?? [],
     classificationsN3: params.classificationsN3 ?? [],
     classificationsN4: params.classificationsN4 ?? [],
+    latestImportOnly: params.latestImportOnly ?? false,
     dateField: params.dateField ?? "",
     startDate: params.startDate ?? "",
     endDate: params.endDate ?? ""

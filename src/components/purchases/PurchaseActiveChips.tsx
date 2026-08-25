@@ -37,6 +37,12 @@ export function PurchaseActiveChips({ filters, onRemove }: PurchaseActiveChipsPr
     (filters[key] as string[]).forEach((value) => chips.push({ key, value, label: `${level}: ${value}` }));
   }
 
+  // Recorte da última planilha (Compras Realizadas): entra como chip removível
+  // para ficar visível no mesmo lugar dos outros filtros ativos.
+  if (filters.latestImportOnly) {
+    chips.push({ key: "latestImportOnly", label: "Retrato: última planilha" });
+  }
+
   if (filters.startDate || filters.endDate) {
     chips.push({ key: "startDate", label: `Período: ${filters.startDate || "…"} → ${filters.endDate || "…"}` });
   }

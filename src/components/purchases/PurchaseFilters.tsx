@@ -23,11 +23,20 @@ type PurchaseFiltersProps = {
   onApply: () => void;
   onClear: () => void;
   /**
-   * Opções em cascata dos filtros N1/N2/N3/N4. Só a aba Compras Pendentes
-   * fornece — sem elas, a seção de classificação nem é renderizada (Compras
-   * Realizadas segue exatamente como estava).
+   * Opções em cascata dos filtros N1/N2/N3/N4, fornecidas pela aba quando a base
+   * importada tem algum nível preenchido. Sem elas a seção de classificação nem
+   * é renderizada.
    */
   classificationOptions?: PurchaseClassificationOptions;
+  /**
+   * Mostra a alternância "Retrato atual" (`latestImportOnly`).
+   *
+   * Só a aba Compras Realizadas passa `true`: lá o padrão é o histórico completo
+   * de todas as importações, e o recorte da última planilha é uma escolha do
+   * usuário. Em Compras Pendentes o recorte é FIXO (é a regra da aba), então
+   * oferecer o controle sugeriria um desligamento que não existe.
+   */
+  showSnapshotToggle?: boolean;
   /**
    * Mostra os filtros "Tipo" e "Status", que falam o vocabulário da regra
    * gerencial (serviço Y0008, Y04, ignorado, comprado, entregue...).
@@ -54,7 +63,8 @@ export function PurchaseFilters({
   onApply,
   onClear,
   classificationOptions,
-  showStatusAndKindFilters = true
+  showStatusAndKindFilters = true,
+  showSnapshotToggle = false
 }: PurchaseFiltersProps) {
   /**
    * Ao mudar um nível, LIMPA os níveis abaixo dele: uma seleção de N3 herdada de
@@ -190,6 +200,26 @@ export function PurchaseFilters({
           <p className="mt-2 text-[10px] text-zinc-500">
             Filtros em cascata: escolher um N1 restringe as opções de N2, e assim por diante.
           </p>
+        </div>
+      ) : null}
+
+      {showSnapshotToggle ? (
+        <div className="mt-5 border-t border-gold/10 pt-4">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={draft.latestImportOnly}
+              onChange={(event) => onChange("latestImportOnly", event.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-gold"
+            />
+            <span className="text-sm text-zinc-300">
+              <span className="font-semibold text-zinc-100">Retrato atual</span> — considerar só as linhas
+              presentes na última planilha importada.
+              <span className="mt-0.5 block text-[10px] text-zinc-500">
+                Desmarcado (padrão), a aba mostra o histórico completo de todas as importações.
+              </span>
+            </span>
+          </label>
         </div>
       ) : null}
 

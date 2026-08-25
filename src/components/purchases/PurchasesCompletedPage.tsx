@@ -15,9 +15,14 @@ import { PurchaseImportModal } from "@/components/purchases/PurchaseImportModal"
 import {
   EMPTY_PURCHASE_FILTERS,
   purchaseFiltersToParams,
+  removePurchaseFilter,
   type AppliedPurchaseFilters
 } from "@/components/purchases/filters";
 import { goodsGroupsToRank } from "@/components/purchases/PurchaseInsightCharts";
+import {
+  COMPLETED_CLASSIFICATION_COPY,
+  PurchaseClassificationSection
+} from "@/components/purchases/PurchaseClassificationSection";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import { formatCurrency } from "@/utils/formatters";
 import type { CompletedPurchasesPageData } from "@/types/purchases";
@@ -80,14 +85,7 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
   }
 
   function removeChip(key: keyof AppliedPurchaseFilters, value?: string) {
-    let next: AppliedPurchaseFilters;
-    if (key === "startDate") {
-      next = { ...appliedFilters, startDate: "", endDate: "" };
-    } else if (value !== undefined && Array.isArray(appliedFilters[key])) {
-      next = { ...appliedFilters, [key]: (appliedFilters[key] as string[]).filter((item) => item !== value) };
-    } else {
-      next = { ...appliedFilters, [key]: "" };
-    }
+    const next = removePurchaseFilter(appliedFilters, key, value);
     setDraft(next);
     navigate(next);
   }
@@ -149,6 +147,8 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
         onChange={updateDraft}
         onApply={applyFilters}
         onClear={clearFilters}
+        classificationOptions={data.classification.available ? data.classificationOptions : undefined}
+        showSnapshotToggle
       />
 
       <PurchaseActiveChips filters={appliedFilters} onRemove={removeChip} />
@@ -194,6 +194,15 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
             />
             <PurchaseProcessTimeChart className="xl:col-span-6" times={data.processTimes} />
           </section>
+
+          {/* Mesma análise N1 > N2 > N3 > N4 da aba Pendentes, sobre o conjunto
+              desta aba (COMPRADO + ENTREGUE) — ver COMPLETED_CLASSIFICATION_COPY. */}
+          <PurchaseClassificationSection
+            classification={data.classification}
+            total={data.purchases.total}
+            selectedN1={appliedFilters.classificationsN1}
+            copy={COMPLETED_CLASSIFICATION_COPY}
+          />
 
           <PurchaseTable data={data.purchases} variant="completed" onPageChange={(page) => navigate(appliedFilters, page)} />
         </>

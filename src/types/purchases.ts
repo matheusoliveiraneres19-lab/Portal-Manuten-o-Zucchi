@@ -220,6 +220,13 @@ export type PurchaseQueryParams = {
   classificationsN2?: string[];
   classificationsN3?: string[];
   classificationsN4?: string[];
+  /**
+   * "Retrato atual": considerar SÓ as linhas presentes na última planilha
+   * importada. A aba Compras Pendentes aplica esse recorte SEMPRE (regra da
+   * aba); Compras Realizadas o expõe como alternância, com o histórico completo
+   * de todas as importações como padrão.
+   */
+  latestImportOnly?: boolean;
   /** Período sobre o campo escolhido (default: data de referência). */
   dateField?: PurchaseDateField;
   startDate?: string;
@@ -356,9 +363,9 @@ export type PurchaseClassificationNode = {
 
 /**
  * Opções dos filtros N1/N2/N3/N4, em CASCATA: `n2` já vem restrito ao `n1`
- * selecionado, `n3` ao `n1`+`n2`, e assim por diante. Fica em
- * `PendingPurchasesPageData` (não no `PurchaseFilterOptions` compartilhado)
- * porque só a aba Compras Pendentes usa esse recorte.
+ * selecionado, `n3` ao `n1`+`n2`, e assim por diante. Fica no page data de cada
+ * aba (não no `PurchaseFilterOptions` compartilhado) porque as opções derivam do
+ * conjunto que AQUELA aba lista — as pendências em uma, as realizadas na outra.
  */
 export type PurchaseClassificationOptions = {
   n1: Array<{ value: string; label: string }>;
@@ -367,22 +374,26 @@ export type PurchaseClassificationOptions = {
   n4: Array<{ value: string; label: string }>;
 };
 
-/** Bloco de análise por classificação da aba Compras Pendentes. */
+/**
+ * Bloco de análise por classificação. Serve as duas abas de Compras: o conteúdo
+ * é sempre calculado sobre o MESMO conjunto que a aba lista na tabela —
+ * pendências em Compras Pendentes, comprados/entregues em Compras Realizadas.
+ */
 export type PurchaseClassificationInsights = {
   /** false = a base importada não tem NENHUM N1..N4 (mostra aviso, não gráfico zerado). */
   available: boolean;
-  /** Compras Pendentes por N1 (maior → menor). */
+  /** Contagem por N1 no recorte da aba (maior → menor). */
   byN1: PurchaseClassificationSlice[];
-  /** Compras Pendentes por N2 — já respeita o filtro de N1 aplicado. */
+  /** Contagem por N2 — já respeita o filtro de N1 aplicado. */
   byN2: PurchaseClassificationSlice[];
   /** Árvore N1 > N2 > N3 > N4 com a contagem em cada nível. */
   tree: PurchaseClassificationNode[];
   /** N1/N2 mais recorrentes no conjunto filtrado (cards de apoio). */
   topN1: PurchaseClassificationSlice | null;
   topN2: PurchaseClassificationSlice | null;
-  /** Requisições pendentes sem nenhum nível preenchido. */
+  /** Registros do recorte sem nenhum nível preenchido. */
   unclassified: number;
-  /** Cobertura por nível dentro das pendências filtradas. */
+  /** Cobertura por nível dentro do recorte filtrado. */
   coverage: { n1: number; n2: number; n3: number; n4: number };
 };
 
@@ -579,6 +590,14 @@ export type CompletedPurchasesPageData = {
   receivedByGoodsGroup: PurchaseGroupCount[];
   regularizationByGoodsGroup: PurchaseGroupCount[];
   processTimes: PurchaseProcessTimes;
+  /**
+   * Análise por classificação N1 > N2 > N3 > N4 das compras realizadas
+   * filtradas — calculada sobre o MESMO conjunto da tabela (COMPRADO +
+   * ENTREGUE), como em Compras Pendentes.
+   */
+  classification: PurchaseClassificationInsights;
+  /** Opções em cascata dos filtros N1/N2/N3/N4. */
+  classificationOptions: PurchaseClassificationOptions;
   purchases: PaginatedPurchases;
   filterOptions: PurchaseFilterOptions;
   source: PageDataSource;

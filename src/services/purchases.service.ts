@@ -199,8 +199,10 @@ function v31Where(group: PurchaseV31Group, today: Date): Prisma.PurchaseRecordWh
  * cada importação regrava `importBatch` em toda linha que veio na planilha, logo
  * "último lote" == "presente no export atual do SAP".
  *
- * Compras Realizadas NÃO usa este recorte de propósito: lá o histórico das
- * planilhas anteriores é justamente o que se quer ver.
+ * Em Compras Pendentes o recorte é FIXO (é a regra da aba). Compras Realizadas o
+ * oferece como alternância (`params.latestImportOnly`, ver `snapshotWhere`) e
+ * mantém o histórico completo por padrão: lá as compras das planilhas anteriores
+ * são justamente o que se quer ver.
  */
 const loadLatestImportBatch = cache(async (): Promise<string | null> => {
   const latest = await prisma.purchaseRecord.findFirst({
@@ -215,6 +217,19 @@ const loadLatestImportBatch = cache(async (): Promise<string | null> => {
 async function latestImportWhere(): Promise<Prisma.PurchaseRecordWhereInput> {
   const batch = await loadLatestImportBatch();
   return batch ? { importBatch: batch } : {};
+}
+
+/**
+ * Recorte OPCIONAL do retrato atual, ligado pelo usuário (`retrato=atual` na
+ * URL de Compras Realizadas). Sem a opção marcada devolve cláusula vazia, e a
+ * aba segue mostrando o histórico completo de todas as importações.
+ *
+ * Toda consulta da aba passa por aqui — tabela, cards, gráficos e tempos de
+ * processo — para que a alternância nunca deixe um card falando de um recorte e
+ * a tabela de outro.
+ */
+async function snapshotWhere(params: PurchaseQueryParams): Promise<Prisma.PurchaseRecordWhereInput> {
+  return params.latestImportOnly ? latestImportWhere() : {};
 }
 
 /**
@@ -399,9 +414,16 @@ async function pendingWhere(params: PurchaseQueryParams, today: Date): Promise<P
   return mergeWhere(buildFilterWhere(params, today), await latestImportWhere(), v31Where("PENDENTE_COMPRA", today));
 }
 
-/** Página Realizadas: COMPRADO + ENTREGUE (respeita o filtro "Tipo"). */
-function completedWhere(params: PurchaseQueryParams, today: Date): Prisma.PurchaseRecordWhereInput {
-  return mergeWhere(buildFilterWhere(params, today), scopeByKind(params.kinds, COMPLETED_TABLE_STATUSES, today));
+/**
+ * Página Realizadas: COMPRADO + ENTREGUE (respeita o filtro "Tipo") e o recorte
+ * opcional do retrato atual (ver `snapshotWhere`).
+ */
+async function completedWhere(params: PurchaseQueryParams, today: Date): Promise<Prisma.PurchaseRecordWhereInput> {
+  return mergeWhere(
+    buildFilterWhere(params, today),
+    await snapshotWhere(params),
+    scopeByKind(params.kinds, COMPLETED_TABLE_STATUSES, today)
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -428,7 +450,9 @@ async function sumPurchaseValue(where: Prisma.PurchaseRecordWhereInput): Promise
 
 export const getPurchaseSummary = cache(async (params: PurchaseQueryParams = {}): Promise<PurchaseKpis> => {
   const today = getTodayDate();
-  const base = buildFilterWhere(params, today);
+  // O retrato atual entra no `base`, e não em cada contagem: assim os KPIs da
+  // aba acompanham a alternância junto com a tabela e os gráficos.
+  const base = mergeWhere(buildFilterWhere(params, today), await snapshotWhere(params));
   const y01 = mergeWhere(base, Y01_BASE);
   const count = (where: Prisma.PurchaseRecordWhereInput) => prisma.purchaseRecord.count({ where });
 
@@ -687,7 +711,7 @@ export async function getPendingPurchasesList(params: PurchaseQueryParams = {}, 
 
 /** Compras realizadas (paginadas) — REGRA 12. */
 export async function getCompletedPurchasesList(params: PurchaseQueryParams = {}, today: Date = getTodayDate()): Promise<PaginatedPurchases> {
-  return paginate(completedWhere(params, today), params, today, [{ receiptDate: "desc" }]);
+  return paginate(await completedWhere(params, today), params, today, [{ receiptDate: "desc" }]);
 }
 
 /* ------------------------------------------------------------------ */
@@ -738,15 +762,28 @@ const loadPendingAnalysisRows = cache(async (params: PurchaseQueryParams = {}): 
 /** Entregues (recebimento lançado + Recbconcl "X") — gráficos de recebimento. */
 const loadCompletedAnalysisRows = cache(async (params: PurchaseQueryParams = {}): Promise<AnalysisRow[]> =>
   prisma.purchaseRecord.findMany({
-    where: mergeWhere(buildFilterWhere(params, getTodayDate()), { ignored: false, ...DELIVERED }),
+    where: mergeWhere(buildFilterWhere(params, getTodayDate()), await snapshotWhere(params), {
+      ignored: false,
+      ...DELIVERED
+    }),
     select: analysisSelect
   })
 );
 
+/**
+ * Registros da TABELA de Compras Realizadas (COMPRADO + ENTREGUE) — base da
+ * análise N1..N4 da aba. Usa exatamente a mesma cláusula da tabela, então a
+ * árvore, os gráficos por nível e o total paginado nunca divergem.
+ */
+const loadCompletedTableRows = cache(async (params: PurchaseQueryParams = {}): Promise<AnalysisRow[]> => {
+  const today = getTodayDate();
+  return prisma.purchaseRecord.findMany({ where: await completedWhere(params, today), select: analysisSelect });
+});
+
 /** Y04 (todas, recebidas ou não) — gráfico de Regularização por grupo. */
 const loadRegularizationRows = cache(async (params: PurchaseQueryParams = {}): Promise<AnalysisRow[]> =>
   prisma.purchaseRecord.findMany({
-    where: mergeWhere(buildFilterWhere(params, getTodayDate()), {
+    where: mergeWhere(buildFilterWhere(params, getTodayDate()), await snapshotWhere(params), {
       ignored: false,
       isService: false,
       purchaseType: PurchaseType.REGULARIZACAO
@@ -1045,7 +1082,7 @@ function emptyClassificationOptions(): PurchaseClassificationOptions {
 /* ------------------------------------------------------------------ */
 
 export async function getPurchaseProcessTimes(params: PurchaseQueryParams = {}): Promise<PurchaseProcessTimes> {
-  const base = mergeWhere(buildFilterWhere(params, getTodayDate()), { ignored: false });
+  const base = mergeWhere(buildFilterWhere(params, getTodayDate()), await snapshotWhere(params), { ignored: false });
   const [averages, slowestReqToOrder, slowestTotal] = await Promise.all([
     prisma.purchaseRecord.aggregate({
       where: base,
@@ -1325,6 +1362,8 @@ function emptyCompletedPurchasesPageData(
     receivedByGoodsGroup: [],
     regularizationByGoodsGroup: [],
     processTimes: emptyProcessTimes(),
+    classification: emptyClassificationInsights(),
+    classificationOptions: emptyClassificationOptions(),
     purchases: emptyPage(params),
     filterOptions: emptyFilterOptions(),
     source
@@ -1349,16 +1388,40 @@ async function loadCompletedPurchasesPageData(params: PurchaseQueryParams): Prom
     return emptyCompletedPurchasesPageData(params);
   }
 
-  const [kpis, receivedRows, regularizationRows, processTimes, purchases, filterOptions] = await Promise.all([
+  // Mesma decisão da aba Pendentes: os filtros N1..N4 saem da consulta de
+  // ANÁLISE para que as opções em cascata continuem oferecendo os irmãos do
+  // valor selecionado. O recorte final é aplicado em memória logo abaixo.
+  const paramsWithoutClassification: PurchaseQueryParams = {
+    ...params,
+    classificationsN1: [],
+    classificationsN2: [],
+    classificationsN3: [],
+    classificationsN4: []
+  };
+
+  const [
+    kpis,
+    receivedRows,
+    regularizationRows,
+    completedRowsUnfiltered,
+    processTimes,
+    purchases,
+    filterOptions,
+    classificationAvailable
+  ] = await Promise.all([
     getPurchaseSummary(params),
     loadCompletedAnalysisRows(params),
     loadRegularizationRows(params),
+    loadCompletedTableRows(paramsWithoutClassification),
     getPurchaseProcessTimes(params),
     getCompletedPurchasesList(params, today),
-    getPurchaseFilterOptions()
+    getPurchaseFilterOptions(),
+    hasClassificationData()
   ]);
 
   const lateReceived = receivedRows.filter((row) => row.isLateReceived);
+  // Recorte final da análise N1..N4 — mesma semântica do SQL da tabela.
+  const completedRows = completedRowsUnfiltered.filter((row) => matchesClassificationFilters(row, params));
 
   return {
     period,
@@ -1369,6 +1432,8 @@ async function loadCompletedPurchasesPageData(params: PurchaseQueryParams): Prom
     receivedByGoodsGroup: groupCountByGoodsGroup(receivedRows),
     regularizationByGoodsGroup: groupCountByGoodsGroup(regularizationRows),
     processTimes,
+    classification: buildClassificationInsights(completedRows, classificationAvailable),
+    classificationOptions: buildClassificationOptions(completedRowsUnfiltered, params),
     purchases,
     filterOptions,
     source: "database"
