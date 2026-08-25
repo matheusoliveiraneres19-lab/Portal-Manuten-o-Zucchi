@@ -18,11 +18,46 @@
  *
  * Use NEXT_DIST_DIR apenas para builds paralelos dentro do projeto
  * (ex.: NEXT_DIST_DIR=.next-verify, já coberto pelo .gitignore).
- *
- * @type {import('next').NextConfig}
  */
+
+/**
+ * Cabeçalhos de segurança aplicados a TODAS as rotas.
+ *
+ * O portal é um app de sessão por cookie, então o alvo principal aqui é
+ * clickjacking: sem `X-Frame-Options`, qualquer página externa podia embutir o
+ * dashboard num iframe invisível e colher cliques de um usuário já autenticado.
+ *
+ * `DENY` é seguro porque nada do portal é feito para ser embutido — os vídeos de
+ * procedimento são o portal ENQUADRANDO o YouTube, o que este cabeçalho não
+ * afeta (ele só governa quem pode enquadrar o portal).
+ *
+ * NÃO há Content-Security-Policy aqui de propósito: o Next injeta scripts e
+ * estilos inline no App Router, então uma CSP precisa de nonce por requisição e
+ * um erro derruba a renderização inteira. Fica como trabalho separado, com
+ * validação página por página — o `frame-ancestors` que ela traria já está
+ * coberto pelo X-Frame-Options acima.
+ */
+const securityHeaders = [
+  // Ninguém enquadra o portal em iframe/frame/object.
+  { key: "X-Frame-Options", value: "DENY" },
+  // Impede o browser de "adivinhar" outro Content-Type que o declarado, o que
+  // transformaria um anexo enviado por usuário em script executável.
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  // Não vaza o caminho interno (ex.: /dashboard/equipe/<id>) para terceiros.
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  // O portal não usa câmera, microfone nem geolocalização.
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" }
+];
+
+/** @type {import('next').NextConfig} */
 const nextConfig = {
-  distDir: process.env.NEXT_DIST_DIR || ".next"
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+  // Remove o "X-Powered-By: Next.js", que só serve para informar a versão do
+  // framework a quem procura um alvo.
+  poweredByHeader: false,
+  async headers() {
+    return [{ source: "/:path*", headers: securityHeaders }];
+  }
 };
 
 export default nextConfig;

@@ -2,11 +2,17 @@ import { NextResponse, type NextRequest } from "next/server";
 import { PcFactoryStatusCategory } from "@prisma/client";
 import { getPcFactoryRecords } from "@/services/pc-factory.service";
 import type { PcFactoryQueryParams } from "@/types/pc-factory";
+import { requireApiSession } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
+  // Defesa em profundidade: o middleware já bloqueia /api/* sem sessão, mas a
+  // rota revalida por conta própria para não depender só do matcher.
+  const { error } = await requireApiSession();
+  if (error) return error;
+
   try {
     const sp = request.nextUrl.searchParams;
     const params: PcFactoryQueryParams = {

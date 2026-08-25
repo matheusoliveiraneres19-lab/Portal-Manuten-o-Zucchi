@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getTeamHours } from "@/services/team-hours.service";
 import type { TeamHoursOsType } from "@/types/collaborators";
 import { monthRange, toEndOfDay, toStartOfDay, type DateRange } from "@/utils/date-range";
+import { requireApiSession } from "@/lib/auth-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,11 @@ function resolveOsType(value: string | null): TeamHoursOsType {
 }
 
 export async function GET(request: NextRequest) {
+  // Defesa em profundidade: o middleware já bloqueia /api/* sem sessão, mas a
+  // rota revalida por conta própria para não depender só do matcher.
+  const { error } = await requireApiSession();
+  if (error) return error;
+
   const sp = request.nextUrl.searchParams;
   const period = resolvePeriod(sp.get("startDate"), sp.get("endDate"));
   const osType = resolveOsType(sp.get("osType"));

@@ -8,10 +8,16 @@ import {
   type PlanningGroupKey
 } from "@/utils/service-order-planning";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
+import { requireApiSession } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  // Defesa em profundidade: o middleware já bloqueia /api/* sem sessão, mas a
+  // rota revalida por conta própria para não depender só do matcher.
+  const { error } = await requireApiSession();
+  if (error) return error;
+
   const params = request.nextUrl.searchParams;
   const id = params.get("id");
 

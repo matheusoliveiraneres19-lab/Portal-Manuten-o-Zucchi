@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { LubricantMovementCategory } from "@prisma/client";
 import { getLubricantMovements } from "@/services/lubricants.service";
+import { requireApiSession } from "@/lib/auth-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,11 @@ function parseCategory(value: string | null): LubricantMovementCategory | undefi
 }
 
 export async function GET(request: NextRequest) {
+  // Defesa em profundidade: o middleware já bloqueia /api/* sem sessão, mas a
+  // rota revalida por conta própria para não depender só do matcher.
+  const { error } = await requireApiSession();
+  if (error) return error;
+
   const params = request.nextUrl.searchParams;
 
   try {
