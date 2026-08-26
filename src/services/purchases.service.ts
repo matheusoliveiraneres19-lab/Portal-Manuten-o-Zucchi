@@ -561,7 +561,6 @@ const rowSelect = {
   unit: true,
   netTotal: true,
   grossTotal: true,
-  netValue: true,
   requisitionDate: true,
   purchaseOrderDate: true,
   expectedDeliveryDate: true,
@@ -583,6 +582,7 @@ const rowSelect = {
   classificationN2: true,
   classificationN3: true,
   classificationN4: true,
+  requisitionLevel: true,
   trackingNumber: true,
   purchasePriority: true,
   itemNature: true,
@@ -695,8 +695,11 @@ function toRow(record: RowRecord, today: Date, rule: PurchaseRuleMode = "regraPo
     classificationN4: record.classificationN4,
     // Prioridade (TAREFA 9): normaliza de novo o que está gravado para que a
     // coluna da tabela nunca mostre um valor fora das cinco chaves conhecidas.
+    // O cru vem de "Nível requisição" e cai para "Nº acompanhamento" — a mesma
+    // precedência do importador, para o badge e a coluna secundária não
+    // discordarem da prioridade calculada.
     priority: purchasePriorityKey(record.purchasePriority),
-    trackingNumber: record.trackingNumber,
+    priorityRaw: record.requisitionLevel ?? record.trackingNumber,
     itemNature: record.itemNature,
     requester: record.requester
   };
@@ -763,6 +766,7 @@ const analysisSelect = {
   classificationN3: true,
   classificationN4: true,
   // Prioridade + campos que o ranking "Top Compras Pendentes Críticas" exibe.
+  requisitionLevel: true,
   trackingNumber: true,
   purchasePriority: true,
   itemDescription: true,
@@ -774,7 +778,6 @@ const analysisSelect = {
   receiptDate: true,
   netTotal: true,
   grossTotal: true,
-  netValue: true,
   isService: true,
   isBlocked: true,
   ignored: true,
@@ -923,12 +926,12 @@ const hasPriorityData = cache(async (): Promise<boolean> => {
 });
 
 /**
- * A base importada tem a coluna "Valor líquido"? Quando `false`, o card
+ * A base importada tem a coluna "Total líquido"? Quando `false`, o card
  * "Valor comprado" NÃO exibe número — ver TAREFA 12.
  */
 const hasNetValueData = cache(async (): Promise<boolean> => {
   const found = await prisma.purchaseRecord.findFirst({
-    where: { NOT: { netValue: null } },
+    where: { NOT: { netTotal: null } },
     select: { id: true }
   });
   return found !== null;
@@ -937,11 +940,15 @@ const hasNetValueData = cache(async (): Promise<boolean> => {
 /**
  * TAREFA 13 — cards da aba Compras Realizadas.
  *
- * `purchasedNetValue` é a SOMA DA COLUNA "Valor líquido" (`netValue`) no mesmo
+ * `purchasedNetValue` é a SOMA DA COLUNA "Total líquido" (`netTotal`) no mesmo
  * recorte de "Materiais Comprados" (base Y01 material com pedido de compra).
- * NÃO há fallback para `netTotal` ("Total liq"), `grossTotal` ("Total bruto"),
- * `Prç.avaliação` nem quantidade × preço: um valor aproximado num card de R$ é
- * pior do que um card avisando que a coluna não veio na planilha.
+ * NÃO há fallback para `grossTotal` ("Total bruto"), `Prç.avaliação` nem
+ * quantidade × preço: um valor aproximado num card de R$ é pior do que um card
+ * avisando que a coluna não veio na planilha.
+ *
+ * Repare que o fallback para `grossTotal` de `resolvePurchaseValue` — usado nos
+ * OUTROS indicadores de valor da aba — não se aplica aqui de propósito: era
+ * exatamente ele que fazia o card divergir da planilha.
  */
 export const getCompletedPurchasesSummary = cache(
   async (params: PurchaseQueryParams = {}): Promise<CompletedPurchasesSummary> => {
@@ -956,7 +963,7 @@ export const getCompletedPurchasesSummary = cache(
         count(mergeWhere(base, statusWhere(OS.REGULARIZACAO, today))),
         count(mergeWhere(base, statusWhere(OS.SERVICO, today))),
         prisma.purchaseRecord.aggregate({
-          _sum: { netValue: true },
+          _sum: { netTotal: true },
           where: mergeWhere(base, purchasedWhere())
         }),
         hasNetValueData()
@@ -967,7 +974,7 @@ export const getCompletedPurchasesSummary = cache(
       deliveredMaterials,
       regularizationsY04,
       services,
-      purchasedNetValue: round(netValueSum._sum.netValue ?? 0),
+      purchasedNetValue: round(netValueSum._sum.netTotal ?? 0),
       hasNetValueColumn
     };
   }

@@ -36,6 +36,7 @@ function row(overrides: Partial<PriorityAnalysisRow>): PriorityAnalysisRow {
   return {
     id: `row-${seq}`,
     purchasePriority: null,
+    requisitionLevel: null,
     trackingNumber: null,
     requisitionNumber: `1000000${seq}`,
     materialCode: `MAT-${seq}`,

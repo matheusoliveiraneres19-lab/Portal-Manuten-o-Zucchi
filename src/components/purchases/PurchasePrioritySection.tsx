@@ -30,8 +30,8 @@ const PurchasePriorityStackChart = dynamic(
  * linha 1 e a linha 2 — os dois blocos de cards juntos formam o cabeçalho de
  * indicadores da tela, e os gráficos vêm depois.
  *
- * Os dois dependem da MESMA condição (`priority.available`): sem a coluna
- * "Nº acompanhamento" o bloco inteiro dá lugar ao aviso — cinco cards zerados se
+ * Os dois dependem da MESMA condição (`priority.available`): sem a prioridade na
+ * base ("Nível requisição") o bloco dá lugar ao aviso — cinco cards zerados se
  * leriam como "não há pendências".
  */
 
@@ -48,8 +48,8 @@ type PriorityBlockProps = {
 /**
  * Linha 1: "Requisições Pendentes" + um card por prioridade.
  *
- * Sem a coluna "Nº acompanhamento" na base, os CINCO cards de prioridade somem e
- * entra o aviso — mas "Requisições Pendentes" fica: é o KPI principal da aba e
+ * Sem a prioridade na base, os CINCO cards de prioridade somem e entra o
+ * aviso — mas "Requisições Pendentes" fica: é o KPI principal da aba e
  * existia antes desta feature. Escondê-lo junto com o resto transformaria a
  * ausência da coluna numa PERDA de informação, não só na falta de um recurso.
  */
@@ -88,7 +88,7 @@ export function PurchasePriorityDashboards({
         <PurchasePriorityChart
           className="xl:col-span-5"
           title="Compras Pendentes por Prioridade"
-          subtitle="Quantas requisições pendentes existem em cada prioridade do Nº acompanhamento."
+          subtitle="Quantas requisições pendentes existem em cada prioridade do Nível requisição."
           slices={priority.byPriority}
           selected={selected}
           onSelect={onTogglePriority}
@@ -125,16 +125,14 @@ function PurchasePriorityNotice() {
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
       <span>
         <strong className="font-semibold text-white">
-          A coluna “Nº acompanhamento” não foi encontrada na base importada. Reimporte a planilha de compras com essa
-          coluna para habilitar os dashboards por prioridade N1/N2/N3/N4.
+          A prioridade das compras não foi encontrada na base importada. Reimporte a planilha com a coluna “Nível
+          requisição” para habilitar os dashboards por prioridade N1/N2/N3/N4.
         </strong>
         <span className="mt-0.5 block text-[11px] text-zinc-400">
           A aba continua listando normalmente as requisições sem pedido de compra — apenas os cards, gráficos, o ranking
-          crítico e o filtro por prioridade ficam indisponíveis. O importador reconhece{" "}
-          <code>Nº acompanhamento</code>, <code>N acompanhamento</code>, <code>No acompanhamento</code>,{" "}
-          <code>Número acompanhamento</code>, <code>Nr acompanhamento</code>, <code>Acompanhamento</code> e{" "}
-          <code>Prioridade</code>, e aceita os valores <code>N1</code>…<code>N4</code> ou <code>N01</code>…
-          <code>N04</code>.
+          crítico e o filtro por prioridade ficam indisponíveis. O importador lê a prioridade de{" "}
+          <code>Nível requisição</code> e, na falta dela, de <code>Nº acompanhamento</code>; aceita os valores{" "}
+          <code>N1</code>…<code>N4</code> e as variantes <code>N01</code>…<code>N04</code>.
         </span>
       </span>
     </div>

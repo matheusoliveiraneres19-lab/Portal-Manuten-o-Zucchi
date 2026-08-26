@@ -53,7 +53,12 @@ const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   data_da_requisicao: "requisitionDate",
   data_requisicao: "requisitionDate",
   requisicao: "requisitionNumber",
+  // "Nível requisição" — FONTE DA PRIORIDADE da compra (valores "N1".."N4").
+  // Ver `purchasePriorityForDatabase` em parseRow.
   nivel_requisicao: "requisitionLevel",
+  nivel_da_requisicao: "requisitionLevel",
+  nivel_req: "requisitionLevel",
+  nivel: "requisitionLevel",
   fornecedor: "supplierCode",
   descricao_fornecedor: "supplierName",
   material: "materialCode",
@@ -92,19 +97,21 @@ const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   preco_liquido: "netPrice",
   total_bruto: "grossTotal",
   total_brut: "grossTotal",
+  // VALOR TOTAL LÍQUIDO — fonte ÚNICA do card "Valor comprado" da aba Compras
+  // Realizadas (TAREFA 10). "Total líquido" e "Valor líquido" são o MESMO número
+  // em layouts diferentes de export do SAP/Fiori, então caem no mesmo campo: o
+  // card soma um campo só, sem fallback para Prç.avaliação, Total bruto ou
+  // quantidade × preço. As variantes com acento caem aqui sozinhas —
+  // `normalizarNomeColuna` remove acento e troca "." e espaço por "_" (e o
+  // `mapRow` ainda tenta a variante sem "_").
   total_liq: "netTotal",
   total_liquido: "netTotal",
-  // Coluna "Valor líquido" (TAREFA 10). Cabeçalho SEPARADO de "Total liq": o card
-  // "Valor comprado" soma SÓ esta coluna, sem fallback para Total liq/bruto,
-  // Prç.avaliação ou quantidade × preço. As variantes com acento caem aqui
-  // sozinhas — `normalizarNomeColuna` remove acento e troca "." e espaço por "_"
-  // (e o `mapRow` ainda tenta a variante sem "_").
-  valor_liquido: "netValue",
-  valor_liq: "netValue",
-  vlr_liquido: "netValue",
-  vlr_liq: "netValue",
-  valor_liquido_item: "netValue",
-  net_value: "netValue",
+  valor_total_liquido: "netTotal",
+  valor_liquido: "netTotal",
+  valor_liq: "netTotal",
+  vlr_liquido: "netTotal",
+  vlr_liq: "netTotal",
+  net_value: "netTotal",
   recebimento: "receiptNumber",
   data_recebimento: "receiptDate",
   data_de_recebimento: "receiptDate",
@@ -148,10 +155,10 @@ const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   classificacao_n4: "classificationN4",
   classificacao_nivel_4: "classificationN4",
   categoria_n4: "classificationN4",
-  // PRIORIDADE da compra — coluna "Nº acompanhamento" (TAREFA 1). Não confundir
-  // com as colunas N1..N4 acima (taxonomia hierárquica) nem com "Nível
-  // requisição" (`requisitionLevel`): aqui o CABEÇALHO é "Nº acompanhamento" e o
-  // VALOR é que vale "N1".."N4".
+  // "Nº acompanhamento" — cabeçalho ALTERNATIVO da prioridade, para layouts de
+  // export que o trazem em vez de "Nível requisição". Na planilha do portal a
+  // prioridade vem de `requisitionLevel`; este campo é o apelido de reserva
+  // (ver `purchasePriorityForDatabase` em parseRow).
   //
   // `normalizarNomeColuna` remove acento e troca todo símbolo por "_", então
   // "Nº acompanhamento", "N° acompanhamento", "N. acompanhamento" e
@@ -366,11 +373,11 @@ export async function importPurchaseRows(
   result.priorityAudit = buildPriorityAudit(parsedList, rows);
   if (!result.priorityAudit.columnDetected) {
     result.warnings.push(
-      'Coluna "Nº acompanhamento" não encontrada na planilha. Os cards, gráficos e o ranking por prioridade N1/N2/N3/N4 da aba Compras Pendentes ficarão indisponíveis até uma reimportação com essa coluna.'
+      'Coluna "Nível requisição" (ou "Nº acompanhamento") não encontrada na planilha. Os cards, gráficos e o ranking por prioridade N1/N2/N3/N4 da aba Compras Pendentes ficarão indisponíveis até uma reimportação com essa coluna.'
     );
   } else if (result.priorityAudit.unrecognizedSamples.length) {
     result.warnings.push(
-      `${result.priorityAudit.unrecognizedValues} linha(s) têm "Nº acompanhamento" fora da faixa N1..N4 e entram como "Sem prioridade". Exemplos: ${result.priorityAudit.unrecognizedSamples.join(", ")}.`
+      `${result.priorityAudit.unrecognizedValues} linha(s) têm "Nível requisição" fora da faixa N1..N4 e entram como "Sem prioridade". Exemplos: ${result.priorityAudit.unrecognizedSamples.join(", ")}.`
     );
   }
 
@@ -378,7 +385,7 @@ export async function importPurchaseRows(
   result.netValueAudit = buildNetValueAudit(parsedList, rows);
   if (!result.netValueAudit.columnDetected) {
     result.warnings.push(
-      'Coluna "Valor líquido" não encontrada na planilha. O card "Valor comprado" da aba Compras Realizadas fica sem valor — reimporte a planilha com essa coluna. Nenhum outro campo é usado como substituto, para não exibir um valor incorreto.'
+      'Coluna "Total líquido" (ou "Valor líquido") não encontrada na planilha. O card "Valor comprado" da aba Compras Realizadas fica sem valor — reimporte a planilha com essa coluna. Nenhum outro campo é usado como substituto, para não exibir um valor incorreto.'
     );
   }
 
@@ -466,9 +473,12 @@ function detectPeriod(parsedList: ParsedPurchaseRecord[]): PurchaseImportPeriod 
  * o mapeamento a reconheceu em alguma linha, mesmo que o valor esteja vazio.
  */
 /**
- * Auditoria da PRIORIDADE lida de "Nº acompanhamento" (TAREFA 12): quantas
- * linhas caíram em cada N1..N4, quantas ficaram sem prioridade e quais valores
- * o normalizador não reconheceu (amostra, para o usuário corrigir a planilha).
+ * Auditoria da PRIORIDADE (TAREFA 12): quantas linhas caíram em cada N1..N4,
+ * quantas ficaram sem prioridade e quais valores o normalizador não reconheceu
+ * (amostra, para o usuário corrigir a planilha).
+ *
+ * A fonte é "Nível requisição"; "Nº acompanhamento" entra como alternativa,
+ * na mesma ordem de precedência do `parseRow`.
  *
  * `columnDetected` olha as linhas CRUAS: a coluna existe quando o mapeamento a
  * reconheceu em alguma linha, mesmo com a célula vazia.
@@ -490,16 +500,17 @@ function buildPriorityAudit(
     withoutPriority += 1;
     // Célula PREENCHIDA que não virou prioridade: erro de digitação na planilha
     // (o vazio é "sem prioridade" legítimo e não entra na amostra).
-    if (parsed.trackingNumber) {
+    const raw = parsed.requisitionLevel ?? parsed.trackingNumber;
+    if (raw) {
       unrecognizedValues += 1;
       if (unrecognized.size < 5) {
-        unrecognized.add(`"${parsed.trackingNumber}"`);
+        unrecognized.add(`"${raw}"`);
       }
     }
   }
 
   return {
-    columnDetected: rawRows.some((row) => "trackingNumber" in row),
+    columnDetected: rawRows.some((row) => "requisitionLevel" in row || "trackingNumber" in row),
     totalRows: parsedList.length,
     n1: byPriority.N1,
     n2: byPriority.N2,
@@ -527,14 +538,14 @@ function buildNetValueAudit(
   let totalNetValue = 0;
 
   for (const parsed of parsedList) {
-    if (parsed.netValue !== null && Number.isFinite(parsed.netValue)) {
+    if (parsed.netTotal !== null && Number.isFinite(parsed.netTotal)) {
       rowsWithNetValue += 1;
-      totalNetValue += parsed.netValue;
+      totalNetValue += parsed.netTotal;
     }
   }
 
   return {
-    columnDetected: rawRows.some((row) => "netValue" in row),
+    columnDetected: rawRows.some((row) => "netTotal" in row),
     totalRows: parsedList.length,
     rowsWithNetValue,
     rowsWithoutNetValue: parsedList.length - rowsWithNetValue,
@@ -698,11 +709,11 @@ function parseRow(
   const migoDate = parsePurchaseDate(row.migoDate);
   const miroDate = parsePurchaseDate(row.miroDate);
 
-  const netTotal = parsePurchaseNumber(row.netTotal);
+  // "Total líquido" (aliás "Valor líquido") — parser de moeda dedicado, que
+  // entende "R$", milhar e o negativo à direita do SAP. É a fonte do card
+  // "Valor comprado"; nunca cai para Total bruto nem para quantidade × preço.
+  const netTotal = parsePurchaseNetValue(row.netTotal);
   const grossTotal = parsePurchaseNumber(row.grossTotal);
-  // Coluna "Valor líquido" — parser de moeda próprio (R$, milhar, negativo do
-  // SAP). Fica em campo separado: nunca cai para netTotal/grossTotal.
-  const netValue = parsePurchaseNetValue(row.netValue);
   const quantity = parsePurchaseNumber(row.quantity);
   const pendingQuantity = parsePurchaseNumber(row.pendingQuantity);
 
@@ -778,7 +789,6 @@ function parseRow(
     netPrice: parsePurchaseNumber(row.netPrice),
     grossTotal,
     netTotal,
-    netValue,
     goodsGroupCode,
     goodsGroupDescription,
     // Classificação N1..N4 — opcional na planilha; null quando a coluna não existe.
@@ -786,10 +796,13 @@ function parseRow(
     classificationN2: normalizeClassificationLevel(row.classificationN2),
     classificationN3: normalizeClassificationLevel(row.classificationN3),
     classificationN4: normalizeClassificationLevel(row.classificationN4),
-    // Prioridade (TAREFAS 1 e 2): o CRU vai para `trackingNumber` ("N03") e o
-    // normalizado para `purchasePriority` ("N3"); NULL quando não reconhecido.
+    // PRIORIDADE (TAREFAS 1 e 2). A fonte é a coluna "Nível requisição"
+    // (`requisitionLevel`), cujos valores são literalmente "N1".."N4"; quando o
+    // export não a traz, cai para "Nº acompanhamento" (`trackingNumber`).
+    // O cru fica preservado nos dois campos; `purchasePriority` guarda o
+    // normalizado ("N01" → "N3"), NULL quando não reconhecido.
     trackingNumber: normalizeTrackingNumber(row.trackingNumber),
-    purchasePriority: purchasePriorityForDatabase(row.trackingNumber),
+    purchasePriority: purchasePriorityForDatabase(row.requisitionLevel ?? row.trackingNumber),
     requester: optionalText(row.requester),
     purchasingGroup: optionalText(row.purchasingGroup),
     deletionCode,

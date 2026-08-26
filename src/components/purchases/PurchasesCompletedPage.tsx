@@ -102,21 +102,21 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
     { title: "Materiais Entregues", value: int(summary.deliveredMaterials), description: "Recebimento lançado + Recbconcl “X”", icon: ClipboardCheck, tone: "green" },
     { title: "Regularizações Y04", value: int(summary.regularizationsY04), description: `${int(kpis.regularizationsDelivered)} já recebidas`, icon: Repeat2, tone: "red" },
     { title: "Serviços (Y0008)", value: int(summary.services), description: `${int(kpis.servicesDelivered)} já recebidos`, icon: Wrench, tone: "gold" },
-    // TAREFAS 10 e 15: soma da coluna "Valor líquido". Sem a coluna na base, o
+    // TAREFAS 10 e 15: soma da coluna "Total líquido". Sem a coluna na base, o
     // card NÃO exibe número — um valor calculado de outro campo (Prç.avaliação,
-    // Total liq, quantidade × preço) estaria errado, e errado é pior que ausente.
+    // Total bruto, quantidade × preço) estaria errado, e errado é pior que ausente.
     summary.hasNetValueColumn
       ? {
           title: "Valor comprado",
           value: formatCurrency(summary.purchasedNetValue),
-          description: "Soma da coluna Valor líquido",
+          description: "Soma da coluna Total líquido",
           icon: Wallet,
           tone: "gold" as const
         }
       : {
           title: "Valor comprado",
           value: "—",
-          description: "Valor líquido não importado",
+          description: "Total líquido não importado",
           icon: Wallet,
           tone: "red" as const
         }
@@ -192,14 +192,14 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger-soft" />
               <span>
                 <strong className="font-semibold text-white">
-                  Coluna Valor líquido não encontrada na importação. Reimporte a planilha com essa coluna para calcular
+                  Coluna Total líquido não encontrada na importação. Reimporte a planilha com essa coluna para calcular
                   o valor comprado corretamente.
                 </strong>
                 <span className="mt-0.5 block text-[11px] text-zinc-400">
-                  O card “Valor comprado” fica sem valor de propósito: nenhum outro campo (Prç.avaliação, Total liq,
-                  Total bruto ou quantidade × preço) é usado como substituto, para não exibir um número incorreto. O
-                  importador aceita os cabeçalhos <code>Valor líquido</code>, <code>Valor liquido</code>,{" "}
-                  <code>Valor Líq.</code>, <code>Vlr líquido</code>, <code>Vlr.liquido</code> e <code>Net value</code>.
+                  O card “Valor comprado” fica sem valor de propósito: nenhum outro campo (Prç.avaliação, Total bruto ou
+                  quantidade × preço) é usado como substituto, para não exibir um número incorreto. O importador aceita
+                  os cabeçalhos <code>Total líquido</code>, <code>Total liq</code>, <code>Valor total líquido</code>,{" "}
+                  <code>Valor líquido</code>, <code>Vlr líquido</code> e <code>Net value</code>.
                 </span>
               </span>
             </div>

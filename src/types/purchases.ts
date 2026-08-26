@@ -62,10 +62,12 @@ export type PurchaseExcelRow = {
   classificationN2?: unknown;
   classificationN3?: unknown;
   classificationN4?: unknown;
-  /** Coluna "Nº acompanhamento" — prioridade da compra (valores "N1".."N4"). */
+  /**
+   * Coluna "Nº acompanhamento" — cabeçalho ALTERNATIVO da prioridade, para
+   * layouts que não trazem "Nível requisição" (`requisitionLevel`, a fonte
+   * usada na planilha do portal).
+   */
   trackingNumber?: unknown;
-  /** Coluna "Valor líquido" — base do card "Valor comprado". */
-  netValue?: unknown;
 };
 
 /** Registro normalizado, pronto para gravação em PurchaseRecord. */
@@ -92,9 +94,8 @@ export type ParsedPurchaseRecord = {
   grossPrice: number | null;
   netPrice: number | null;
   grossTotal: number | null;
+  /** "Total líquido" — fonte ÚNICA do card "Valor comprado". */
   netTotal: number | null;
-  /** Coluna "Valor líquido" (única fonte do card "Valor comprado"). */
-  netValue: number | null;
   goodsGroupCode: string | null;
   goodsGroupDescription: string | null;
   /** Classificação hierárquica N1 > N2 > N3 > N4 (planilha de compras). */
@@ -102,7 +103,7 @@ export type ParsedPurchaseRecord = {
   classificationN2: string | null;
   classificationN3: string | null;
   classificationN4: string | null;
-  /** "Nº acompanhamento" CRU, como veio da planilha ("N03"). */
+  /** "Nº acompanhamento" CRU, quando o export traz essa coluna alternativa. */
   trackingNumber: string | null;
   /** Prioridade normalizada ("N1".."N4"); null = sem prioridade. */
   purchasePriority: PurchasePriority | null;
@@ -196,11 +197,11 @@ export type PurchaseImportResult = {
   v31Audit?: PurchaseV31Audit;
   /** Auditoria da prioridade lida de "Nº acompanhamento" (TAREFA 12). */
   priorityAudit?: PurchasePriorityAudit;
-  /** Auditoria da coluna "Valor líquido" (TAREFA 12). */
+  /** Auditoria da coluna "Total líquido" (TAREFA 12). */
   netValueAudit?: PurchaseNetValueAudit;
 };
 
-/** Auditoria da coluna "Nº acompanhamento" na importação (TAREFA 12). */
+/** Auditoria da prioridade lida de "Nível requisição" na importação. */
 export type PurchasePriorityAudit = {
   /** A coluna existe na planilha (mesmo que alguma célula esteja vazia). */
   columnDetected: boolean;
@@ -217,7 +218,7 @@ export type PurchasePriorityAudit = {
   unrecognizedSamples: string[];
 };
 
-/** Auditoria da coluna "Valor líquido" na importação (TAREFA 12). */
+/** Auditoria da coluna "Total líquido" ("Valor líquido") na importação. */
 export type PurchaseNetValueAudit = {
   /** A coluna existe na planilha. Quando `false`, a aba avisa o usuário. */
   columnDetected: boolean;
@@ -380,12 +381,13 @@ export type PurchaseRow = {
   classificationN3: string | null;
   classificationN4: string | null;
   /**
-   * PRIORIDADE da compra (TAREFA 9) — normalizada de "Nº acompanhamento".
-   * `priority` é sempre uma das cinco chaves; `trackingNumber` guarda o valor
-   * cru ("N03") para a coluna secundária/detalhe do item.
+   * PRIORIDADE da compra (TAREFA 9). `priority` é sempre uma das cinco chaves;
+   * `priorityRaw` é o valor CRU que a originou — "Nível requisição" na planilha
+   * do portal, ou "Nº acompanhamento" nos layouts que trazem essa coluna. Fica
+   * na tabela como coluna secundária, para conferir a origem da prioridade.
    */
   priority: PurchasePriorityKey;
-  trackingNumber: string | null;
+  priorityRaw: string | null;
   itemNature: ItemNature;
   requester: string | null;
 };
@@ -623,7 +625,7 @@ export type PurchaseCriticalItem = {
   requester: string;
   merchandiseGroup: string;
   daysOpen: number | null;
-  /** "Nº acompanhamento" cru, para conferir contra a planilha. */
+  /** Valor CRU que originou a prioridade ("Nível requisição"), para conferência. */
   trackingNumberRaw: string | null;
 };
 
@@ -660,11 +662,11 @@ export type CompletedPurchasesSummary = {
   deliveredMaterials: number;
   regularizationsY04: number;
   services: number;
-  /** Soma de "Valor líquido" no recorte de compras realizadas. */
+  /** Soma de "Total líquido" no recorte de compras realizadas. */
   purchasedNetValue: number;
   /**
-   * A base importada tem a coluna "Valor líquido". Quando `false`, o card NÃO
-   * mostra número: exibe "Valor líquido não importado" e a aba pede reimportação.
+   * A base importada tem a coluna "Total líquido". Quando `false`, o card NÃO
+   * mostra número: exibe "Total líquido não importado" e a aba pede reimportação.
    */
   hasNetValueColumn: boolean;
 };

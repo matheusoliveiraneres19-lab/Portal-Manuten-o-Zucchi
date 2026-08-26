@@ -49,7 +49,7 @@ export function PurchaseCriticalTable({ items }: { items: PurchaseCriticalItem[]
                 <th className="px-2 py-2 text-right font-bold">Dias em aberto</th>
                 <th className="px-2 py-2 font-bold">Criado por</th>
                 <th className="px-2 py-2 font-bold">Grupo mercadoria</th>
-                <th className="px-2 py-2 font-bold">Nº acompanhamento</th>
+                <th className="px-2 py-2 font-bold">Nível requisição</th>
               </tr>
             </thead>
             <tbody>
@@ -61,7 +61,7 @@ export function PurchaseCriticalTable({ items }: { items: PurchaseCriticalItem[]
                   }`}
                 >
                   <td className="px-2 py-2">
-                    <PurchasePriorityBadge priority={item.priority} trackingNumber={item.trackingNumberRaw} />
+                    <PurchasePriorityBadge priority={item.priority} rawValue={item.trackingNumberRaw} />
                   </td>
                   <td className="px-2 py-2 font-medium text-zinc-900">{item.requisition}</td>
                   <td className="px-2 py-2">{item.material}</td>

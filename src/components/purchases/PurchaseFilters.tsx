@@ -142,7 +142,7 @@ export function PurchaseFilters({
         )}
         {showPriorityFilter && (
           <MultiSelectFilter
-            label="Prioridade (Nº acompanhamento)"
+            label="Prioridade (Nível requisição)"
             options={PURCHASE_PRIORITY_OPTIONS}
             selected={draft.priorities}
             onChange={(values) => onChange("priorities", values)}

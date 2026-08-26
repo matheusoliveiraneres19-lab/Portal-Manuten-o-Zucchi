@@ -35,6 +35,9 @@ const DAY_IN_MS = 24 * 60 * 60 * 1000;
 export type PriorityAnalysisRow = {
   id: string;
   purchasePriority: string | null;
+  /** "Nível requisição" — fonte da prioridade na planilha do portal. */
+  requisitionLevel: string | null;
+  /** "Nº acompanhamento" — fonte alternativa, em outros layouts de export. */
   trackingNumber: string | null;
   requisitionNumber: string | null;
   materialCode: string | null;
@@ -182,7 +185,9 @@ export function buildCriticalItems(
         requester: record.requester ?? "—",
         merchandiseGroup: record.goodsGroupDescription ?? record.goodsGroupCode ?? "—",
         daysOpen: daysOpenFrom(record.requisitionDate, today),
-        trackingNumberRaw: record.trackingNumber
+        // Mesma precedência do importador: "Nível requisição" e, na falta dele,
+        // "Nº acompanhamento".
+        trackingNumberRaw: record.requisitionLevel ?? record.trackingNumber
       };
     });
 }

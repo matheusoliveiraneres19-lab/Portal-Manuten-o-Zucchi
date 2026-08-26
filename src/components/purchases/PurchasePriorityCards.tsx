@@ -9,9 +9,9 @@ type PurchasePriorityCardsProps = {
   /** Total pendente do recorte — o primeiro card da linha. */
   totalPending: number;
   /**
-   * Fatias por prioridade. VAZIO quando a base não tem "Nº acompanhamento": aí
-   * a linha mostra só "Requisições Pendentes" (o KPI da aba não desaparece) e a
-   * aba exibe o aviso de reimportação logo abaixo.
+   * Fatias por prioridade. VAZIO quando a base não tem a prioridade ("Nível
+   * requisição"): aí a linha mostra só "Requisições Pendentes" (o KPI da aba não
+   * desaparece) e a aba exibe o aviso de reimportação logo abaixo.
    */
   slices: PurchasePrioritySlice[];
   /** Prioridades atualmente filtradas (destaca o card selecionado). */

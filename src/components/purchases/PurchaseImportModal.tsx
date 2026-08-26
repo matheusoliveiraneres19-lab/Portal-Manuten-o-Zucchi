@@ -99,8 +99,8 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
           {file ? file.name : "Clique para selecionar o arquivo .xlsx"}
         </span>
         <span className="text-[11px] text-zinc-500">
-          Colunas: Pedido de Compra, Requisição, Fornecedor, Material, Quantid, MIGO, MIRO, Grupo Merc, Grupo Comp, Nº
-          acompanhamento, Valor líquido...
+          Colunas: Pedido de Compra, Requisição, Nível requisição, Fornecedor, Material, Quantid, MIGO, MIRO, Grupo
+          Merc, Grupo Comp, Total líquido...
         </span>
         <input
           ref={inputRef}
@@ -168,7 +168,7 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
           {result.priorityAudit ? (
             <div className="col-span-2 border-t border-gold/10 pt-2">
               <dt className="text-zinc-400">
-                Prioridade — coluna “Nº acompanhamento”{" "}
+                Prioridade — coluna “Nível requisição”{" "}
                 {result.priorityAudit.columnDetected ? (
                   <span className="font-semibold text-champagne">(detectada)</span>
                 ) : (
@@ -199,7 +199,7 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
           {result.netValueAudit ? (
             <div className="col-span-2 border-t border-gold/10 pt-2">
               <dt className="text-zinc-400">
-                Valor líquido{" "}
+                Total líquido{" "}
                 {result.netValueAudit.columnDetected ? (
                   <span className="font-semibold text-champagne">(coluna detectada)</span>
                 ) : (

@@ -5,8 +5,8 @@ import type { PurchasePriorityKey } from "@/types/purchases";
 
 type PurchasePriorityBadgeProps = {
   priority: PurchasePriorityKey;
-  /** Valor cru de "Nº acompanhamento" ("N03") — vai para o tooltip. */
-  trackingNumber?: string | null;
+  /** Valor CRU que originou a prioridade ("Nível requisição") — vai no tooltip. */
+  rawValue?: string | null;
   className?: string;
 };
 
@@ -19,7 +19,7 @@ type PurchasePriorityBadgeProps = {
  * "sem prioridade": a hierarquia visual da TAREFA 14 pede que o crítico salte
  * aos olhos e o resto fique neutro.
  */
-export function PurchasePriorityBadge({ priority, trackingNumber, className = "" }: PurchasePriorityBadgeProps) {
+export function PurchasePriorityBadge({ priority, rawValue, className = "" }: PurchasePriorityBadgeProps) {
   const color = PURCHASE_PRIORITY_COLORS[priority];
   const label = PURCHASE_PRIORITY_LABELS[priority];
   const filled = priority === "N1" || priority === "N2";
@@ -33,11 +33,7 @@ export function PurchasePriorityBadge({ priority, trackingNumber, className = ""
           ? { backgroundColor: color, borderColor: color, color: "#FFFFFF" }
           : { backgroundColor: `${color}14`, borderColor: `${color}66`, color }
       }
-      title={
-        isNone
-          ? 'Sem "Nº acompanhamento" na planilha'
-          : `Nº acompanhamento: ${trackingNumber ?? label}`
-      }
+      title={isNone ? 'Sem "Nível requisição" na planilha' : `Nível requisição: ${rawValue ?? label}`}
     >
       {isNone ? "—" : label}
     </span>
