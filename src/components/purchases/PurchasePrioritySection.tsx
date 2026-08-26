@@ -37,29 +37,47 @@ const PurchasePriorityStackChart = dynamic(
 
 type PriorityBlockProps = {
   priority: PendingPriorityAnalysis;
+  /** Total pendente do recorte — o mesmo número da tabela. */
+  totalPending: number;
   /** Prioridades no filtro ativo (destaque nos cards e no gráfico). */
   selected: string[];
   /** Liga/desliga uma prioridade no filtro — cards e gráfico compartilham. */
   onTogglePriority: (priority: string) => void;
 };
 
-/** Linha 1: cards por prioridade — ou o aviso, quando a coluna não veio. */
-export function PurchasePriorityCardsRow({ priority, selected, onTogglePriority }: PriorityBlockProps) {
-  if (!priority.available) {
-    return <PurchasePriorityNotice />;
-  }
+/**
+ * Linha 1: "Requisições Pendentes" + um card por prioridade.
+ *
+ * Sem a coluna "Nº acompanhamento" na base, os CINCO cards de prioridade somem e
+ * entra o aviso — mas "Requisições Pendentes" fica: é o KPI principal da aba e
+ * existia antes desta feature. Escondê-lo junto com o resto transformaria a
+ * ausência da coluna numa PERDA de informação, não só na falta de um recurso.
+ */
+export function PurchasePriorityCardsRow({
+  priority,
+  totalPending,
+  selected,
+  onTogglePriority
+}: PriorityBlockProps) {
   return (
-    <PurchasePriorityCards
-      totalPending={priority.summary.totalPending}
-      slices={priority.byPriority}
-      selected={selected}
-      onSelect={onTogglePriority}
-    />
+    <>
+      <PurchasePriorityCards
+        totalPending={totalPending}
+        slices={priority.available ? priority.byPriority : []}
+        selected={selected}
+        onSelect={onTogglePriority}
+      />
+      {priority.available ? null : <PurchasePriorityNotice />}
+    </>
   );
 }
 
 /** Linhas 2 a 4: gráficos por prioridade + ranking de pendências críticas. */
-export function PurchasePriorityDashboards({ priority, selected, onTogglePriority }: PriorityBlockProps) {
+export function PurchasePriorityDashboards({
+  priority,
+  selected,
+  onTogglePriority
+}: Omit<PriorityBlockProps, "totalPending">) {
   if (!priority.available) {
     return null;
   }

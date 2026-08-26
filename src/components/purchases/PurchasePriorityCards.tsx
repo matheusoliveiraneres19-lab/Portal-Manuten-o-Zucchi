@@ -8,6 +8,11 @@ import type { PurchasePrioritySlice } from "@/types/purchases";
 type PurchasePriorityCardsProps = {
   /** Total pendente do recorte — o primeiro card da linha. */
   totalPending: number;
+  /**
+   * Fatias por prioridade. VAZIO quando a base não tem "Nº acompanhamento": aí
+   * a linha mostra só "Requisições Pendentes" (o KPI da aba não desaparece) e a
+   * aba exibe o aviso de reimportação logo abaixo.
+   */
   slices: PurchasePrioritySlice[];
   /** Prioridades atualmente filtradas (destaca o card selecionado). */
   selected: string[];
@@ -32,8 +37,14 @@ export function PurchasePriorityCards({
   selected,
   onSelect
 }: PurchasePriorityCardsProps) {
+  // Com as 5 prioridades a linha tem 6 colunas; sem elas, o card sozinho não
+  // pode esticar por toda a largura — fica com a mesma caixa dos demais KPIs.
+  const gridClassName = slices.length
+    ? "grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6"
+    : "grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4";
+
   return (
-    <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+    <section className={gridClassName}>
       <m.article
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}

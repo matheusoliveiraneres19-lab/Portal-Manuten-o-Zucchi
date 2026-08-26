@@ -184,9 +184,12 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
         />
       ) : (
         <>
-          {/* Linha 1 (TAREFA 14): pendentes no total + um card por prioridade. */}
+          {/* Linha 1 (TAREFA 14): pendentes no total + um card por prioridade.
+              `totalPending` vem do total da TABELA (e não do resumo da análise)
+              para o card e o rodapé da tabela nunca mostrarem números diferentes. */}
           <PurchasePriorityCardsRow
             priority={data.priority}
+            totalPending={pendingCount}
             selected={appliedFilters.priorities}
             onTogglePriority={togglePriority}
           />
