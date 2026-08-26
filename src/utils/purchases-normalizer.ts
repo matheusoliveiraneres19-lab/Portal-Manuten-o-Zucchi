@@ -7,7 +7,12 @@
  * importador apenas consomem estas funções — fonte única das regras.
  */
 import { ItemNature, PurchaseType } from "@prisma/client";
-import { converterDataExcel, converterNumeroBrasileiro, limparTexto } from "@/utils/importacao";
+import {
+  converterDataExcel,
+  converterNumeroBrasileiro,
+  limparTexto,
+  parseBrazilianCurrency
+} from "@/utils/importacao";
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
@@ -119,6 +124,126 @@ export function normalizeClassificationLevel(value: unknown): string | null {
  */
 export function classificationKey(value: unknown): string {
   return normalizeText(normalizeClassificationLevel(value) ?? "");
+}
+
+/* ------------------------------------------------------------------ */
+/* Prioridade da compra — coluna "Nº acompanhamento" (N1..N4)         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ATENÇÃO — três coisas diferentes usam a sigla "N1..N4" neste módulo:
+ *
+ *  1. `classificationN1..N4` (acima): taxonomia HIERÁRQUICA de análise, lida das
+ *     colunas "N1", "Nível 1", "Classificação N1"... Cada nível tem texto livre
+ *     ("Elétrica", "Rolamentos").
+ *  2. `requisitionLevel`: a coluna "Nível requisição" do SAP, intocada.
+ *  3. `purchasePriority` (aqui): a PRIORIDADE da compra, cujo VALOR é literalmente
+ *     "N1".."N4" e vem da coluna "Nº acompanhamento".
+ *
+ * São independentes: um item pode ser N1 de prioridade e ter classificationN1 =
+ * "Material Elétrico".
+ */
+
+/** Prioridades válidas, da mais crítica para a menos crítica. */
+export const PURCHASE_PRIORITIES = ["N1", "N2", "N3", "N4"] as const;
+export type PurchasePriority = (typeof PURCHASE_PRIORITIES)[number];
+
+/** Sentinela de "coluna vazia / valor não reconhecido". Nunca é gravada no banco. */
+export const NO_PURCHASE_PRIORITY = "SEM_PRIORIDADE" as const;
+
+/** Chave usada em cards, gráficos e no filtro (inclui a sentinela). */
+export type PurchasePriorityKey = PurchasePriority | typeof NO_PURCHASE_PRIORITY;
+
+/** Todas as chaves na ordem de exibição (N1 → N4 → Sem prioridade). */
+export const PURCHASE_PRIORITY_KEYS: readonly PurchasePriorityKey[] = [
+  ...PURCHASE_PRIORITIES,
+  NO_PURCHASE_PRIORITY
+];
+
+export const PURCHASE_PRIORITY_LABELS: Record<PurchasePriorityKey, string> = {
+  N1: "N1",
+  N2: "N2",
+  N3: "N3",
+  N4: "N4",
+  SEM_PRIORIDADE: "Sem prioridade"
+};
+
+/**
+ * Cores por criticidade (mesmas hues do design system — ver constants/theme):
+ * N1 vermelho escuro (crítico), N2 dourado (atenção alta), N3 azul petróleo
+ * (atenção média), N4 verde (baixa) e cinza para "sem prioridade".
+ *
+ * Ficam junto da regra, e não no componente, para card, gráfico e badge nunca
+ * pintarem a mesma prioridade de cores diferentes.
+ */
+export const PURCHASE_PRIORITY_COLORS: Record<PurchasePriorityKey, string> = {
+  N1: "#7F1D1D",
+  N2: "#D6AA3A",
+  N3: "#15506A",
+  N4: "#16A34A",
+  SEM_PRIORIDADE: "#9CA3AF"
+};
+
+/**
+ * Normaliza o "Nº acompanhamento" da planilha em prioridade N1/N2/N3/N4.
+ *
+ * Tolera acento, caixa, espaços, zero à esquerda e os símbolos que o SAP/Excel
+ * enfia no meio do código (`º`, `°`, `.`, `-`, `/`):
+ *
+ *   N1 · N01 · "n 1" · 1 · "N° 1" · "Prioridade 1" · "Nível 1"  → "N1"
+ *   N2 · N02 · 2 · "PRIORIDADE 2"                                → "N2"
+ *   N3 · N03 · 3                                                 → "N3"
+ *   N4 · N04 · 4                                                 → "N4"
+ *   vazio · "-" · "N/A" · N0 · N5 · texto livre    → "SEM_PRIORIDADE"
+ *
+ * Nunca lança e nunca devolve string vazia — o chamador sempre recebe uma das
+ * cinco chaves de `PURCHASE_PRIORITY_KEYS`.
+ */
+export function normalizePurchasePriority(value: unknown): PurchasePriorityKey {
+  // Só dígitos e letras: "N° 03" → "n03", "n-3" → "n3", "Prioridade 1" → "prioridade1".
+  const compact = normalizeText(value).replace(/[^a-z0-9]/g, "");
+  if (!compact) {
+    return NO_PURCHASE_PRIORITY;
+  }
+  const match = compact.match(/^(?:n|nivel|niveis|prioridade|prior|prio|p)?0*([1-4])$/);
+  return match ? (`N${match[1]}` as PurchasePriority) : NO_PURCHASE_PRIORITY;
+}
+
+/**
+ * Valor gravado em `PurchaseRecord.purchasePriority`: a prioridade reconhecida
+ * ou `null`. O banco guarda NULL em vez da sentinela para que "sem prioridade"
+ * seja consultável com `{ purchasePriority: null }` e para não inventar uma
+ * categoria textual que a planilha não tem.
+ */
+export function purchasePriorityForDatabase(value: unknown): PurchasePriority | null {
+  const priority = normalizePurchasePriority(value);
+  return priority === NO_PURCHASE_PRIORITY ? null : priority;
+}
+
+/** Chave de exibição a partir do que está gravado no banco (NULL → sentinela). */
+export function purchasePriorityKey(stored: string | null | undefined): PurchasePriorityKey {
+  const priority = normalizePurchasePriority(stored);
+  return priority;
+}
+
+/** Valor CRU do "Nº acompanhamento", só com espaços limpos. Preserva "N03". */
+export function normalizeTrackingNumber(value: unknown): string | null {
+  return optionalText(value);
+}
+
+/* ------------------------------------------------------------------ */
+/* Valor líquido da compra (coluna "Valor líquido")                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Converte a coluna "Valor líquido" em número. É a ÚNICA fonte do card
+ * "Valor comprado" da aba Compras Realizadas — não há fallback para
+ * "Prç.avaliação", "Total liq", "Total bruto" nem quantidade × preço.
+ *
+ * `null` quando a célula está vazia ou não é numérica; nunca NaN/Infinity.
+ */
+export function parsePurchaseNetValue(value: unknown): number | null {
+  return parseBrazilianCurrency(value);
 }
 
 /* ------------------------------------------------------------------ */

@@ -6,6 +6,7 @@ import {
   PURCHASE_OPERATIONAL_STATUS_LABELS
 } from "@/utils/purchase-classification";
 import type { PurchaseOperationalStatus } from "@/types/purchases";
+import { PURCHASE_PRIORITY_LABELS, type PurchasePriorityKey } from "@/utils/purchases-normalizer";
 import {
   CLASSIFICATION_FILTER_KEYS,
   countActiveFilters,
@@ -36,6 +37,13 @@ export function PurchaseActiveChips({ filters, onRemove }: PurchaseActiveChipsPr
   for (const { level, key } of CLASSIFICATION_FILTER_KEYS) {
     (filters[key] as string[]).forEach((value) => chips.push({ key, value, label: `${level}: ${value}` }));
   }
+  filters.priorities.forEach((value) =>
+    chips.push({
+      key: "priorities",
+      value,
+      label: `Prioridade: ${PURCHASE_PRIORITY_LABELS[value as PurchasePriorityKey] ?? value}`
+    })
+  );
 
   // Recorte da última planilha (Compras Realizadas): entra como chip removível
   // para ficar visível no mesmo lugar dos outros filtros ativos.

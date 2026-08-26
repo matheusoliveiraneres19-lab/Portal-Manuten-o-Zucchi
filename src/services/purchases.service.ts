@@ -15,10 +15,16 @@ import type { PageDataSource } from "@/types/page-data";
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import {
+  NO_PURCHASE_PRIORITY,
   getPurchaseRecordReferenceDate,
   normalizeClassificationLevel,
+  purchasePriorityKey,
   resolvePurchaseValue
 } from "@/utils/purchases-normalizer";
+import {
+  buildPendingPriorityAnalysis,
+  emptyPriorityAnalysis
+} from "@/utils/purchase-priority-analysis";
 import {
   PURCHASE_OPERATIONAL_STATUS_LABELS,
   classificationReasonFor,
@@ -35,7 +41,9 @@ import { getTodayDate } from "@/utils/date";
 import type { PendingPurchaseData, PurchasesByMonthData } from "@/types/dashboard";
 import type {
   CompletedPurchasesPageData,
+  CompletedPurchasesSummary,
   PaginatedPurchases,
+  PendingPriorityAnalysis,
   PendingPurchasesPageData,
   PurchaseClassificationInsights,
   PurchaseClassificationNode,
@@ -347,6 +355,23 @@ function buildFilterWhere(params: PurchaseQueryParams = {}, today: Date): Prisma
       and.push({ [field]: { in: values } } as Prisma.PurchaseRecordWhereInput);
     }
   }
+  // Prioridade ("Nº acompanhamento") — TAREFA 8. Aplicada no SQL, junto dos
+  // outros filtros, para que cards, gráficos, ranking, tabela e paginação vejam
+  // o MESMO conjunto. "SEM_PRIORIDADE" vira `purchasePriority: null`, porque a
+  // sentinela não é gravada no banco (ver purchasePriorityForDatabase).
+  if (params.priorities?.length) {
+    const named = params.priorities.filter((priority) => priority !== NO_PURCHASE_PRIORITY);
+    const or: Prisma.PurchaseRecordWhereInput[] = [];
+    if (named.length) {
+      or.push({ purchasePriority: { in: named } });
+    }
+    if (params.priorities.includes(NO_PURCHASE_PRIORITY)) {
+      or.push({ purchasePriority: null });
+    }
+    if (or.length) {
+      and.push({ OR: or });
+    }
+  }
   if (params.statuses?.length) {
     and.push({ OR: params.statuses.map((status) => statusWhere(status, today)) });
   }
@@ -536,6 +561,7 @@ const rowSelect = {
   unit: true,
   netTotal: true,
   grossTotal: true,
+  netValue: true,
   requisitionDate: true,
   purchaseOrderDate: true,
   expectedDeliveryDate: true,
@@ -557,6 +583,8 @@ const rowSelect = {
   classificationN2: true,
   classificationN3: true,
   classificationN4: true,
+  trackingNumber: true,
+  purchasePriority: true,
   itemNature: true,
   requester: true
 } satisfies Prisma.PurchaseRecordSelect;
@@ -665,6 +693,10 @@ function toRow(record: RowRecord, today: Date, rule: PurchaseRuleMode = "regraPo
     classificationN2: record.classificationN2,
     classificationN3: record.classificationN3,
     classificationN4: record.classificationN4,
+    // Prioridade (TAREFA 9): normaliza de novo o que está gravado para que a
+    // coluna da tabela nunca mostre um valor fora das cinco chaves conhecidas.
+    priority: purchasePriorityKey(record.purchasePriority),
+    trackingNumber: record.trackingNumber,
     itemNature: record.itemNature,
     requester: record.requester
   };
@@ -719,6 +751,7 @@ export async function getCompletedPurchasesList(params: PurchaseQueryParams = {}
 /* ------------------------------------------------------------------ */
 
 const analysisSelect = {
+  id: true,
   supplierName: true,
   requester: true,
   materialCode: true,
@@ -729,11 +762,19 @@ const analysisSelect = {
   classificationN2: true,
   classificationN3: true,
   classificationN4: true,
+  // Prioridade + campos que o ranking "Top Compras Pendentes Críticas" exibe.
+  trackingNumber: true,
+  purchasePriority: true,
+  itemDescription: true,
+  quantity: true,
+  pendingQuantity: true,
+  unit: true,
   requisitionDate: true,
   expectedDeliveryDate: true,
   receiptDate: true,
   netTotal: true,
   grossTotal: true,
+  netValue: true,
   isService: true,
   isBlocked: true,
   ignored: true,
@@ -863,6 +904,88 @@ function topRequesters(records: AnalysisRow[], limit = 7): PurchaseRequesterCoun
     .map(([requester, count]) => ({ requester, count }))
     .sort((a, b) => b.count - a.count)
     .slice(0, limit);
+}
+
+/**
+ * A base importada tem prioridade em alguma linha? Sem isso a aba mostraria
+ * cinco cards zerados, que se leem como "não há pendências" em vez de "a
+ * planilha veio sem a coluna Nº acompanhamento".
+ *
+ * Consulta a base INTEIRA de propósito (sem filtros): a pergunta é sobre a
+ * qualidade da importação, não sobre o recorte da tela.
+ */
+const hasPriorityData = cache(async (): Promise<boolean> => {
+  const found = await prisma.purchaseRecord.findFirst({
+    where: { NOT: { purchasePriority: null } },
+    select: { id: true }
+  });
+  return found !== null;
+});
+
+/**
+ * A base importada tem a coluna "Valor líquido"? Quando `false`, o card
+ * "Valor comprado" NÃO exibe número — ver TAREFA 12.
+ */
+const hasNetValueData = cache(async (): Promise<boolean> => {
+  const found = await prisma.purchaseRecord.findFirst({
+    where: { NOT: { netValue: null } },
+    select: { id: true }
+  });
+  return found !== null;
+});
+
+/**
+ * TAREFA 13 — cards da aba Compras Realizadas.
+ *
+ * `purchasedNetValue` é a SOMA DA COLUNA "Valor líquido" (`netValue`) no mesmo
+ * recorte de "Materiais Comprados" (base Y01 material com pedido de compra).
+ * NÃO há fallback para `netTotal` ("Total liq"), `grossTotal` ("Total bruto"),
+ * `Prç.avaliação` nem quantidade × preço: um valor aproximado num card de R$ é
+ * pior do que um card avisando que a coluna não veio na planilha.
+ */
+export const getCompletedPurchasesSummary = cache(
+  async (params: PurchaseQueryParams = {}): Promise<CompletedPurchasesSummary> => {
+    const today = getTodayDate();
+    const base = mergeWhere(buildFilterWhere(params, today), await snapshotWhere(params));
+    const count = (where: Prisma.PurchaseRecordWhereInput) => prisma.purchaseRecord.count({ where });
+
+    const [purchasedMaterials, deliveredMaterials, regularizationsY04, services, netValueSum, hasNetValueColumn] =
+      await Promise.all([
+        count(mergeWhere(base, purchasedWhere())),
+        count(mergeWhere(base, statusWhere(OS.ENTREGUE, today))),
+        count(mergeWhere(base, statusWhere(OS.REGULARIZACAO, today))),
+        count(mergeWhere(base, statusWhere(OS.SERVICO, today))),
+        prisma.purchaseRecord.aggregate({
+          _sum: { netValue: true },
+          where: mergeWhere(base, purchasedWhere())
+        }),
+        hasNetValueData()
+      ]);
+
+    return {
+      purchasedMaterials,
+      deliveredMaterials,
+      regularizationsY04,
+      services,
+      purchasedNetValue: round(netValueSum._sum.netValue ?? 0),
+      hasNetValueColumn
+    };
+  }
+);
+
+/**
+ * TAREFA 13 — análise por prioridade das compras pendentes, a partir do banco.
+ *
+ * Exportada para uso direto (scripts, futuras APIs); a aba consome o mesmo
+ * resultado dentro de `getPendingPurchasesPageData`, que reaproveita a varredura
+ * memoizada de `loadPendingAnalysisRows` em vez de consultar duas vezes.
+ */
+export async function getPendingPurchasesPriorityAnalysis(
+  params: PurchaseQueryParams = {}
+): Promise<PendingPriorityAnalysis> {
+  const today = getTodayDate();
+  const [records, available] = await Promise.all([loadPendingAnalysisRows(params), hasPriorityData()]);
+  return buildPendingPriorityAnalysis(records, available, today);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1257,6 +1380,7 @@ function emptyPendingPurchasesPageData(
     oldestPendingDate: null,
     classification: emptyClassificationInsights(),
     classificationOptions: emptyClassificationOptions(),
+    priority: emptyPriorityAnalysis(),
     purchases: emptyPage(params),
     filterOptions: emptyFilterOptions(),
     source
@@ -1296,13 +1420,22 @@ async function loadPendingPurchasesPageData(params: PurchaseQueryParams): Promis
     classificationsN4: []
   };
 
-  const [kpis, v31Audit, pendingRowsUnfiltered, purchases, filterOptions, classificationAvailable] = await Promise.all([
+  const [
+    kpis,
+    v31Audit,
+    pendingRowsUnfiltered,
+    purchases,
+    filterOptions,
+    classificationAvailable,
+    priorityAvailable
+  ] = await Promise.all([
     getPurchaseSummary(params),
     getPurchaseV31Audit(params, today),
     loadPendingAnalysisRows(paramsWithoutClassification),
     getPendingPurchasesList(params, today),
     getPurchaseFilterOptions(),
-    hasClassificationData()
+    hasClassificationData(),
+    hasPriorityData()
   ]);
 
   // `pendingRowsUnfiltered` JÁ vem do SQL como `pendente_compra` da regra v3.1 —
@@ -1342,6 +1475,10 @@ async function loadPendingPurchasesPageData(params: PurchaseQueryParams): Promis
     oldestPendingDate: oldestPendingDate ? oldestPendingDate.toISOString() : null,
     classification: buildClassificationInsights(pendingRows, classificationAvailable),
     classificationOptions: buildClassificationOptions(pendingRowsUnfiltered, params),
+    // Prioridade sobre o MESMO `pendingRows` dos cards e gráficos acima: o
+    // filtro de prioridade já entrou no SQL e os N1..N4 de classificação foram
+    // aplicados em memória logo antes.
+    priority: buildPendingPriorityAnalysis(pendingRows, priorityAvailable, today),
     purchases,
     filterOptions,
     source: "database"
@@ -1364,9 +1501,24 @@ function emptyCompletedPurchasesPageData(
     processTimes: emptyProcessTimes(),
     classification: emptyClassificationInsights(),
     classificationOptions: emptyClassificationOptions(),
+    summary: emptyCompletedSummary(),
     purchases: emptyPage(params),
     filterOptions: emptyFilterOptions(),
     source
+  };
+}
+
+/** Estado vazio dos cards de Compras Realizadas (sem dados / falha de banco). */
+function emptyCompletedSummary(): CompletedPurchasesSummary {
+  return {
+    purchasedMaterials: 0,
+    deliveredMaterials: 0,
+    regularizationsY04: 0,
+    services: 0,
+    purchasedNetValue: 0,
+    // Sem base não há como afirmar que a coluna existe — o card avisa em vez de
+    // exibir R$ 0,00, que se leria como "não compramos nada".
+    hasNetValueColumn: false
   };
 }
 
@@ -1401,6 +1553,7 @@ async function loadCompletedPurchasesPageData(params: PurchaseQueryParams): Prom
 
   const [
     kpis,
+    summary,
     receivedRows,
     regularizationRows,
     completedRowsUnfiltered,
@@ -1410,6 +1563,7 @@ async function loadCompletedPurchasesPageData(params: PurchaseQueryParams): Prom
     classificationAvailable
   ] = await Promise.all([
     getPurchaseSummary(params),
+    getCompletedPurchasesSummary(params),
     loadCompletedAnalysisRows(params),
     loadRegularizationRows(params),
     loadCompletedTableRows(paramsWithoutClassification),
@@ -1434,6 +1588,7 @@ async function loadCompletedPurchasesPageData(params: PurchaseQueryParams): Prom
     processTimes,
     classification: buildClassificationInsights(completedRows, classificationAvailable),
     classificationOptions: buildClassificationOptions(completedRowsUnfiltered, params),
+    summary,
     purchases,
     filterOptions,
     source: "database"

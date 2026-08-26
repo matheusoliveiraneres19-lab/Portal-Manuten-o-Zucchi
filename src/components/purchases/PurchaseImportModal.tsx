@@ -99,7 +99,8 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
           {file ? file.name : "Clique para selecionar o arquivo .xlsx"}
         </span>
         <span className="text-[11px] text-zinc-500">
-          Colunas: Pedido de Compra, Requisição, Fornecedor, Material, Quantid, MIGO, MIRO, Grupo Merc, Grupo Comp...
+          Colunas: Pedido de Compra, Requisição, Fornecedor, Material, Quantid, MIGO, MIRO, Grupo Merc, Grupo Comp, Nº
+          acompanhamento, Valor líquido...
         </span>
         <input
           ref={inputRef}
@@ -161,6 +162,62 @@ export function PurchaseImportModal({ open, onClose, onImported }: PurchaseImpor
                 <span>Em atraso: <strong className="text-champagne">{result.v31Audit.emAtraso}</strong></span>
                 <span>Não entregues: <strong className="text-champagne">{result.v31Audit.naoEntregues}</strong></span>
               </dd>
+            </div>
+          ) : null}
+          {/* Auditoria da PRIORIDADE lida de "Nº acompanhamento" (TAREFA 12). */}
+          {result.priorityAudit ? (
+            <div className="col-span-2 border-t border-gold/10 pt-2">
+              <dt className="text-zinc-400">
+                Prioridade — coluna “Nº acompanhamento”{" "}
+                {result.priorityAudit.columnDetected ? (
+                  <span className="font-semibold text-champagne">(detectada)</span>
+                ) : (
+                  <span className="font-semibold text-amber-300">(coluna não encontrada)</span>
+                )}
+              </dt>
+              <dd className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-zinc-300">
+                <span>N1: <strong className="text-champagne">{result.priorityAudit.n1}</strong></span>
+                <span>N2: <strong className="text-champagne">{result.priorityAudit.n2}</strong></span>
+                <span>N3: <strong className="text-champagne">{result.priorityAudit.n3}</strong></span>
+                <span>N4: <strong className="text-champagne">{result.priorityAudit.n4}</strong></span>
+                <span>Sem prioridade: <strong className="text-champagne">{result.priorityAudit.withoutPriority}</strong></span>
+                <span>
+                  Não reconhecidos:{" "}
+                  <strong className={result.priorityAudit.unrecognizedValues > 0 ? "text-amber-300" : "text-champagne"}>
+                    {result.priorityAudit.unrecognizedValues}
+                  </strong>
+                </span>
+              </dd>
+              {result.priorityAudit.unrecognizedSamples.length ? (
+                <p className="mt-1 text-[10px] text-amber-200">
+                  Exemplos fora da faixa N1..N4: {result.priorityAudit.unrecognizedSamples.join(", ")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {/* Auditoria da coluna "Valor líquido" (TAREFA 12). */}
+          {result.netValueAudit ? (
+            <div className="col-span-2 border-t border-gold/10 pt-2">
+              <dt className="text-zinc-400">
+                Valor líquido{" "}
+                {result.netValueAudit.columnDetected ? (
+                  <span className="font-semibold text-champagne">(coluna detectada)</span>
+                ) : (
+                  <span className="font-semibold text-amber-300">(coluna não encontrada)</span>
+                )}
+              </dt>
+              <dd className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-zinc-300">
+                <span>Linhas lidas: <strong className="text-champagne">{result.netValueAudit.totalRows}</strong></span>
+                <span>Com valor: <strong className="text-champagne">{result.netValueAudit.rowsWithNetValue}</strong></span>
+                <span>Sem valor: <strong className="text-champagne">{result.netValueAudit.rowsWithoutNetValue}</strong></span>
+                <span>
+                  Soma da coluna: <strong className="text-gold">{formatCurrency(result.netValueAudit.totalNetValue)}</strong>
+                </span>
+              </dd>
+              <p className="mt-1 text-[10px] text-zinc-500">
+                Soma da planilha inteira — confira contra o total da coluna no Excel. O card “Valor comprado” da aba
+                aplica depois o recorte de compras realizadas, então é normal ser menor.
+              </p>
             </div>
           ) : null}
           {/* Auditoria da classificação N1..N4 (TAREFA 11). */}

@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Boxes, CalendarClock, FileX2, ShoppingCart, Upload, Users } from "lucide-react";
+import { Boxes, CalendarClock, ShoppingCart, Upload, Users } from "lucide-react";
 import { ChartSkeleton } from "@/components/ChartSkeleton";
 import { PurchaseKpiCards, type PurchaseKpiCard } from "@/components/purchases/PurchaseKpiCards";
 import { PurchaseFilters } from "@/components/purchases/PurchaseFilters";
@@ -23,6 +23,10 @@ import {
   PENDING_CLASSIFICATION_COPY,
   PurchaseClassificationSection
 } from "@/components/purchases/PurchaseClassificationSection";
+import {
+  PurchasePriorityCardsRow,
+  PurchasePriorityDashboards
+} from "@/components/purchases/PurchasePrioritySection";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import type { PendingPurchasesPageData } from "@/types/purchases";
 import { CHART_SERIES, GOLD } from "@/constants/theme";
@@ -85,13 +89,27 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
     navigate(next);
   }
 
+  /**
+   * Liga/desliga uma prioridade no filtro, direto do card ou da barra do
+   * gráfico (TAREFAS 4 e 8). Navega na hora — sem passar pelo "Aplicar
+   * filtros" — porque o clique no gráfico é o próprio gesto de filtrar.
+   */
+  function togglePriority(priority: string) {
+    const current = appliedFilters.priorities;
+    const next = current.includes(priority)
+      ? current.filter((item) => item !== priority)
+      : [...current, priority];
+    const filters = { ...appliedFilters, priorities: next };
+    setDraft(filters);
+    navigate(filters);
+  }
+
   const pendingCount = data.purchases.total;
-  // Os QUATRO cards da TAREFA 13, todos sobre o MESMO conjunto `pendente_compra`
-  // que alimenta a tabela. Sem "Valor Pendente", "Ignorados", "Atrasados",
-  // "Serviços" ou "Regularizações Y04" — nada disso existe nesta regra.
+  // "Requisições Pendentes" subiu para a linha de cards de PRIORIDADE (linha 1
+  // do layout da TAREFA 14) — aqui ficam só os três indicadores de apoio, todos
+  // sobre o MESMO conjunto `pendente_compra` que alimenta a tabela.
   // `data.pendingValue` continua vindo do service só para auditoria/log.
   const cards: PurchaseKpiCard[] = [
-    { title: "Requisições Pendentes", value: int(pendingCount), description: "Sem pedido de compra e sem recebimento", icon: FileX2, tone: "gold" },
     { title: "Materiais Pendentes", value: int(data.materialsPending), description: "Materiais distintos sem pedido", icon: Boxes, tone: "blue" },
     { title: "Requisitantes", value: int(data.requestersPending), description: "Requisitantes com pendências", icon: Users, tone: "blue" },
     { title: "Mais Antiga", value: oldestLabel(data.oldestPendingDate), description: oldestDescription(data.oldestPendingDate), icon: CalendarClock, tone: "red" }
@@ -149,6 +167,7 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
         onClear={clearFilters}
         classificationOptions={data.classification.available ? data.classificationOptions : undefined}
         showStatusAndKindFilters={false}
+        showPriorityFilter={data.priority.available}
       />
 
       <PurchaseActiveChips filters={appliedFilters} onRemove={removeChip} />
@@ -165,7 +184,25 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
         />
       ) : (
         <>
-          <PurchaseKpiCards cards={cards} />
+          {/* Linha 1 (TAREFA 14): pendentes no total + um card por prioridade. */}
+          <PurchasePriorityCardsRow
+            priority={data.priority}
+            selected={appliedFilters.priorities}
+            onTogglePriority={togglePriority}
+          />
+
+          {/* Indicadores de apoio — 3 cards, logo abaixo dos de prioridade. */}
+          <PurchaseKpiCards
+            cards={cards}
+            className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
+          />
+
+          {/* Linhas 2 a 4: dashboards por prioridade + ranking crítico. */}
+          <PurchasePriorityDashboards
+            priority={data.priority}
+            selected={appliedFilters.priorities}
+            onTogglePriority={togglePriority}
+          />
 
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
             <PurchaseMonthlyCountChart
@@ -183,22 +220,31 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
               items={suppliersToRank(data.topPendingSuppliers)}
               emptyDescription="Nenhuma requisição pendente."
             />
-            <PurchaseRankBarChart
-              className="xl:col-span-6"
-              title="Pendências por grupo de mercadoria"
-              subtitle="Requisições pendentes por grupo."
-              color={CHART_SERIES.ordens}
-              items={goodsGroupsToRank(data.pendingByGoodsGroup)}
-            />
-            <PurchaseRankBarChart
-              className="xl:col-span-6"
-              title="Requisitantes com mais pendências"
-              color={GOLD.deep}
-              items={requestersToRank(data.topRequesters)}
-            />
+            {/* Os dois gráficos de VOLUME por grupo e por requisitante só
+                aparecem quando não há prioridade na base: com prioridade, as
+                barras empilhadas acima mostram o mesmo total já quebrado por
+                N1..N4 — repetir seria poluir a tela (TAREFA 14). */}
+            {!data.priority.available && (
+              <>
+                <PurchaseRankBarChart
+                  className="xl:col-span-6"
+                  title="Pendências por grupo de mercadoria"
+                  subtitle="Requisições pendentes por grupo."
+                  color={CHART_SERIES.ordens}
+                  items={goodsGroupsToRank(data.pendingByGoodsGroup)}
+                />
+                <PurchaseRankBarChart
+                  className="xl:col-span-6"
+                  title="Requisitantes com mais pendências"
+                  color={GOLD.deep}
+                  items={requestersToRank(data.topRequesters)}
+                />
+              </>
+            )}
           </section>
 
-          {/* Análise por classificação N1 > N2 > N3 > N4 (TAREFAS 5, 6, 7, 9 e 10). */}
+          {/* Análise por classificação N1 > N2 > N3 > N4 — taxonomia hierárquica,
+              independente da prioridade do "Nº acompanhamento" acima. */}
           <PurchaseClassificationSection
             classification={data.classification}
             total={pendingCount}

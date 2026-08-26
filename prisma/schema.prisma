@@ -375,6 +375,11 @@ model PurchaseRecord {
   netPrice               Float?
   grossTotal             Float?
   netTotal               Float?
+  /// Coluna "Valor líquido" da planilha — ÚNICA fonte do card "Valor comprado"
+  /// da aba Compras Realizadas. Separada de netTotal ("Total liq") de propósito:
+  /// NUNCA há fallback entre as duas, para o card não exibir valor aproximado
+  /// quando a coluna certa não veio na importação.
+  netValue               Float?
   /// Categoria de mercadoria (Grupo Merc).
   goodsGroupCode         String?
   goodsGroupDescription  String?
@@ -384,6 +389,14 @@ model PurchaseRecord {
   classificationN2       String?
   classificationN3       String?
   classificationN4       String?
+  /// Coluna "Nº acompanhamento" da planilha, EXATAMENTE como veio ("N03", "n 2").
+  /// Guardada crua para auditoria e rastreio da origem da prioridade.
+  trackingNumber         String?
+  /// Prioridade normalizada a partir de trackingNumber: "N1" | "N2" | "N3" | "N4".
+  /// NULL = coluna ausente, vazia ou valor não reconhecido ("Sem prioridade").
+  /// NÃO confundir com classificationN1..N4 (taxonomia hierárquica de análise)
+  /// nem com requisitionLevel ("Nível requisição" do SAP).
+  purchasePriority       String?
   requester              String?
   /// Grupo de compras (Y01/Y04) e código de eliminação.
   purchasingGroup        String?
@@ -436,6 +449,7 @@ model PurchaseRecord {
   @@index([goodsGroupCode])
   @@index([classificationN1])
   @@index([classificationN2])
+  @@index([purchasePriority])
   @@index([purchaseType])
   @@index([itemNature])
   @@index([operationalStatus])

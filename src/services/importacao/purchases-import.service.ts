@@ -9,9 +9,12 @@ import {
   computeStatusFlags,
   getPurchaseRecordReferenceDate,
   normalizeClassificationLevel,
+  normalizeTrackingNumber,
   optionalText,
   parsePurchaseDate,
+  parsePurchaseNetValue,
   parsePurchaseNumber,
+  purchasePriorityForDatabase,
   resolvePurchaseValue
 } from "@/utils/purchases-normalizer";
 import { classifyPurchaseRecord, summarizePurchaseV31 } from "@/utils/purchase-classification";
@@ -21,7 +24,9 @@ import type {
   PurchaseExcelRow,
   PurchaseImportError,
   PurchaseImportPeriod,
-  PurchaseImportResult
+  PurchaseImportResult,
+  PurchaseNetValueAudit,
+  PurchasePriorityAudit
 } from "@/types/purchases";
 
 const SHEET_NAME = "Data";
@@ -89,6 +94,17 @@ const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   total_brut: "grossTotal",
   total_liq: "netTotal",
   total_liquido: "netTotal",
+  // Coluna "Valor líquido" (TAREFA 10). Cabeçalho SEPARADO de "Total liq": o card
+  // "Valor comprado" soma SÓ esta coluna, sem fallback para Total liq/bruto,
+  // Prç.avaliação ou quantidade × preço. As variantes com acento caem aqui
+  // sozinhas — `normalizarNomeColuna` remove acento e troca "." e espaço por "_"
+  // (e o `mapRow` ainda tenta a variante sem "_").
+  valor_liquido: "netValue",
+  valor_liq: "netValue",
+  vlr_liquido: "netValue",
+  vlr_liq: "netValue",
+  valor_liquido_item: "netValue",
+  net_value: "netValue",
   recebimento: "receiptNumber",
   data_recebimento: "receiptDate",
   data_de_recebimento: "receiptDate",
@@ -131,7 +147,26 @@ const COLUMN_MAP: Record<string, keyof PurchaseExcelRow> = {
   nivel4: "classificationN4",
   classificacao_n4: "classificationN4",
   classificacao_nivel_4: "classificationN4",
-  categoria_n4: "classificationN4"
+  categoria_n4: "classificationN4",
+  // PRIORIDADE da compra — coluna "Nº acompanhamento" (TAREFA 1). Não confundir
+  // com as colunas N1..N4 acima (taxonomia hierárquica) nem com "Nível
+  // requisição" (`requisitionLevel`): aqui o CABEÇALHO é "Nº acompanhamento" e o
+  // VALOR é que vale "N1".."N4".
+  //
+  // `normalizarNomeColuna` remove acento e troca todo símbolo por "_", então
+  // "Nº acompanhamento", "N° acompanhamento", "N. acompanhamento" e
+  // "N acompanhamento" caem TODAS em `n_acompanhamento`.
+  n_acompanhamento: "trackingNumber",
+  no_acompanhamento: "trackingNumber",
+  nr_acompanhamento: "trackingNumber",
+  num_acompanhamento: "trackingNumber",
+  numero_acompanhamento: "trackingNumber",
+  numero_de_acompanhamento: "trackingNumber",
+  n_de_acompanhamento: "trackingNumber",
+  acompanhamento: "trackingNumber",
+  prioridade: "trackingNumber",
+  prioridade_compra: "trackingNumber",
+  prioridade_da_compra: "trackingNumber"
 };
 
 type ImportOptions = {
@@ -327,6 +362,26 @@ export async function importPurchaseRows(
     );
   }
 
+  // 8) Auditoria da PRIORIDADE ("Nº acompanhamento") — TAREFA 12.
+  result.priorityAudit = buildPriorityAudit(parsedList, rows);
+  if (!result.priorityAudit.columnDetected) {
+    result.warnings.push(
+      'Coluna "Nº acompanhamento" não encontrada na planilha. Os cards, gráficos e o ranking por prioridade N1/N2/N3/N4 da aba Compras Pendentes ficarão indisponíveis até uma reimportação com essa coluna.'
+    );
+  } else if (result.priorityAudit.unrecognizedSamples.length) {
+    result.warnings.push(
+      `${result.priorityAudit.unrecognizedValues} linha(s) têm "Nº acompanhamento" fora da faixa N1..N4 e entram como "Sem prioridade". Exemplos: ${result.priorityAudit.unrecognizedSamples.join(", ")}.`
+    );
+  }
+
+  // 9) Auditoria do VALOR LÍQUIDO — TAREFA 12.
+  result.netValueAudit = buildNetValueAudit(parsedList, rows);
+  if (!result.netValueAudit.columnDetected) {
+    result.warnings.push(
+      'Coluna "Valor líquido" não encontrada na planilha. O card "Valor comprado" da aba Compras Realizadas fica sem valor — reimporte a planilha com essa coluna. Nenhum outro campo é usado como substituto, para não exibir um valor incorreto.'
+    );
+  }
+
   await createImportHistory(result, options);
   return result;
 }
@@ -410,6 +465,83 @@ function detectPeriod(parsedList: ParsedPurchaseRecord[]): PurchaseImportPeriod 
  * `columnsDetected` olha as linhas CRUAS: uma coluna existe na planilha quando
  * o mapeamento a reconheceu em alguma linha, mesmo que o valor esteja vazio.
  */
+/**
+ * Auditoria da PRIORIDADE lida de "Nº acompanhamento" (TAREFA 12): quantas
+ * linhas caíram em cada N1..N4, quantas ficaram sem prioridade e quais valores
+ * o normalizador não reconheceu (amostra, para o usuário corrigir a planilha).
+ *
+ * `columnDetected` olha as linhas CRUAS: a coluna existe quando o mapeamento a
+ * reconheceu em alguma linha, mesmo com a célula vazia.
+ */
+function buildPriorityAudit(
+  parsedList: ParsedPurchaseRecord[],
+  rawRows: PurchaseExcelRow[]
+): PurchasePriorityAudit {
+  const byPriority: Record<string, number> = { N1: 0, N2: 0, N3: 0, N4: 0 };
+  let withoutPriority = 0;
+  let unrecognizedValues = 0;
+  const unrecognized = new Set<string>();
+
+  for (const parsed of parsedList) {
+    if (parsed.purchasePriority && parsed.purchasePriority in byPriority) {
+      byPriority[parsed.purchasePriority] += 1;
+      continue;
+    }
+    withoutPriority += 1;
+    // Célula PREENCHIDA que não virou prioridade: erro de digitação na planilha
+    // (o vazio é "sem prioridade" legítimo e não entra na amostra).
+    if (parsed.trackingNumber) {
+      unrecognizedValues += 1;
+      if (unrecognized.size < 5) {
+        unrecognized.add(`"${parsed.trackingNumber}"`);
+      }
+    }
+  }
+
+  return {
+    columnDetected: rawRows.some((row) => "trackingNumber" in row),
+    totalRows: parsedList.length,
+    n1: byPriority.N1,
+    n2: byPriority.N2,
+    n3: byPriority.N3,
+    n4: byPriority.N4,
+    withoutPriority,
+    unrecognizedValues,
+    unrecognizedSamples: Array.from(unrecognized)
+  };
+}
+
+/**
+ * Auditoria do VALOR LÍQUIDO (TAREFA 12): quantas linhas trouxeram a coluna
+ * "Valor líquido" preenchida, quantas não, e a soma lida.
+ *
+ * A soma cobre TODAS as linhas válidas da planilha — é o número que o usuário
+ * confere contra o total da coluna no Excel. O card "Valor comprado" da aba
+ * aplica depois o recorte de compras realizadas, então é normal ser menor.
+ */
+function buildNetValueAudit(
+  parsedList: ParsedPurchaseRecord[],
+  rawRows: PurchaseExcelRow[]
+): PurchaseNetValueAudit {
+  let rowsWithNetValue = 0;
+  let totalNetValue = 0;
+
+  for (const parsed of parsedList) {
+    if (parsed.netValue !== null && Number.isFinite(parsed.netValue)) {
+      rowsWithNetValue += 1;
+      totalNetValue += parsed.netValue;
+    }
+  }
+
+  return {
+    columnDetected: rawRows.some((row) => "netValue" in row),
+    totalRows: parsedList.length,
+    rowsWithNetValue,
+    rowsWithoutNetValue: parsedList.length - rowsWithNetValue,
+    totalNetValue: round(totalNetValue)
+  };
+}
+
 function buildClassificationAudit(
   parsedList: ParsedPurchaseRecord[],
   rawRows: PurchaseExcelRow[]
@@ -568,6 +700,9 @@ function parseRow(
 
   const netTotal = parsePurchaseNumber(row.netTotal);
   const grossTotal = parsePurchaseNumber(row.grossTotal);
+  // Coluna "Valor líquido" — parser de moeda próprio (R$, milhar, negativo do
+  // SAP). Fica em campo separado: nunca cai para netTotal/grossTotal.
+  const netValue = parsePurchaseNetValue(row.netValue);
   const quantity = parsePurchaseNumber(row.quantity);
   const pendingQuantity = parsePurchaseNumber(row.pendingQuantity);
 
@@ -643,6 +778,7 @@ function parseRow(
     netPrice: parsePurchaseNumber(row.netPrice),
     grossTotal,
     netTotal,
+    netValue,
     goodsGroupCode,
     goodsGroupDescription,
     // Classificação N1..N4 — opcional na planilha; null quando a coluna não existe.
@@ -650,6 +786,10 @@ function parseRow(
     classificationN2: normalizeClassificationLevel(row.classificationN2),
     classificationN3: normalizeClassificationLevel(row.classificationN3),
     classificationN4: normalizeClassificationLevel(row.classificationN4),
+    // Prioridade (TAREFAS 1 e 2): o CRU vai para `trackingNumber` ("N03") e o
+    // normalizado para `purchasePriority` ("N3"); NULL quando não reconhecido.
+    trackingNumber: normalizeTrackingNumber(row.trackingNumber),
+    purchasePriority: purchasePriorityForDatabase(row.trackingNumber),
     requester: optionalText(row.requester),
     purchasingGroup: optionalText(row.purchasingGroup),
     deletionCode,

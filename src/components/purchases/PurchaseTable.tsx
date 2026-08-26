@@ -3,6 +3,7 @@
 import { ChevronLeft, ChevronRight, PackageSearch } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { PurchaseStatusBadge } from "@/components/purchases/PurchaseStatusBadge";
+import { PurchasePriorityBadge } from "@/components/purchases/PurchasePriorityBadge";
 import type { PaginatedPurchases, PurchaseRow } from "@/types/purchases";
 
 type PurchaseTableProps = {
@@ -49,9 +50,12 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
       ) : (
         <>
           <div className="overflow-x-auto">
-            <table className={`w-full border-collapse text-left text-xs ${isPending ? "min-w-[1560px]" : "min-w-[1120px]"}`}>
+            <table className={`w-full border-collapse text-left text-xs ${isPending ? "min-w-[1700px]" : "min-w-[1120px]"}`}>
               <thead>
                 <tr className="border-b border-zinc-200 text-[10px] uppercase tracking-wide text-zinc-500">
+                  {/* Prioridade abre a tabela em Compras Pendentes (TAREFA 9): é
+                      o critério de fila da aba, então vem antes do status. */}
+                  {isPending && <th className="px-2 py-2 font-bold">Prioridade</th>}
                   <th className="px-2 py-2 font-bold">Status</th>
                   <th className="px-2 py-2 font-bold">Requisição</th>
                   {isPending ? (
@@ -91,6 +95,9 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
                       <th className="px-2 py-2 font-bold">N2</th>
                       <th className="px-2 py-2 font-bold">N3</th>
                       <th className="px-2 py-2 font-bold">N4</th>
+                      {/* Coluna SECUNDÁRIA (TAREFA 9): o valor cru da planilha,
+                          para conferir de onde saiu a prioridade exibida. */}
+                      <th className="px-2 py-2 font-bold">Nº acompanhamento</th>
                     </>
                   )}
                   {/* "Tipo" só em Realizadas: na regra v3.1 toda pendência é
@@ -145,6 +152,11 @@ function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
   const showDelay = !isPending && row.operationalStatus === "ENTREGUE";
   return (
     <tr className="border-b border-zinc-100 text-zinc-700 transition hover:bg-gold/5">
+      {isPending && (
+        <td className="px-2 py-2">
+          <PurchasePriorityBadge priority={row.priority} trackingNumber={row.trackingNumber} />
+        </td>
+      )}
       <td className="px-2 py-2" title={row.classificationReason}>
         <PurchaseStatusBadge status={row.operationalStatus} />
       </td>
@@ -198,6 +210,7 @@ function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
           <ClassificationCell value={row.classificationN2} />
           <ClassificationCell value={row.classificationN3} />
           <ClassificationCell value={row.classificationN4} />
+          <td className="px-2 py-2 text-zinc-500">{row.trackingNumber ?? "—"}</td>
         </>
       )}
       {!isPending && (

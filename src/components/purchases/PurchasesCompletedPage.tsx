@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ClipboardCheck, Repeat2, ShoppingCart, Upload, Wallet, Wrench } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, Repeat2, ShoppingCart, Upload, Wallet, Wrench } from "lucide-react";
 import { ChartSkeleton } from "@/components/ChartSkeleton";
 import { PurchaseKpiCards, type PurchaseKpiCard } from "@/components/purchases/PurchaseKpiCards";
 import { PurchaseFilters } from "@/components/purchases/PurchaseFilters";
@@ -91,15 +91,35 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
   }
 
   const kpis = data.kpis;
+  const summary = data.summary;
+  // Os cinco cards vêm de `getCompletedPurchasesSummary` (TAREFA 13) — nenhum
+  // número é calculado aqui.
   const cards: PurchaseKpiCard[] = [
-    { title: "Materiais Comprados", value: int(kpis.purchased), description: "Y01 com pedido de compra", icon: ShoppingCart, tone: "gold" },
+    { title: "Materiais Comprados", value: int(summary.purchasedMaterials), description: "Y01 com pedido de compra", icon: ShoppingCart, tone: "gold" },
     // "Materiais Entregues" já engloba os recebidos com atraso (kpis.deliveredLate é
     // um subconjunto de kpis.delivered no service) — o card separado de atraso e o de
     // ignorados saíram da tela, mas os dois KPIs seguem calculados para auditoria.
-    { title: "Materiais Entregues", value: int(kpis.delivered), description: "Recebimento lançado + Recbconcl “X”", icon: ClipboardCheck, tone: "green" },
-    { title: "Regularizações Y04", value: int(kpis.regularizations), description: `${int(kpis.regularizationsDelivered)} já recebidas`, icon: Repeat2, tone: "red" },
-    { title: "Serviços (Y0008)", value: int(kpis.services), description: `${int(kpis.servicesDelivered)} já recebidos`, icon: Wrench, tone: "gold" },
-    { title: "Valor comprado", value: formatCurrency(kpis.purchasedValue), description: "Total com pedido no período", icon: Wallet, tone: "gold" }
+    { title: "Materiais Entregues", value: int(summary.deliveredMaterials), description: "Recebimento lançado + Recbconcl “X”", icon: ClipboardCheck, tone: "green" },
+    { title: "Regularizações Y04", value: int(summary.regularizationsY04), description: `${int(kpis.regularizationsDelivered)} já recebidas`, icon: Repeat2, tone: "red" },
+    { title: "Serviços (Y0008)", value: int(summary.services), description: `${int(kpis.servicesDelivered)} já recebidos`, icon: Wrench, tone: "gold" },
+    // TAREFAS 10 e 15: soma da coluna "Valor líquido". Sem a coluna na base, o
+    // card NÃO exibe número — um valor calculado de outro campo (Prç.avaliação,
+    // Total liq, quantidade × preço) estaria errado, e errado é pior que ausente.
+    summary.hasNetValueColumn
+      ? {
+          title: "Valor comprado",
+          value: formatCurrency(summary.purchasedNetValue),
+          description: "Soma da coluna Valor líquido",
+          icon: Wallet,
+          tone: "gold" as const
+        }
+      : {
+          title: "Valor comprado",
+          value: "—",
+          description: "Valor líquido não importado",
+          icon: Wallet,
+          tone: "red" as const
+        }
   ];
 
   // Sem dados por AUSENCIA de importacao ou por FALHA de consulta: a tela e a
@@ -165,6 +185,26 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
         />
       ) : (
         <>
+          {/* TAREFA 12: sem a coluna "Valor líquido" na base, o aviso explica o
+              card sem valor — e NÃO existe fallback silencioso para outro campo. */}
+          {!data.summary.hasNetValueColumn ? (
+            <div className="flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2.5 text-[12px] text-champagne">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-danger-soft" />
+              <span>
+                <strong className="font-semibold text-white">
+                  Coluna Valor líquido não encontrada na importação. Reimporte a planilha com essa coluna para calcular
+                  o valor comprado corretamente.
+                </strong>
+                <span className="mt-0.5 block text-[11px] text-zinc-400">
+                  O card “Valor comprado” fica sem valor de propósito: nenhum outro campo (Prç.avaliação, Total liq,
+                  Total bruto ou quantidade × preço) é usado como substituto, para não exibir um número incorreto. O
+                  importador aceita os cabeçalhos <code>Valor líquido</code>, <code>Valor liquido</code>,{" "}
+                  <code>Valor Líq.</code>, <code>Vlr líquido</code>, <code>Vlr.liquido</code> e <code>Net value</code>.
+                </span>
+              </span>
+            </div>
+          ) : null}
+
           {/* 5 cards: linha única só a partir de 2xl — abaixo disso a coluna de texto
               fica estreita e títulos longos ("Regularizações Y04") estouram o card. */}
           <PurchaseKpiCards

@@ -62,6 +62,83 @@ export function converterNumeroBrasileiro(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/**
+ * Parser de VALOR MONETÁRIO brasileiro, robusto o bastante para o que sai do
+ * SAP/Fiori e do Excel. Usado pelo "Valor líquido" das compras.
+ *
+ * Diferenças em relação a `converterNumeroBrasileiro` (que segue existindo para
+ * quantidades e para as colunas antigas):
+ *  - remove "R$", parênteses de negativo e o traço à direita do SAP ("1.234,56-");
+ *  - decide "." milhar × "." decimal em vez de apagar TODO ponto — assim
+ *    "3.533" vira 3533 e "2455149.41" vira 2455149.41;
+ *  - rejeita qualquer texto que não seja numérico, em vez de devolver NaN.
+ *
+ * Nunca devolve NaN nem Infinity: valor inválido/vazio → `null`.
+ *
+ * Ex.: "R$ 2.455.149,41" → 2455149.41 · "2.200,00" → 2200 · "1,00" → 1
+ */
+export function parseBrazilianCurrency(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  let text = limparTexto(value)
+    .replace(/\s/g, "")
+    .replace(/^r\$/i, "")
+    .replace(/^\$/, "");
+  if (!text) {
+    return null;
+  }
+
+  // Sinal: "-1,00", "(1,00)" e "1,00-" (o SAP exporta o negativo à direita).
+  let negative = false;
+  if (/^\(.*\)$/.test(text)) {
+    negative = true;
+    text = text.slice(1, -1);
+  }
+  if (text.endsWith("-")) {
+    negative = true;
+    text = text.slice(0, -1);
+  }
+  if (text.startsWith("-")) {
+    negative = true;
+    text = text.slice(1);
+  } else if (text.startsWith("+")) {
+    text = text.slice(1);
+  }
+
+  // Só dígitos e separadores. Qualquer outra coisa ("N/A", "-", "R$ x") → null.
+  if (!/^[\d.,]+$/.test(text)) {
+    return null;
+  }
+
+  let normalized: string;
+  if (text.includes(",")) {
+    // Formato brasileiro: "." é milhar e a ÚLTIMA "," é o decimal.
+    const lastComma = text.lastIndexOf(",");
+    const intPart = text.slice(0, lastComma).replace(/[.,]/g, "");
+    const decPart = text.slice(lastComma + 1).replace(/[.,]/g, "");
+    normalized = `${intPart || "0"}.${decPart || "0"}`;
+  } else if (text.includes(".")) {
+    // Sem vírgula, o "." é ambíguo. Trata como milhar somente quando TODOS os
+    // grupos depois do primeiro têm exatamente 3 dígitos ("3.533", "1.234.567");
+    // caso contrário é decimal ("2455149.41").
+    const parts = text.split(".");
+    const isThousands = parts.slice(1).every((part) => part.length === 3);
+    normalized = isThousands
+      ? parts.join("")
+      : `${parts.slice(0, -1).join("") || "0"}.${parts[parts.length - 1] || "0"}`;
+  } else {
+    normalized = text;
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return negative ? -parsed : parsed;
+}
+
 export function converterHorasParaDecimal(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;

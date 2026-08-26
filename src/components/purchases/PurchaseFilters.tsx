@@ -12,6 +12,7 @@ import type { PurchaseClassificationOptions, PurchaseFilterOptions } from "@/typ
 import {
   CLASSIFICATION_FILTER_KEYS,
   PURCHASE_KIND_VALUES,
+  PURCHASE_PRIORITY_OPTIONS,
   type AppliedPurchaseFilters
 } from "@/components/purchases/filters";
 
@@ -46,6 +47,15 @@ type PurchaseFiltersProps = {
    * permitiria montar combinações que devolvem lista vazia sem explicação.
    */
   showStatusAndKindFilters?: boolean;
+  /**
+   * Mostra o filtro "Prioridade" (TAREFA 8) — coluna "Nº acompanhamento".
+   *
+   * Só a aba Compras Pendentes passa `true`: a prioridade orienta a FILA de
+   * compra, e em Compras Realizadas o item já foi comprado. Não é oferecido
+   * quando a base importada não trouxe a coluna, para não existir um filtro que
+   * só sabe devolver lista vazia.
+   */
+  showPriorityFilter?: boolean;
 };
 
 const selectClassName =
@@ -64,7 +74,8 @@ export function PurchaseFilters({
   onClear,
   classificationOptions,
   showStatusAndKindFilters = true,
-  showSnapshotToggle = false
+  showSnapshotToggle = false,
+  showPriorityFilter = false
 }: PurchaseFiltersProps) {
   /**
    * Ao mudar um nível, LIMPA os níveis abaixo dele: uma seleção de N3 herdada de
@@ -128,6 +139,15 @@ export function PurchaseFilters({
               searchPlaceholder="Buscar status..."
             />
           </>
+        )}
+        {showPriorityFilter && (
+          <MultiSelectFilter
+            label="Prioridade (Nº acompanhamento)"
+            options={PURCHASE_PRIORITY_OPTIONS}
+            selected={draft.priorities}
+            onChange={(values) => onChange("priorities", values)}
+            placeholder="Todas as prioridades"
+          />
         )}
         <MultiSelectFilter
           label="Requisitante"

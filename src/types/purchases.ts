@@ -6,6 +6,7 @@ import type {
   PurchaseV31Audit,
   PurchaseV31Group
 } from "@/utils/purchase-classification";
+import type { PurchasePriority, PurchasePriorityKey } from "@/utils/purchases-normalizer";
 import type { PageDataSource } from "@/types/page-data";
 
 export type {
@@ -16,7 +17,9 @@ export type {
   PurchaseNature,
   PurchaseReportGroup,
   PurchaseV31Audit,
-  PurchaseV31Group
+  PurchaseV31Group,
+  PurchasePriority,
+  PurchasePriorityKey
 };
 
 /* ------------------------------------------------------------------ */
@@ -59,6 +62,10 @@ export type PurchaseExcelRow = {
   classificationN2?: unknown;
   classificationN3?: unknown;
   classificationN4?: unknown;
+  /** Coluna "Nº acompanhamento" — prioridade da compra (valores "N1".."N4"). */
+  trackingNumber?: unknown;
+  /** Coluna "Valor líquido" — base do card "Valor comprado". */
+  netValue?: unknown;
 };
 
 /** Registro normalizado, pronto para gravação em PurchaseRecord. */
@@ -86,6 +93,8 @@ export type ParsedPurchaseRecord = {
   netPrice: number | null;
   grossTotal: number | null;
   netTotal: number | null;
+  /** Coluna "Valor líquido" (única fonte do card "Valor comprado"). */
+  netValue: number | null;
   goodsGroupCode: string | null;
   goodsGroupDescription: string | null;
   /** Classificação hierárquica N1 > N2 > N3 > N4 (planilha de compras). */
@@ -93,6 +102,10 @@ export type ParsedPurchaseRecord = {
   classificationN2: string | null;
   classificationN3: string | null;
   classificationN4: string | null;
+  /** "Nº acompanhamento" CRU, como veio da planilha ("N03"). */
+  trackingNumber: string | null;
+  /** Prioridade normalizada ("N1".."N4"); null = sem prioridade. */
+  purchasePriority: PurchasePriority | null;
   requester: string | null;
   purchasingGroup: string | null;
   deletionCode: string | null;
@@ -181,6 +194,38 @@ export type PurchaseImportResult = {
    * painel `acompanhamento_compras_v3.1.html` imprime, para conferência direta.
    */
   v31Audit?: PurchaseV31Audit;
+  /** Auditoria da prioridade lida de "Nº acompanhamento" (TAREFA 12). */
+  priorityAudit?: PurchasePriorityAudit;
+  /** Auditoria da coluna "Valor líquido" (TAREFA 12). */
+  netValueAudit?: PurchaseNetValueAudit;
+};
+
+/** Auditoria da coluna "Nº acompanhamento" na importação (TAREFA 12). */
+export type PurchasePriorityAudit = {
+  /** A coluna existe na planilha (mesmo que alguma célula esteja vazia). */
+  columnDetected: boolean;
+  totalRows: number;
+  n1: number;
+  n2: number;
+  n3: number;
+  n4: number;
+  /** Célula vazia OU valor fora da faixa N1..N4. */
+  withoutPriority: number;
+  /** Subconjunto de `withoutPriority`: célula PREENCHIDA e não reconhecida. */
+  unrecognizedValues: number;
+  /** Até 5 exemplos dos valores não reconhecidos, para corrigir a planilha. */
+  unrecognizedSamples: string[];
+};
+
+/** Auditoria da coluna "Valor líquido" na importação (TAREFA 12). */
+export type PurchaseNetValueAudit = {
+  /** A coluna existe na planilha. Quando `false`, a aba avisa o usuário. */
+  columnDetected: boolean;
+  totalRows: number;
+  rowsWithNetValue: number;
+  rowsWithoutNetValue: number;
+  /** Soma lida na planilha inteira (não é o card, que recorta as realizadas). */
+  totalNetValue: number;
 };
 
 /* ------------------------------------------------------------------ */
@@ -220,6 +265,12 @@ export type PurchaseQueryParams = {
   classificationsN2?: string[];
   classificationsN3?: string[];
   classificationsN4?: string[];
+  /**
+   * Prioridade da compra ("Nº acompanhamento"): "N1".."N4" e/ou "SEM_PRIORIDADE".
+   * Lista vazia = todas. Aplicado no SQL, então cards, gráficos, ranking, tabela
+   * e paginação vêem exatamente o mesmo conjunto (TAREFA 8).
+   */
+  priorities?: PurchasePriorityKey[];
   /**
    * "Retrato atual": considerar SÓ as linhas presentes na última planilha
    * importada. A aba Compras Pendentes aplica esse recorte SEMPRE (regra da
@@ -328,6 +379,13 @@ export type PurchaseRow = {
   classificationN2: string | null;
   classificationN3: string | null;
   classificationN4: string | null;
+  /**
+   * PRIORIDADE da compra (TAREFA 9) — normalizada de "Nº acompanhamento".
+   * `priority` é sempre uma das cinco chaves; `trackingNumber` guarda o valor
+   * cru ("N03") para a coluna secundária/detalhe do item.
+   */
+  priority: PurchasePriorityKey;
+  trackingNumber: string | null;
   itemNature: ItemNature;
   requester: string | null;
 };
@@ -522,6 +580,95 @@ export type PurchaseRequesterCount = {
   count: number;
 };
 
+/* ------------------------------------------------------------------ */
+/* Prioridade N1..N4 (Nº acompanhamento) — TAREFAS 3 a 8              */
+/* ------------------------------------------------------------------ */
+
+/** Uma fatia do gráfico "Compras Pendentes por Prioridade". */
+export type PurchasePrioritySlice = {
+  priority: PurchasePriorityKey;
+  label: string;
+  count: number;
+  /** Percentual sobre o total pendente do recorte (0 quando o total é 0). */
+  percentage: number;
+  color: string;
+};
+
+/** Linha das barras empilhadas por prioridade (requisitante / grupo Merc). */
+export type PurchasePriorityBreakdown = {
+  /** Rótulo do agrupador (requisitante ou grupo de mercadoria). */
+  label: string;
+  n1: number;
+  n2: number;
+  n3: number;
+  n4: number;
+  withoutPriority: number;
+  total: number;
+};
+
+/** Item do ranking "Top Compras Pendentes Críticas" (TAREFA 7). */
+export type PurchaseCriticalItem = {
+  id: string;
+  priority: PurchasePriorityKey;
+  priorityLabel: string;
+  requisition: string;
+  /** "Item" da requisição — o export do SAP não traz número de item. */
+  item: string;
+  material: string;
+  shortText: string;
+  requestedQuantity: number | null;
+  pendingQuantity: number | null;
+  unit: string | null;
+  requestDate: string | null;
+  requester: string;
+  merchandiseGroup: string;
+  daysOpen: number | null;
+  /** "Nº acompanhamento" cru, para conferir contra a planilha. */
+  trackingNumberRaw: string | null;
+};
+
+/**
+ * Bloco completo da análise por prioridade da aba Compras Pendentes
+ * (TAREFA 13). Calculado no service, NUNCA no componente.
+ */
+export type PendingPriorityAnalysis = {
+  /**
+   * `false` quando nenhuma linha importada tem prioridade — a aba mostra o aviso
+   * em vez de cinco cards zerados, que pareceriam "não há pendências".
+   */
+  available: boolean;
+  summary: {
+    totalPending: number;
+    n1: number;
+    n2: number;
+    n3: number;
+    n4: number;
+    withoutPriority: number;
+  };
+  byPriority: PurchasePrioritySlice[];
+  byRequester: PurchasePriorityBreakdown[];
+  byMerchandiseGroup: PurchasePriorityBreakdown[];
+  criticalItems: PurchaseCriticalItem[];
+};
+
+/**
+ * Resumo dos cards da aba Compras Realizadas (TAREFA 13). `purchasedNetValue`
+ * é a soma da coluna "Valor líquido" — sem fallback.
+ */
+export type CompletedPurchasesSummary = {
+  purchasedMaterials: number;
+  deliveredMaterials: number;
+  regularizationsY04: number;
+  services: number;
+  /** Soma de "Valor líquido" no recorte de compras realizadas. */
+  purchasedNetValue: number;
+  /**
+   * A base importada tem a coluna "Valor líquido". Quando `false`, o card NÃO
+   * mostra número: exibe "Valor líquido não importado" e a aba pede reimportação.
+   */
+  hasNetValueColumn: boolean;
+};
+
 export type PurchaseNatureSlice = {
   nature: ItemNature;
   label: string;
@@ -575,6 +722,11 @@ export type PendingPurchasesPageData = {
   classification: PurchaseClassificationInsights;
   /** Opções em cascata dos filtros N1/N2/N3/N4. */
   classificationOptions: PurchaseClassificationOptions;
+  /**
+   * Análise por PRIORIDADE ("Nº acompanhamento") das pendências filtradas —
+   * cards, gráficos e ranking crítico (TAREFAS 3 a 7).
+   */
+  priority: PendingPriorityAnalysis;
   purchases: PaginatedPurchases;
   filterOptions: PurchaseFilterOptions;
   source: PageDataSource;
@@ -598,6 +750,12 @@ export type CompletedPurchasesPageData = {
   classification: PurchaseClassificationInsights;
   /** Opções em cascata dos filtros N1/N2/N3/N4. */
   classificationOptions: PurchaseClassificationOptions;
+  /**
+   * Cards da aba, incluindo o "Valor comprado" somado da coluna "Valor líquido"
+   * (TAREFAS 10 e 15). `hasNetValueColumn = false` faz a aba avisar em vez de
+   * exibir um valor calculado de outro campo.
+   */
+  summary: CompletedPurchasesSummary;
   purchases: PaginatedPurchases;
   filterOptions: PurchaseFilterOptions;
   source: PageDataSource;

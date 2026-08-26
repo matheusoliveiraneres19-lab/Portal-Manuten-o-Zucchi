@@ -1,3 +1,9 @@
+import {
+  NO_PURCHASE_PRIORITY,
+  PURCHASE_PRIORITIES,
+  PURCHASE_PRIORITY_LABELS,
+  type PurchasePriorityKey
+} from "@/utils/purchases-normalizer";
 import type {
   PurchaseDateField,
   PurchaseKindFilter,
@@ -22,6 +28,11 @@ export type AppliedPurchaseFilters = {
   classificationsN3: string[];
   classificationsN4: string[];
   /**
+   * Prioridade da compra ("Nº acompanhamento") — TAREFA 8. Vazio = todas.
+   * Valores: "N1".."N4" e "SEM_PRIORIDADE".
+   */
+  priorities: string[];
+  /**
    * "Retrato atual": só as linhas da última planilha importada. Controle da aba
    * Compras Realizadas — false (histórico completo) é o padrão, para não perder
    * de vista as compras de planilhas anteriores.
@@ -45,6 +56,7 @@ export const EMPTY_PURCHASE_FILTERS: AppliedPurchaseFilters = {
   classificationsN2: [],
   classificationsN3: [],
   classificationsN4: [],
+  priorities: [],
   latestImportOnly: false,
   dateField: "",
   startDate: "",
@@ -62,8 +74,21 @@ export const MULTI_FILTER_KEYS = [
   "classificationsN1",
   "classificationsN2",
   "classificationsN3",
-  "classificationsN4"
+  "classificationsN4",
+  "priorities"
 ] as const;
+
+/**
+ * Opções do filtro "Prioridade" (TAREFA 8), na ordem N1 → N4 → Sem prioridade.
+ * "Todas" não é uma opção: seleção vazia já significa todas — é como os outros
+ * multi-seleção do portal se comportam.
+ */
+export const PURCHASE_PRIORITY_OPTIONS: Array<{ value: string; label: string }> = [
+  ...PURCHASE_PRIORITIES.map((priority) => ({ value: priority, label: PURCHASE_PRIORITY_LABELS[priority] })),
+  { value: NO_PURCHASE_PRIORITY, label: PURCHASE_PRIORITY_LABELS[NO_PURCHASE_PRIORITY] }
+];
+
+const PURCHASE_PRIORITY_VALUES = PURCHASE_PRIORITY_OPTIONS.map((option) => option.value);
 
 /** Níveis de classificação e a chave de filtro correspondente (ordem hierárquica). */
 export const CLASSIFICATION_FILTER_KEYS = [
@@ -143,6 +168,7 @@ export function purchaseFiltersToParams(filters: AppliedPurchaseFilters): URLSea
   setCsv("n2", filters.classificationsN2);
   setCsv("n3", filters.classificationsN3);
   setCsv("n4", filters.classificationsN4);
+  setCsv("prioridade", filters.priorities);
   if (filters.latestImportOnly) params.set("retrato", "atual");
   if (filters.dateField) params.set("campoData", filters.dateField);
   if (filters.startDate) params.set("startDate", filters.startDate);
@@ -193,6 +219,9 @@ export function parsePurchaseQueryParams(searchParams: SearchParams): PurchaseQu
     classificationsN2: csvParam(searchParams.n2),
     classificationsN3: csvParam(searchParams.n3),
     classificationsN4: csvParam(searchParams.n4),
+    // Prioridade: valores FECHADOS (N1..N4 e SEM_PRIORIDADE). Um valor inventado
+    // na URL é descartado em vez de virar um WHERE que devolve lista vazia.
+    priorities: csvParam(searchParams.prioridade, PURCHASE_PRIORITY_VALUES) as PurchasePriorityKey[],
     // Só "retrato=atual" liga o recorte da última planilha; qualquer outro valor
     // (ou a ausência do parâmetro) mantém o histórico completo.
     latestImportOnly: firstParam(searchParams.retrato) === "atual",
@@ -218,6 +247,7 @@ export function queryParamsToFilters(params: PurchaseQueryParams): AppliedPurcha
     classificationsN2: params.classificationsN2 ?? [],
     classificationsN3: params.classificationsN3 ?? [],
     classificationsN4: params.classificationsN4 ?? [],
+    priorities: params.priorities ?? [],
     latestImportOnly: params.latestImportOnly ?? false,
     dateField: params.dateField ?? "",
     startDate: params.startDate ?? "",
