@@ -552,6 +552,16 @@ export type PcFactoryImportResult = {
   missingRecommendedColumns: string[];
   /** Linhas cujo endDateTime era inválido/sentinela (01/01/0001) e virou null. */
   invalidEndDatesCount: number;
+  /** Términos inválidos que foram RECALCULADOS como início + durationHours (TAREFA 8). */
+  derivedEndDatesCount: number;
+  /** Registros que atravessam mais de um mês civil (TAREFA 9). */
+  multiMonthIntervals: number;
+  /** Soma de durationHours sem segmentar (TAREFA 9). */
+  totalOriginalDurationHours: number;
+  /** Soma das horas de todos os segmentos mensais (TAREFA 9). */
+  totalSegmentedDurationHours: number;
+  /** |original − segmentado|. Precisa ficar ≤ 0,01 h, senão o rateio está errado. */
+  originalVsSegmentedDifference: number;
   /** Linhas cujo durationHours estava vazio/inválido e entrou como 0. */
   invalidDurationCount: number;
   /**

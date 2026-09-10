@@ -2,6 +2,7 @@ import { cache } from "react";
 import type { PageDataSource } from "@/types/page-data";
 import { PcFactoryStatusCategory, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { overlapHours, splitPcFactoryRecordByMonth } from "@/utils/pc-factory-segments";
 import { PC_FACTORY_COLORS, PC_FACTORY_MANAGEMENT_GROUP_COLORS } from "@/constants/pc-factory-colors";
 import {
   PC_FACTORY_CATEGORY_COLORS,
@@ -58,6 +59,14 @@ const SETUP_COUNTS_AS_LOSS = true;
 /* Where + carregamento de registros                                  */
 /* ------------------------------------------------------------------ */
 
+/** Limites UTC do filtro de período, ou null quando o filtro não foi usado. */
+function periodBounds(params: PcFactoryQueryParams): { start: Date | null; end: Date | null } {
+  return {
+    start: params.startDate ? new Date(`${params.startDate}T00:00:00.000Z`) : null,
+    end: params.endDate ? new Date(`${params.endDate}T23:59:59.999Z`) : null
+  };
+}
+
 function buildWhere(params: PcFactoryQueryParams): Prisma.PcFactoryRecordWhereInput {
   const and: Prisma.PcFactoryRecordWhereInput[] = [];
 
@@ -79,11 +88,31 @@ function buildWhere(params: PcFactoryQueryParams): Prisma.PcFactoryRecordWhereIn
     and.push({ NOT: { statusCategory: PcFactoryStatusCategory.EXCLUIR_TEMPO_PLANEJADO } });
   }
 
-  if (params.startDate || params.endDate) {
-    const range: Prisma.DateTimeNullableFilter = {};
-    if (params.startDate) range.gte = new Date(`${params.startDate}T00:00:00.000Z`);
-    if (params.endDate) range.lte = new Date(`${params.endDate}T23:59:59.999Z`);
-    and.push({ startDateTime: range });
+  // Período por SOBREPOSIÇÃO, não por contenção (TAREFA 9).
+  //
+  // A versão anterior comparava só `startDateTime`, então um registro que
+  // começou em 31/08 e terminou em 02/09 sumia de um filtro de setembro — as
+  // horas dele em setembro eram simplesmente perdidas. A condição correta é
+  // "começou antes do fim da janela E terminou depois do início dela".
+  //
+  // `endDateTime` nulo (registro sem término utilizável) recai no comportamento
+  // antigo: vale como evento pontual no instante de início.
+  //
+  // As horas ainda são recortadas à janela em `loadRecords`, senão um registro
+  // que atravessa a fronteira contaria integralmente nos dois períodos.
+  const bounds = periodBounds(params);
+  if (bounds.start || bounds.end) {
+    const overlap: Prisma.PcFactoryRecordWhereInput[] = [];
+    if (bounds.end) overlap.push({ startDateTime: { lte: bounds.end } });
+    if (bounds.start) {
+      overlap.push({
+        OR: [
+          { endDateTime: { gte: bounds.start } },
+          { endDateTime: null, startDateTime: { gte: bounds.start } }
+        ]
+      });
+    }
+    and.push({ AND: overlap });
   }
 
   if (params.search) {
@@ -142,6 +171,7 @@ type AnalyticsRecord = {
   durationHours: number;
   realDurationHours: number | null;
   startDateTime: Date | null;
+  endDateTime: Date | null;
 };
 
 /**
@@ -161,7 +191,7 @@ function metricHours(record: { realDurationHours: number | null; durationHours: 
 // `cache` deduplica a carga de registros filtrados no MESMO render — o orquestrador
 // cria UM objeto `params` e o repassa a todas as sub-funções.
 const loadRecords = cache(async (params: PcFactoryQueryParams): Promise<AnalyticsRecord[]> => {
-  return prisma.pcFactoryRecord.findMany({
+  const rows = await prisma.pcFactoryRecord.findMany({
     // Funil ÚNICO da agregação por horas: o filtro de duração mensurável entra aqui e
     // vale para KPIs, tendência, confiabilidade, rankings, composição e qualidade.
     where: { AND: [buildWhere(params), MEASURABLE_DURATION] },
@@ -181,10 +211,48 @@ const loadRecords = cache(async (params: PcFactoryQueryParams): Promise<Analytic
       classificationRef: true,
       durationHours: true,
       realDurationHours: true,
-      startDateTime: true
+      startDateTime: true,
+      endDateTime: true
     }
   });
+
+  const bounds = periodBounds(params);
+  if (!bounds.start && !bounds.end) return rows;
+
+  // Recorte à janela filtrada (TAREFA 9). `overlapHours` rateia durationHours —
+  // a base oficial — pela fração do intervalo que cai dentro do período.
+  //
+  // Feito UMA vez, aqui: todas as agregações a jusante (KPIs, disponibilidade,
+  // ranking, confiabilidade, composição) leem `durationHours` via metricHours()
+  // e passam a ver a fatia correta sem que nenhuma delas precise mudar. A
+  // FÓRMULA da disponibilidade continua exatamente a mesma; o que muda é a
+  // atribuição das horas ao período.
+  return rows.map((row) => {
+    const clipped = overlapHours(row, bounds.start, bounds.end);
+    // As DATAS também são recortadas, não só as horas. Sem isto, um registro de
+    // 31/08 a 02/09 filtrado em agosto entraria com as horas já recortadas mas
+    // com o intervalo inteiro — e a tendência (que segmenta por mês) espalharia
+    // horas de agosto para dentro de setembro, fora da janela pedida.
+    // Recortado, o registro passa a ser exatamente "a parte do evento dentro do
+    // período", e todo o resto do pipeline fica coerente.
+    const start = clampStart(row.startDateTime, bounds.start);
+    const end = clampEnd(row.endDateTime, bounds.end);
+    if (clipped === row.durationHours && start === row.startDateTime && end === row.endDateTime) return row;
+    return { ...row, durationHours: clipped, startDateTime: start, endDateTime: end };
+  });
 });
+
+/** Início recortado ao começo da janela (o evento pode ter começado antes). */
+function clampStart(value: Date | null, bound: Date | null): Date | null {
+  if (!value || !bound) return value;
+  return value.getTime() < bound.getTime() ? bound : value;
+}
+
+/** Término recortado ao fim da janela (o evento pode continuar depois). */
+function clampEnd(value: Date | null, bound: Date | null): Date | null {
+  if (!value || !bound) return value;
+  return value.getTime() > bound.getTime() ? bound : value;
+}
 
 /**
  * Bucket oficial do registro. Usa a coluna gravada na importação e, se ela estiver
@@ -983,13 +1051,21 @@ export async function getPcFactoryTrend(params: PcFactoryQueryParams): Promise<P
   const records = (await loadRecords(params)).filter((r) => r.startDateTime);
   if (records.length === 0) return [];
 
+  // Um registro que atravessa meses é DIVIDIDO entre eles (TAREFA 9): uma parada
+  // de 31/08 a 02/09 deixa de cair inteira em agosto. Cada segmento vira um
+  // registro virtual com a fatia de `durationHours` daquele mês, então
+  // `aggregateHours` e `availability()` seguem intocados — só recebem as horas
+  // no mês certo. A soma dos segmentos reproduz o total original (a trava de
+  // 0,01 h é conferida na importação).
   const buckets = new Map<string, AnalyticsRecord[]>();
   for (const r of records) {
-    const d = r.startDateTime as Date;
-    const key = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
-    const list = buckets.get(key);
-    if (list) list.push(r);
-    else buckets.set(key, [r]);
+    for (const segment of splitPcFactoryRecordByMonth(r)) {
+      const virtual: AnalyticsRecord =
+        segment.hours === r.durationHours ? r : { ...r, durationHours: segment.hours };
+      const list = buckets.get(segment.monthKey);
+      if (list) list.push(virtual);
+      else buckets.set(segment.monthKey, [virtual]);
+    }
   }
 
   return Array.from(buckets.entries())
@@ -1186,7 +1262,10 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
         classificationRef: true,
         durationHours: true,
         realDurationHours: true,
-        startDateTime: true
+        startDateTime: true,
+        // Sem recorte aqui: este drawer é o histórico COMPLETO da máquina, sem
+        // filtro de período. O campo entra só porque AnalyticsRecord o exige.
+        endDateTime: true
       }
     }),
     prisma.pcFactoryRecord.findMany({

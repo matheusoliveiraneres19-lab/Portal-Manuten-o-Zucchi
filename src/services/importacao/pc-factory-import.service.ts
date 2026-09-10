@@ -32,6 +32,7 @@ import {
   parsePcFactoryDate,
   resolvePcFactoryStatusColor
 } from "@/utils/pc-factory-normalizer";
+import { isMultiMonthRecord, splitPcFactoryRecordByMonth } from "@/utils/pc-factory-segments";
 import type { PcFactoryAvailabilityBucket } from "@/utils/pc-factory-normalizer";
 import type {
   PcFactoryExcelRow,
@@ -42,7 +43,13 @@ import type {
 } from "@/types/pc-factory";
 
 /** Cor de um status lida da planilha (coluna explícita ou preenchimento de célula). */
-type SheetStatusColor = { hex: string; source: "excel-column" | "excel-cell-fill" };
+export type SheetStatusColor = { hex: string; source: "excel-column" | "excel-cell-fill" };
+
+/** Saída de `buildPcFactoryRecords`: o que gravar + a auditoria completa da leitura. */
+export type PcFactoryBuildOutcome = {
+  records: Prisma.PcFactoryRecordCreateManyInput[];
+  result: PcFactoryImportResult;
+};
 
 /**
  * Abas preferidas, em ordem. A aba ajustada `Import_PC_FACTORY` é a fonte
@@ -239,7 +246,7 @@ function normalizeBool(value: unknown): boolean | null {
   return null;
 }
 
-type ImportOptions = {
+export type ImportOptions = {
   fileName?: string;
   importedBy?: string;
   importBatch?: string;
@@ -252,7 +259,7 @@ type ImportOptions = {
   replaceAll?: boolean;
 };
 
-type ReadResult = {
+export type ReadResult = {
   rows: PcFactoryExcelRow[];
   sheetUsed: string | null;
   layoutType: PcFactoryLayoutType;
@@ -596,7 +603,7 @@ function headerTarget(value: unknown): keyof PcFactoryExcelRow | undefined {
  * Best-effort: qualquer falha (planilha sem estilos, formato inesperado) devolve mapa
  * vazio e a importação segue com o fallback de cores. NUNCA lança.
  */
-async function extractStatusColorsFromExcel(
+export async function extractStatusColorsFromExcel(
   source: string | Buffer | ArrayBuffer,
   sheetUsed: string | null
 ): Promise<Map<string, SheetStatusColor>> {
@@ -651,15 +658,22 @@ async function extractStatusColorsFromExcel(
   return colors;
 }
 
-/** Importa os registros a partir de linhas já lidas/mapeadas (com upsert e auditoria). */
-export async function importPcFactoryRecords(
+/**
+ * Converte linhas já lidas/mapeadas em registros persistíveis + auditoria completa.
+ *
+ * NÃO toca o banco. É a ÚNICA implementação das regras de negócio do PC-Factory —
+ * o caminho legado (`importPcFactoryRecords`) e o caminho de staging
+ * (`pc-factory-staging.service.ts`) chamam esta função, para as duas rotas jamais
+ * divergirem em classificação, duração ou dedução de datas.
+ */
+export async function buildPcFactoryRecords(
   rows: PcFactoryExcelRow[],
   options: ImportOptions = {},
   sheetUsed: string | null = null,
   statusColorMap: Map<string, SheetStatusColor> = new Map(),
   layoutType: PcFactoryLayoutType = "UNKNOWN",
   read?: ReadResult
-): Promise<PcFactoryImportResult> {
+): Promise<PcFactoryBuildOutcome> {
   // No resumo diário, "Tempo Decorrido[hr]" já vem em HORAS DECIMAIS (usar direto, sem ×24).
   const decimalHours = layoutType === "PC_FACTORY_AG_GRID_DAILY_SUMMARY";
   const isStatusHistoryCsv = layoutType === "PC_FACTORY_STATUS_HISTORY_CSV";
@@ -710,6 +724,11 @@ export async function importPcFactoryRecords(
     missingRequiredColumns: headerCheck.missingRequired,
     missingRecommendedColumns: headerCheck.missingRecommended,
     invalidEndDatesCount: 0,
+    derivedEndDatesCount: 0,
+    multiMonthIntervals: 0,
+    totalOriginalDurationHours: 0,
+    totalSegmentedDurationHours: 0,
+    originalVsSegmentedDifference: 0,
     invalidDurationCount: 0,
     notReportedHours: 0,
     classificationRefsDetected: []
@@ -748,6 +767,14 @@ export async function importPcFactoryRecords(
       if (parsed.dataQualityIssue) result.dataQualityRows += 1;
       if (parsed.realDurationHours === null) result.missingRealDurationRows += 1;
       if (parsed.hadInvalidEndDate) result.invalidEndDatesCount += 1;
+      if (parsed.derivedEndDate) result.derivedEndDatesCount += 1;
+      // Auditoria da segmentacao por mes (TAREFA 9). Nao altera o que e gravado:
+      // os segmentos sao derivados na leitura dos dashboards, nao persistidos.
+      if (isMultiMonthRecord(parsed)) result.multiMonthIntervals += 1;
+      result.totalOriginalDurationHours = round(result.totalOriginalDurationHours + parsed.durationHours);
+      for (const segment of splitPcFactoryRecordByMonth(parsed)) {
+        result.totalSegmentedDurationHours = round(result.totalSegmentedDurationHours + segment.hours);
+      }
       if (parsed.hadInvalidDuration) result.invalidDurationCount += 1;
       if (parsed.availabilityBucket === "NAO_APONTADO") {
         result.notReportedHours = round(result.notReportedHours + parsed.durationHours);
@@ -837,15 +864,11 @@ export async function importPcFactoryRecords(
     }
   }
 
-  // Substituição total (opcional): apaga TODA a base antes de gravar — mas só quando há
-  // linhas válidas, para um arquivo inválido nunca zerar os dados existentes.
-  if (options.replaceAll && toPersist.length > 0) {
-    const removed = await prisma.pcFactoryRecord.deleteMany({});
-    result.replacedRows = removed.count;
-  }
-
-  // Gravação em massa (substitui o antigo N+1: 2 round-trips por linha contra o banco remoto).
-  await persistRecords(toPersist, result);
+  // Resumo/auditoria da leitura. Fica no build porque vale para os DOIS caminhos:
+  // a importação legada e o staging.
+  result.originalVsSegmentedDifference = round(
+    Math.abs(result.totalOriginalDurationHours - result.totalSegmentedDurationHours)
+  );
 
   result.resourcesDetected = resources.size;
   result.groupsDetected = Array.from(groups).sort();
@@ -865,8 +888,53 @@ export async function importPcFactoryRecords(
     end: maxDate ? maxDate.toISOString() : null
   };
 
+  return { records: toPersist, result };
+}
+
+/**
+ * Caminho LEGADO: grava direto na base oficial.
+ *
+ * Mantido para os scripts de CLI (`npm run import:pc-factory`) e para arquivos
+ * pequenos. O `replaceAll` daqui apaga a base ANTES de gravar, em transações
+ * separadas — se a gravação falhar no meio, a base fica parcial. É exatamente essa
+ * a fragilidade que o fluxo de staging resolve; prefira-o para arquivos grandes.
+ */
+export async function importPcFactoryRecords(
+  rows: PcFactoryExcelRow[],
+  options: ImportOptions = {},
+  sheetUsed: string | null = null,
+  statusColorMap: Map<string, SheetStatusColor> = new Map(),
+  layoutType: PcFactoryLayoutType = "UNKNOWN",
+  read?: ReadResult
+): Promise<PcFactoryImportResult> {
+  const { records, result } = await buildPcFactoryRecords(rows, options, sheetUsed, statusColorMap, layoutType, read);
+
+  // Substituição total (opcional): apaga TODA a base antes de gravar — mas só quando há
+  // linhas válidas, para um arquivo inválido nunca zerar os dados existentes.
+  if (options.replaceAll && records.length > 0) {
+    const removed = await prisma.pcFactoryRecord.deleteMany({});
+    result.replacedRows = removed.count;
+  }
+
+  // Gravação em massa (substitui o antigo N+1: 2 round-trips por linha).
+  await persistRecords(records, result);
   await createImportHistory(result, options);
   return result;
+}
+
+/**
+ * Layout do arquivo não reconhecido.
+ *
+ * Tipada para a rota distinguir "o arquivo enviado não serve" (400, culpa do
+ * arquivo) de "algo quebrou no servidor" (500). A mensagem já é o diagnóstico
+ * multi-linha completo: layout detectado, aba/arquivo, colunas encontradas e as
+ * obrigatórias que faltaram.
+ */
+export class PcFactoryLayoutError extends Error {
+  constructor(diagnostic: string) {
+    super(diagnostic);
+    this.name = "PcFactoryLayoutError";
+  }
 }
 
 /** Tamanho do lote para as operações em massa contra o banco. */
@@ -932,7 +1000,7 @@ export async function importPcFactoryFromExcel(
   // Layout irreconhecível: falha com diagnóstico completo em vez de "erro no arquivo"
   // ou de uma importação vazia e silenciosa (TAREFA 14).
   if (read.layoutType === "UNKNOWN") {
-    throw new Error(buildLayoutDiagnostic(read, options));
+    throw new PcFactoryLayoutError(buildLayoutDiagnostic(read, options));
   }
 
   // Cores por status: só o Excel carrega estilos de célula. CSV não tem — pula o
@@ -947,7 +1015,7 @@ export async function importPcFactoryFromExcel(
  * Mensagem de erro com diagnóstico, em vez de "Erro no arquivo" (TAREFA 14).
  * Lista layout, arquivo/aba, colunas encontradas e as obrigatórias que faltaram.
  */
-function buildLayoutDiagnostic(read: ReadResult, options: ImportOptions): string {
+export function buildLayoutDiagnostic(read: ReadResult, options: ImportOptions): string {
   const { missingRequired } = read.readAs === "csv" ? checkCsvHeaders(read.headers) : { missingRequired: [] as string[] };
   const lines = [
     read.readAs === "csv"
@@ -989,6 +1057,8 @@ type ParsedRow = {
   availabilityBucket: PcFactoryAvailabilityBucket;
   /** A planilha trouxe endDateTime, mas ele era inválido/sentinela → gravado como null. */
   hadInvalidEndDate: boolean;
+  /** endDateTime foi CALCULADO como startDateTime + durationHours (TAREFA 8). */
+  derivedEndDate: boolean;
   /** durationHours vazio/inválido → gravado como 0 (só no CSV, onde 0 é aceito). */
   hadInvalidDuration: boolean;
   maintenanceType: string | null;
@@ -1097,6 +1167,23 @@ export function parseRow(
   }
   if (!Number.isFinite(durationMinutes) || durationMinutes < 0) durationMinutes = 0;
   const hasDuration = durationMinutes > 0;
+
+  // TAREFA 8 — termino invalido (sentinela "01/01/0001 00:00:00" do PC-Factory).
+  //
+  // `parsePcFactoryDate` ja devolveu null para a sentinela. Quando inicio e duracao
+  // sao validos, o termino e DEDUTIVEL: start + durationHours. Deixa-lo null tirava o
+  // registro da segmentacao por mes e da sobreposicao de periodo — ele passava a valer
+  // como um evento pontual no instante de inicio.
+  //
+  // A linha NAO e descartada por causa disso (nunca foi) e a duracao oficial nao muda:
+  // apenas preenche-se o campo derivado. `derivedEndDate` marca a deducao para a
+  // auditoria distinguir termino LIDO de termino CALCULADO.
+  let derivedEndDate = false;
+  if (!endDateTime && startDateTime && hasDuration) {
+    endDateTime = new Date(startDateTime.getTime() + durationMinutes * 60000);
+    derivedEndDate = true;
+  }
+
   const hasDates = Boolean(startDateTime || endDateTime);
 
   // Regras de ignorar (TAREFA 3): só ignora por campo OBRIGATÓRIO ausente.
@@ -1154,6 +1241,7 @@ export function parseRow(
       classificationRef,
       availabilityBucket,
       hadInvalidEndDate,
+      derivedEndDate,
       hadInvalidDuration: isStatusHistoryCsv && !hasDuration,
       maintenanceType: kind,
       isMaintenanceKpi,

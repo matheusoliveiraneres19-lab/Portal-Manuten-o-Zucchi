@@ -1,8 +1,11 @@
 # Infraestrutura de importação sobre Supabase Pro
 
-Esta etapa **não alterou nenhuma regra de negócio**. Ela monta a base sobre a
-qual os importadores serão migrados um a um — a começar pelo PC-Factory, na
-próxima etapa.
+A base sobre a qual os importadores são migrados um a um. O **PC-Factory já
+está migrado** — ver seção 11. Compras, Ordens de Serviço e Lubrificantes ainda
+usam o caminho legado (gravam direto na base oficial).
+
+Nenhuma regra de negócio foi reescrita em nenhuma das etapas: leitura,
+classificação e duração oficial continuam vindo das mesmas funções.
 
 ---
 
@@ -56,7 +59,7 @@ navegar no painel.
 valida sessão + papel (ADMIN/GESTOR) e devolve uma **URL assinada de 5 minutos**
 gerada no servidor.
 
-**Validação:** extensão em `.xlsx/.xls/.csv`, tamanho até 25 MB
+**Validação:** extensão em `.xlsx/.xlsm/.xls/.csv`, tamanho até 25 MB
 (`SUPABASE_IMPORT_MAX_BYTES`). Esse teto é do **objeto no Storage**, não do
 corpo da requisição — a Vercel corta o corpo de uma função serverless em
 ~4,5 MB, e é por isso que existe `createImportUploadUrl()`, que devolve uma URL
@@ -293,3 +296,102 @@ reconstrução na tela.
    arquivos toca as regras de Compras e PC-Factory.
 3. **`prisma/dev.db`** (1,5 MB, resíduo da era SQLite) ainda está no diretório de
    trabalho. Não é versionado (`.gitignore` cobre `*.db`); pode ser apagado.
+
+---
+
+## 11. PC-Factory sobre esta infraestrutura
+
+Primeiro módulo migrado. Documentado aqui porque é o modelo para Compras,
+Ordens de Serviço e Lubrificantes.
+
+### A causa do "Unexpected token 'R'"
+
+O modal mandava o XLSX inteiro num `FormData` para `/api/pc-factory/import` e
+chamava `response.json()` sem olhar o content-type. Acima de ~4,5 MB a **Vercel
+recusa o corpo antes de a rota rodar** e responde `Request Entity Too Large` em
+texto puro — o `.json()` engasgava no `R` de `Request`. Nenhum `try/catch` do
+servidor alcançava isso, porque o handler nunca era executado.
+
+Duas correções independentes:
+
+1. **O arquivo não passa mais pela Vercel.** O navegador envia direto ao bucket
+   com URL assinada.
+2. **O front nunca mais faz `.json()` às cegas.** `readResponse()` decide pelo
+   content-type e traduz corpo em texto para mensagem em português —
+   413/504/HTML inclusive.
+
+### Fluxo
+
+```
+navegador                        portal                      Supabase
+    │                              │                            │
+    ├─ POST import/upload-url ────►│                            │
+    │◄──── { uploadUrl, path } ────┤                            │
+    ├─ PUT o arquivo ──────────────┼───────────────────────────►│  bucket privado
+    ├─ POST import/start ─────────►│ cria ImportHistory         │
+    │◄──── { importId } ───────────┤ (stage UPLOADED)           │
+    ├─ POST import/process ───────►│ baixa, lê, valida          │◄─┐ em fatias
+    │◄──── { done, nextOffset } ───┤ grava ImportStagingRow     │  │ de ~45 s
+    │      (repete até done) ──────┼────────────────────────────┼──┘
+    ├─ POST import/finish ────────►│ ►► TRANSAÇÃO ◄◄            │
+    │◄──── { appliedRows } ────────┤ DELETE + INSERT atômicos   │
+```
+
+`process` devolve `done: false` + `nextOffset` quando o orçamento de tempo
+acaba. É o que permite processar um arquivo de qualquer tamanho dentro da
+janela da função serverless.
+
+### Como o staging protege a base
+
+`finishPcFactoryImport` recusa **antes** de abrir a transação quando não há
+linha válida ou quando existe linha inválida. Passando disso, o `deleteMany` e
+os `createMany` ficam na **mesma** transação — o caminho legado os tinha em
+transações separadas, e era por isso que uma falha no meio podia deixar a base
+vazia.
+
+Verificado no banco real (2026-09-10): `delete + insert + throw` numa transação
+deixou os 10.720 registros intactos e nenhuma linha de teste sobreviveu.
+
+### Datas inválidas (01/01/0001)
+
+O PC-Factory exporta `01/01/0001 00:00:00` como sentinela de "sem término".
+`parsePcFactoryDate` já a descartava, mas o campo ficava nulo — e um registro
+sem término some da segmentação por mês e da sobreposição de período.
+
+Agora, quando início e duração são válidos, o término é deduzido:
+`endDateTime = startDateTime + durationHours`. A linha nunca foi descartada por
+isso e a duração oficial não muda. `invalidEndDates` e `derivedEndDates`
+aparecem separados no resumo da importação.
+
+### Intervalos multi-mês
+
+`splitPcFactoryRecordByMonth` (`src/utils/pc-factory-segments.ts`) divide um
+registro entre os meses que ele atravessa, rateando **`durationHours`** pela
+fração do relógio em cada mês — não o delta das datas, que pode divergir da
+duração oficial. A última fatia recebe o resto, então a soma fecha exatamente.
+
+O filtro de período passou de **contenção** para **sobreposição**: um registro
+de 31/08 a 02/09 aparece tanto em agosto quanto em setembro, e em cada um conta
+só as horas daquele lado. `loadRecords` recorta horas **e datas** à janela, num
+único ponto — todas as agregações a jusante ficam corretas sem que nenhuma
+delas mude. **A fórmula da disponibilidade não foi tocada**; o que mudou foi a
+atribuição das horas ao período.
+
+Impacto medido na base real (10.720 registros, 30.504,40 h):
+
+| Medida | Antes | Depois |
+|---|---|---|
+| Registros multi-mês | — | 41 (0,38%) |
+| Tendência — agosto/2026 | 30.473,77 h | 30.224,37 h |
+| Tendência — setembro/2026 | 30,63 h | 280,03 h |
+| Filtro de setembro | não via os registros de agosto | 280,03 h |
+| Soma ago + set | 30.504,40 h | 30.504,40 h (igual ao total) |
+| Diferença original × segmentado | — | **0,00 h** |
+
+As 249,40 h que apareciam em agosto pertenciam a setembro. O total geral não
+mudou, e não há dupla contagem: a soma dos meses fecha com o total sem filtro.
+
+### `durationHours` continua a base oficial
+
+`metricHours()` não tem fallback para `realDurationHours` — e a segmentação
+rateia `durationHours`. `realDurationHours` segue apenas como auditoria.

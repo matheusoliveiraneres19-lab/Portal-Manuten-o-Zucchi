@@ -223,10 +223,11 @@ export function getImportsBucket(): string {
 }
 
 /** Extensões aceitas em qualquer importação de planilha. */
-export const ALLOWED_IMPORT_EXTENSIONS = [".xlsx", ".xls", ".csv"] as const;
+export const ALLOWED_IMPORT_EXTENSIONS = [".xlsx", ".xlsm", ".xls", ".csv"] as const;
 
 export const IMPORT_CONTENT_TYPES: Record<string, string> = {
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
   ".xls": "application/vnd.ms-excel",
   ".csv": "text/csv"
 };
