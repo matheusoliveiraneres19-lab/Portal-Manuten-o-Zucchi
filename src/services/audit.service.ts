@@ -12,6 +12,7 @@ import {
   type LastImportInfo,
   type SystemTechnicalStatus
 } from "@/types/audit";
+import { IMPORT_STAGE_LABELS } from "@/types/imports";
 
 /* -------------------------------------------------------------------------- */
 /*  Sanitização — TAREFA 7: nunca persistir/expor dados sensíveis             */
@@ -148,7 +149,7 @@ export async function getAuditLogs(filters: AuditLogFilters = {}): Promise<Audit
 /*  Histórico de importações (sobre o model ImportHistory existente)          */
 /* -------------------------------------------------------------------------- */
 
-function toImportDTO(row: {
+type ImportHistoryRow = {
   id: string;
   type: ImportType;
   fileName: string;
@@ -160,7 +161,23 @@ function toImportDTO(row: {
   status: ImportStatus;
   errorMessage: string | null;
   createdAt: Date;
-}): ImportHistoryDTO {
+  /* Colunas da infra Supabase Pro — nulas nas importações anteriores a ela. */
+  stage?: string | null;
+  bucket?: string | null;
+  filePath?: string | null;
+  fileSize?: number | null;
+  mimeType?: string | null;
+  validRows?: number | null;
+  ignoredRows?: number | null;
+  startedAt?: Date | null;
+  finishedAt?: Date | null;
+  metadata?: Prisma.JsonValue | null;
+};
+
+function toImportDTO(row: ImportHistoryRow): ImportHistoryDTO {
+  const startedAt = row.startedAt ?? null;
+  const finishedAt = row.finishedAt ?? null;
+
   return {
     id: row.id,
     type: row.type,
@@ -174,8 +191,64 @@ function toImportDTO(row: {
     status: row.status,
     statusLabel: IMPORT_STATUS_LABELS[row.status] ?? row.status,
     errorMessage: safeMessage(row.errorMessage),
-    createdAt: row.createdAt.toISOString()
+    createdAt: row.createdAt.toISOString(),
+
+    stage: row.stage ?? null,
+    stageLabel: row.stage ? IMPORT_STAGE_LABELS[row.stage] ?? row.stage : null,
+    validRows: row.validRows ?? 0,
+    ignoredRows: row.ignoredRows ?? 0,
+    startedAt: startedAt ? startedAt.toISOString() : null,
+    finishedAt: finishedAt ? finishedAt.toISOString() : null,
+    durationMs: startedAt && finishedAt ? finishedAt.getTime() - startedAt.getTime() : null,
+    // O caminho só é útil se houver bucket: sem ele não dá para assinar a URL.
+    hasFile: Boolean(row.bucket && row.filePath),
+    filePath: row.filePath ?? null,
+    fileSize: row.fileSize ?? null,
+    mimeType: row.mimeType ?? null,
+    // Passa pelo MESMO saneamento do AuditLog.details: metadata é escrita pelos
+    // importadores e não pode virar uma porta de saída para segredo.
+    metadata: sanitizeDetails(row.metadata) as Record<string, unknown> | null
   };
+}
+
+/** Uma importação específica, para a tela de detalhes. */
+export async function getImportHistoryById(id: string): Promise<ImportHistoryDTO | null> {
+  const row = await prisma.importHistory.findUnique({ where: { id } });
+  return row ? toImportDTO(row) : null;
+}
+
+/**
+ * Resumo das linhas no staging de uma importação, agrupado por status.
+ * Vazio quando a importação não usou staging (todas as anteriores a esta etapa).
+ */
+export async function getImportStagingSummary(importHistoryId: string): Promise<Record<string, number>> {
+  const grouped = await prisma.importStagingRow.groupBy({
+    by: ["status"],
+    where: { importHistoryId },
+    _count: { _all: true }
+  });
+  const out: Record<string, number> = {};
+  for (const g of grouped) out[g.status] = g._count._all;
+  return out;
+}
+
+/**
+ * As primeiras linhas que falharam na validação — é o que o operador precisa
+ * para corrigir a planilha. Limitado porque uma planilha ruim gera milhares.
+ */
+export async function getImportStagingErrors(importHistoryId: string, limit = 50) {
+  const rows = await prisma.importStagingRow.findMany({
+    where: { importHistoryId, status: { in: ["INVALID", "IGNORED"] } },
+    orderBy: { rowNumber: "asc" },
+    take: Math.min(limit, 500),
+    select: { id: true, rowNumber: true, status: true, errorMessage: true }
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    rowNumber: row.rowNumber,
+    status: row.status,
+    errorMessage: safeMessage(row.errorMessage)
+  }));
 }
 
 export async function getImportHistory(filters: ImportHistoryFilters = {}): Promise<ImportHistoryDTO[]> {

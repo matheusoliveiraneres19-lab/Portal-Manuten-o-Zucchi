@@ -7,6 +7,7 @@
  * assinada de curta duração gerada aqui no servidor.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseAnonKey } from "@/lib/supabase-server";
 
 export const ATTACHMENTS_BUCKET = "collaborator-attachments";
 
@@ -73,7 +74,16 @@ const PUBLISHABLE_KEY_FALLBACK =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxcWpzcGFkenpzd2Fvb3ZwY3lvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MzQwOTMsImV4cCI6MjA5NjUxMDA5M30.viyVgCJwVsHEFRPVezD1VEQ_0_1-WBq7pfzWvJoUjqg";
 
 export function getStoragePublicApiKey(): string {
-  return process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || PUBLISHABLE_KEY_FALLBACK;
+  // Delega a ordem de precedência a supabase-server.ts (SUPABASE_ANON_KEY >
+  // NEXT_PUBLIC_SUPABASE_ANON_KEY > SUPABASE_PUBLISHABLE_KEY), para os dois
+  // módulos aceitarem o mesmo conjunto de nomes.
+  //
+  // DÍVIDA CONHECIDA: o fallback abaixo é uma chave anon versionada no
+  // repositório. É pública por design (protegida por RLS) e não dá acesso a
+  // nada por si só, mas prende o portal a um projeto Supabase — rotacionar a
+  // chave ou trocar de projeto exige deploy. Defina SUPABASE_ANON_KEY no
+  // ambiente e o fallback deixa de ser usado.
+  return getSupabaseAnonKey() || PUBLISHABLE_KEY_FALLBACK;
 }
 
 function getClient(): SupabaseClient {

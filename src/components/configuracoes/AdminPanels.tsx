@@ -9,6 +9,7 @@ import {
   Factory,
   FileSpreadsheet,
   History,
+  Search,
   ScrollText,
   ShieldCheck,
   ShoppingCart,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { formatDateTimePtBr } from "@/utils/date";
+import { ImportDetailsModal } from "@/components/configuracoes/ImportDetailsModal";
 import {
   AUDIT_ACTION_LABELS,
   AUDIT_MODULE_LABELS,
@@ -88,6 +90,9 @@ function ImportHistoryPanel({ rows }: { rows: ImportHistoryDTO[] }) {
   const [to, setTo] = useState("");
   const [type, setType] = useState("");
   const [status, setStatus] = useState("");
+  // Linha aberta no modal de detalhes (null = fechado). Guarda a linha inteira,
+  // não só o id, para o modal já pintar o resumo enquanto busca o resto.
+  const [selected, setSelected] = useState<ImportHistoryDTO | null>(null);
 
   const types = useMemo(() => Array.from(new Set(rows.map((r) => r.type))), [rows]);
   const statuses = useMemo(() => Array.from(new Set(rows.map((r) => r.status))), [rows]);
@@ -139,23 +144,28 @@ function ImportHistoryPanel({ rows }: { rows: ImportHistoryDTO[] }) {
       </div>
 
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[820px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-gold/20 text-[11px] uppercase tracking-wide text-champagne/70">
               <th className="px-3 py-2 font-semibold">Data</th>
               <th className="px-3 py-2 font-semibold">Módulo</th>
               <th className="px-3 py-2 font-semibold">Arquivo</th>
               <th className="px-3 py-2 text-right font-semibold">Linhas</th>
+              <th className="px-3 py-2 text-right font-semibold">Válidas</th>
               <th className="px-3 py-2 text-right font-semibold">Criadas</th>
               <th className="px-3 py-2 text-right font-semibold">Atualizadas</th>
+              <th className="px-3 py-2 text-right font-semibold">Ignoradas</th>
               <th className="px-3 py-2 text-right font-semibold">Erros</th>
               <th className="px-3 py-2 font-semibold">Status</th>
               <th className="px-3 py-2 font-semibold">Usuário</th>
+              <th className="px-3 py-2 font-semibold">
+                <span className="sr-only">Detalhes</span>
+              </th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <EmptyRow colSpan={9} message="Nenhuma importação no período/filtros selecionados." />
+              <EmptyRow colSpan={12} message="Nenhuma importação no período/filtros selecionados." />
             ) : (
               filtered.map((r) => (
                 <tr key={r.id} className="border-b border-white/5 text-zinc-200 hover:bg-white/[0.03]">
@@ -165,8 +175,10 @@ function ImportHistoryPanel({ rows }: { rows: ImportHistoryDTO[] }) {
                     {r.fileName}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{r.totalRows}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-emerald-300">{r.validRows}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-emerald-300">{r.createdRows}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-sky-300">{r.updatedRows}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-zinc-400">{r.ignoredRows}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-red-300">{r.errorRows}</td>
                   <td className="px-3 py-2">
                     <StatusBadge status={r.status} />
@@ -174,12 +186,25 @@ function ImportHistoryPanel({ rows }: { rows: ImportHistoryDTO[] }) {
                   <td className="max-w-[160px] truncate px-3 py-2 text-zinc-400" title={r.importedBy ?? "—"}>
                     {r.importedBy ?? "—"}
                   </td>
+                  <td className="px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelected(r)}
+                      title="Ver detalhes da importação"
+                      className="inline-flex items-center gap-1 rounded-lg border border-gold/25 px-2 py-1 text-[11px] font-semibold text-champagne/80 transition hover:border-gold/50 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold/70"
+                    >
+                      <Search className="h-3 w-3" />
+                      Detalhes
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
       </div>
+
+      <ImportDetailsModal row={selected} onClose={() => setSelected(null)} />
     </section>
   );
 }

@@ -89,7 +89,33 @@ export const IMPORT_TYPE_LABELS: Record<string, string> = {
   HORAS_APONTADAS: "Horas Apontadas",
   EQUIPAMENTOS: "Equipamentos",
   PROCEDIMENTOS: "Procedimentos",
-  PC_FACTORY: "PC-Factory"
+  PC_FACTORY: "PC-Factory",
+  LOCAL_INSTALACAO: "Locais de Instalação"
+};
+
+/**
+ * Rótulos do ciclo de vida de uma importação (ImportHistory.stage).
+ *
+ * Mora aqui, e não em @/types/imports, porque aquele módulo importa os enums do
+ * @prisma/client em runtime — um Client Component que o importasse arrastaria o
+ * Prisma Client inteiro para o bundle do navegador. Este arquivo não importa nada.
+ */
+export const IMPORT_STAGE_LABELS: Record<string, string> = {
+  UPLOADED: "Arquivo recebido",
+  VALIDATING: "Validando",
+  PROCESSING: "Processando",
+  COMPLETED: "Concluída",
+  FAILED: "Falhou",
+  CANCELLED: "Cancelada"
+};
+
+/** Rótulos do status de cada LINHA no staging (ImportStagingRow.status). */
+export const IMPORT_ROW_STATUS_LABELS: Record<string, string> = {
+  PENDING: "Pendente",
+  VALID: "Válida",
+  IGNORED: "Ignorada",
+  INVALID: "Com erro",
+  APPLIED: "Aplicada"
 };
 
 export const IMPORT_STATUS_LABELS: Record<string, string> = {
@@ -113,6 +139,25 @@ export type ImportHistoryDTO = {
   statusLabel: string;
   errorMessage: string | null;
   createdAt: string;
+
+  /* --- Infra Supabase Pro. NULL nas importações anteriores a ela. --- */
+  /** Estágio do ciclo de vida (ver IMPORT_STAGES em @/types/imports). */
+  stage: string | null;
+  stageLabel: string | null;
+  validRows: number;
+  ignoredRows: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  /** Duração em ms, quando início e fim foram registrados. */
+  durationMs: number | null;
+  /** true quando o arquivo original está guardado no Storage e pode ser baixado. */
+  hasFile: boolean;
+  /** Caminho no bucket. Não é segredo (o bucket é privado), mas só vai para ADMIN/GESTOR. */
+  filePath: string | null;
+  fileSize: number | null;
+  mimeType: string | null;
+  /** Contexto da execução, já sanitizado (nunca traz segredo). */
+  metadata: Record<string, unknown> | null;
 };
 
 export type ImportHistoryFilters = {

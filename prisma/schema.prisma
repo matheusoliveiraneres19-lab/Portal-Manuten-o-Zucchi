@@ -170,6 +170,9 @@ enum ImportType {
   EQUIPAMENTOS
   PROCEDIMENTOS
   PC_FACTORY
+  /// Locais de Instalação (SAP PM). Antes da infra Supabase Pro os locais eram
+  /// gravados como EQUIPAMENTOS; o valor antigo segue válido no histórico.
+  LOCAL_INSTALACAO
 }
 
 enum ImportStatus {
@@ -207,28 +210,28 @@ enum PcFactorySource {
 }
 
 model User {
-  id           String      @id @default(cuid())
-  name         String
-  login        String      @unique
-  email        String?     @unique
+  id                         String      @id @default(cuid())
+  name                       String
+  login                      String      @unique
+  email                      String?     @unique
   /// Use bcrypt ou algoritmo equivalente antes de gravar senhas em producao.
-  passwordHash String?
-  role         Role        @default(VISUALIZADOR)
-  status       UserStatus  @default(ATIVO)
-  position     String?
-  sector       String?
-  lastAccess   DateTime?
+  passwordHash               String?
+  role                       Role        @default(VISUALIZADOR)
+  status                     UserStatus  @default(ATIVO)
+  position                   String?
+  sector                     String?
+  lastAccess                 DateTime?
   /// Primeiro acesso: quando true, o usuário é obrigado a trocar a senha temporária
   /// antes de acessar o portal (não entra no dashboard até redefinir a senha).
-  mustChangePassword         Boolean   @default(false)
+  mustChangePassword         Boolean     @default(false)
   /// Auditoria do ciclo de vida da senha (sem nunca armazenar a senha em texto puro).
   passwordChangedAt          DateTime?
   lastLoginAt                DateTime?
   temporaryPasswordCreatedAt DateTime?
   temporaryPasswordExpiresAt DateTime?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  timeEntries  TimeEntry[]
+  createdAt                  DateTime    @default(now())
+  updatedAt                  DateTime    @updatedAt
+  timeEntries                TimeEntry[]
 
   @@index([name])
   @@index([login])
@@ -260,46 +263,46 @@ model Equipment {
 }
 
 model ServiceOrder {
-  id                 String             @id @default(cuid())
-  osNumber           String
-  title              String
-  description        String?
-  status             ServiceOrderStatus @default(ABERTA)
-  statusSapRaw       String?
-  type               MaintenanceType?
-  area               MaintenanceArea?
-  priority           Priority?          @default(MEDIA)
-  responsible        String?
-  responsibleName    String?
-  responsibleId      String?
-  equipmentId        String?
-  equipment          Equipment?         @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
-  equipmentCode      String?
-  equipmentName      String?
-  technicalObjectRaw String?
-  planningGroup      String?
-  planningGroupCode  String?
+  id                   String             @id @default(cuid())
+  osNumber             String
+  title                String
+  description          String?
+  status               ServiceOrderStatus @default(ABERTA)
+  statusSapRaw         String?
+  type                 MaintenanceType?
+  area                 MaintenanceArea?
+  priority             Priority?          @default(MEDIA)
+  responsible          String?
+  responsibleName      String?
+  responsibleId        String?
+  equipmentId          String?
+  equipment            Equipment?         @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
+  equipmentCode        String?
+  equipmentName        String?
+  technicalObjectRaw   String?
+  planningGroup        String?
+  planningGroupCode    String?
   /// Tipo de atividade de manutenção do SAP/Fiori (texto cru, ex.: "Corretiva", "PM02").
   /// Normalizado para análise por `resolvePlanningActivityType` (utils/service-order-planning).
   planningActivityType String?
   /// Tipo de manutenção do SAP (texto cru), quando a coluna existir no export.
-  maintenanceType    String?
+  maintenanceType      String?
   /// Tipo de ordem do SAP (ex.: "ZM01"), quando a coluna existir no export.
-  orderType          String?
-  openedAt           DateTime?
-  closedAt           DateTime?
-  workedHours        Float?
-  downtimeHours      Float?
-  operation          String?
-  operationCode      String?
-  failureCause       String?
-  solution           String?
-  source             DataSource         @default(MANUAL)
-  importBatch        String?
-  dataQualityIssue   String?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  timeEntries        TimeEntry[]
+  orderType            String?
+  openedAt             DateTime?
+  closedAt             DateTime?
+  workedHours          Float?
+  downtimeHours        Float?
+  operation            String?
+  operationCode        String?
+  failureCause         String?
+  solution             String?
+  source               DataSource         @default(MANUAL)
+  importBatch          String?
+  dataQualityIssue     String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  timeEntries          TimeEntry[]
 
   @@unique([osNumber, operationCode])
   @@index([osNumber])
@@ -312,6 +315,8 @@ model ServiceOrder {
   @@index([equipmentCode])
   @@index([planningGroup])
   @@index([planningActivityType])
+  // Aba Equipamentos Críticos: filtra status IN (...) dentro de um período de abertura.
+  @@index([status, openedAt])
 }
 
 model Purchase {
@@ -343,7 +348,7 @@ model Purchase {
 /// Registro de compra rico importado da planilha SAP/Fiori (BASE DE DADOS PORTAL COMPRAS).
 /// Fonte ÚNICA das páginas Compras Pendentes/Realizadas e dos indicadores de compras.
 model PurchaseRecord {
-  id                     String               @id @default(cuid())
+  id                     String                    @id @default(cuid())
   /// Pedido de Compra (vazio = requisição sem pedido criado).
   purchaseOrderNumber    String?
   /// Requisição e nível da requisição.
@@ -402,30 +407,30 @@ model PurchaseRecord {
   purchasingGroup        String?
   deletionCode           String?
   /// Classificações derivadas.
-  purchaseType           PurchaseType         @default(OUTROS)
-  itemNature             ItemNature           @default(MATERIAL)
+  purchaseType           PurchaseType              @default(OUTROS)
+  itemNature             ItemNature                @default(MATERIAL)
   /// Status operacional canônico, derivado por classifyPurchaseRecord.
   operationalStatus      PurchaseOperationalStatus @default(IGNORADO)
   /// Serviço (Grupo Comp contém Y0008) — separado dos KPIs Y01.
-  isService              Boolean              @default(false)
+  isService              Boolean                   @default(false)
   /// Item bloqueado (termo "bloq") — auditoria; fora dos KPIs principais.
-  isBlocked              Boolean              @default(false)
+  isBlocked              Boolean                   @default(false)
   /// Frete ("frete" na descrição/grupo) — fora do relatório.
-  isFreight              Boolean              @default(false)
+  isFreight              Boolean                   @default(false)
   /// Fornecedor eliminado (Auren, Newcom, ...) — fora do relatório.
-  isEliminatedSupplier   Boolean              @default(false)
+  isEliminatedSupplier   Boolean                   @default(false)
   /// CódElim = "L" (marcado para eliminação) — fora do relatório.
-  isDeletionExcluded     Boolean              @default(false)
-  hasPurchaseOrder       Boolean              @default(false)
-  hasMigo                Boolean              @default(false)
-  hasMiro                Boolean              @default(false)
-  isReceiptCompleted     Boolean              @default(false)
+  isDeletionExcluded     Boolean                   @default(false)
+  hasPurchaseOrder       Boolean                   @default(false)
+  hasMigo                Boolean                   @default(false)
+  hasMiro                Boolean                   @default(false)
+  isReceiptCompleted     Boolean                   @default(false)
   /// Recbconcl = "X" (recebimento concluído). Base do "entregue".
-  isReceiptConfirmed     Boolean              @default(false)
+  isReceiptConfirmed     Boolean                   @default(false)
   /// Atraso em aberto (previsão vencida, ainda sem recebimento/MIGO).
-  isLateOpen             Boolean              @default(false)
+  isLateOpen             Boolean                   @default(false)
   /// Recebido com atraso (recebimento/MIGO após a previsão).
-  isLateReceived         Boolean              @default(false)
+  isLateReceived         Boolean                   @default(false)
   delayDays              Int?
   /// Tempos do processo (em dias).
   requisitionToOrderDays Int?
@@ -433,14 +438,14 @@ model PurchaseRecord {
   migoToMiroDays         Int?
   totalProcessDays       Int?
   /// Itens bloqueados/ignorados na análise (mantidos só para auditoria).
-  ignored                Boolean              @default(false)
+  ignored                Boolean                   @default(false)
   ignoredReason          String?
-  source                 PurchaseRecordSource @default(EXCEL)
+  source                 PurchaseRecordSource      @default(EXCEL)
   importBatch            String?
   /// Chave de deduplicação na reimportação.
-  technicalKey           String               @unique
-  createdAt              DateTime             @default(now())
-  updatedAt              DateTime             @updatedAt
+  technicalKey           String                    @unique
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
 
   @@index([purchaseOrderNumber])
   @@index([requisitionNumber])
@@ -467,6 +472,9 @@ model PurchaseRecord {
   @@index([isReceiptCompleted])
   @@index([isLateOpen])
   @@index([ignored])
+  // Compras: TODO dashboard parte de `ignored: false` combinado com o range de data.
+  @@index([ignored, purchaseOrderDate])
+  @@index([ignored, requisitionDate])
 }
 
 model Material {
@@ -583,6 +591,8 @@ model LubricantMovement {
   @@index([movementDate])
   @@index([movementCategory])
   @@index([technicalKey])
+  // Lubrificantes: entradas/saídas por período — categoria + data andam sempre juntas.
+  @@index([movementCategory, movementDate])
 }
 
 model Alert {
@@ -657,25 +667,25 @@ enum AttachmentKind {
 /// `nameKey` é o nome normalizado (minúsculo, sem acento) para casar com
 /// TimeEntry.userName nas análises de banco de horas.
 model Collaborator {
-  id            String             @id @default(cuid())
-  matricula     String             @unique
-  name          String
-  nameKey       String
-  role          String?
-  area          CollaboratorArea   @default(OUTROS)
-  shift         String?
-  monthlyGoal   Float              @default(220)
-  status        CollaboratorStatus @default(ATIVO)
-  admissionDate DateTime?
+  id                     String             @id @default(cuid())
+  matricula              String             @unique
+  name                   String
+  nameKey                String
+  role                   String?
+  area                   CollaboratorArea   @default(OUTROS)
+  shift                  String?
+  monthlyGoal            Float              @default(220)
+  status                 CollaboratorStatus @default(ATIVO)
+  admissionDate          DateTime?
   /// Início das próximas férias (editável por ADMIN/GESTOR).
   vacationStartDate      DateTime?
   /// Início do período aquisitivo de férias (default: data de admissão).
   acquisitionPeriodStart DateTime?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  epiItems      EpiItem[]
-  toolItems     ToolItem[]
-  attachments   Attachment[]
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  epiItems               EpiItem[]
+  toolItems              ToolItem[]
+  attachments            Attachment[]
 
   @@index([matricula])
   @@index([nameKey])
@@ -769,8 +779,8 @@ model Procedure {
   lastReviewedAt   DateTime?
   nextReviewAt     DateTime?
 
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   attachments       ProcedureAttachment[]
   favorites         ProcedureFavorite[]
@@ -831,83 +841,83 @@ model ProcedureReadConfirmation {
 /// Registro operacional importado do PC-Factory (status/tempo de máquinas e linhas).
 /// Fonte ÚNICA da página /dashboard/pc-factory e dos indicadores de produção.
 model PcFactoryRecord {
-  id                 String                  @id @default(cuid())
+  id                        String                  @id @default(cuid())
   /// Código do recurso/máquina no PC-Factory.
-  resourceCode       String?
+  resourceCode              String?
   /// Nome do recurso/máquina (obrigatório — identidade do registro).
-  resourceName       String
+  resourceName              String
   /// Linha de produção e setor onde o recurso opera.
-  productionLine     String?
+  productionLine            String?
   /// Grupo gerencial do portal (ex.: "Indústria Granito", "Indústria Mármore").
-  groupPortal        String?
-  sector             String?
+  groupPortal               String?
+  sector                    String?
   /// Código do status no PC-Factory ("G0015.RCODSTATUS"). Fonte do grupo gerencial.
-  statusCode         String?
+  statusCode                String?
   /// Valor exato de "Nome Status Recurso" vindo da planilha (auditoria, nunca substituído).
-  statusRaw          String?
+  statusRaw                 String?
   /// Chave canônica do status real (UPPER_SNAKE), p/ agrupar e colorir o gráfico de
   /// distribuição por status. Derivada de statusRaw (ver normalizePcFactoryStatusKey).
-  statusKey          String?
+  statusKey                 String?
   /// Cor do status LIDA DA PLANILHA na importação (#RRGGBB): coluna de cor explícita ou
   /// preenchimento da célula. Nulo quando a planilha não trouxe cor (aí usa-se fallback).
-  statusColorHex     String?
+  statusColorHex            String?
   /// Detalhamento do status (campo livre da planilha).
-  statusDetails      String?
+  statusDetails             String?
   /// Classificação gerencial derivada de statusRaw por match exato.
-  statusCategory     PcFactoryStatusCategory @default(OUTROS)
+  statusCategory            PcFactoryStatusCategory @default(OUTROS)
   /// Grupo da Tabela Gerencial do PC-Factory (PADRAO_SISTEMA | SETUP | MANUTENCAO |
   /// OPERACIONAL | MATERIAIS | EXTERNO), derivado de statusCode. String para evitar
   /// CREATE TYPE na migration Supabase. Ver classifyManagementGroup().
-  managementGroup    String?
+  managementGroup           String?
   /// Valor cru de "classificationPcFactoryRef" do CSV histórico (Produção | Parada
   /// Planejada I | Parada Planejada II | Parada Não Planejada | Tempo Fora de Turno).
   /// Auditoria + última prioridade em classifyAvailabilityBucket(). Nulo nos layouts XLSX.
-  classificationRef  String?
+  classificationRef         String?
   /// Bucket oficial de disponibilidade (PRODUCAO | PARADA_PLANEJADA |
   /// PARADA_NAO_PLANEJADA | FORA_DE_TURNO | RECURSO_NAO_PROGRAMADO | NAO_APONTADO),
   /// derivado por statusCode > status > classificationRef. String para evitar CREATE TYPE
   /// na migration Supabase. Base do cálculo oficial — ver classifyAvailabilityBucket().
-  availabilityBucket String?
+  availabilityBucket        String?
   /// Tipo de manutenção derivado (MECANICA | ELETRICA | AUTOMACAO | PLANEJADA | TERCEIROS | AGUARDANDO), ou null.
-  maintenanceType    String?
+  maintenanceType           String?
   /// Entra no KPI de manutenção (os 4 status de manutenção). Derivado de statusRaw.
-  isMaintenanceKpi   Boolean                 @default(false)
+  isMaintenanceKpi          Boolean                 @default(false)
   /// Sai do tempo planejado (Fora de Turno / Recurso Não Programado). Derivado.
-  excludePlannedTime Boolean                 @default(false)
+  excludePlannedTime        Boolean                 @default(false)
   /// Reduz a disponibilidade estimada (manutenção + parada/perda + setup). Derivado.
-  isDowntimeForAvailability Boolean           @default(false)
+  isDowntimeForAvailability Boolean                 @default(false)
   /// Janela do evento.
-  startDateTime      DateTime?
-  endDateTime        DateTime?
+  startDateTime             DateTime?
+  endDateTime               DateTime?
   /// Duração do evento (sempre positiva), em minutos e horas — "Tempo Decorrido".
-  durationMinutes    Float
-  durationHours      Float
+  durationMinutes           Float
+  durationHours             Float
   /// "Tempo Decorrido Real" (base principal dos KPIs: MTBF/MTTR/MTTA/disponibilidade).
   /// Nulo quando a planilha não trouxe a coluna — nesse caso usa-se durationHours como fallback.
-  realDurationMinutes Float?
-  realDurationHours   Float?
+  realDurationMinutes       Float?
+  realDurationHours         Float?
   /// Responsáveis e operador do evento.
-  initialResponsible String?
-  finalResponsible   String?
-  operatorName       String?
+  initialResponsible        String?
+  finalResponsible          String?
+  operatorName              String?
   /// Ordem de produção / operação / produto associado ao evento.
-  orderNumber        String?
-  operationCode      String?
-  operationName      String?
-  productCode        String?
-  productDescription String?
-  shift              String?
+  orderNumber               String?
+  operationCode             String?
+  operationName             String?
+  productCode               String?
+  productDescription        String?
+  shift                     String?
   /// Observação/comentários e causa raiz informados na planilha.
-  observation        String?
-  rootCause          String?
+  observation               String?
+  rootCause                 String?
   /// Marcação de problema de qualidade de dados detectado na importação.
-  dataQualityIssue   String?
-  source             PcFactorySource         @default(EXCEL)
-  importBatch        String?
+  dataQualityIssue          String?
+  source                    PcFactorySource         @default(EXCEL)
+  importBatch               String?
   /// Chave de deduplicação na reimportação.
-  technicalKey       String?                 @unique
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
+  technicalKey              String?                 @unique
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
 
   @@index([resourceName])
   @@index([resourceCode])
@@ -921,8 +931,21 @@ model PcFactoryRecord {
   @@index([startDateTime])
   @@index([endDateTime])
   @@index([importBatch])
+  // PC-Factory: categoria/toggle de manutenção sempre vêm junto do range de início.
+  @@index([statusCategory, startDateTime])
+  @@index([isMaintenanceKpi, startDateTime])
 }
 
+/// Histórico de importações de planilha (uma linha por execução).
+///
+/// `status` (enum ImportStatus) é o resultado FINAL e continua sendo o campo que
+/// os cinco importadores existentes e a aba Configurações gravam/leem — não mudou.
+/// `stage` é o CICLO DE VIDA da infra Supabase Pro (UPLOADED → VALIDATING →
+/// PROCESSING → COMPLETED/FAILED/CANCELLED), gravado pelo import-orchestrator.
+/// Os dois convivem: o orquestrador espelha `stage` em `status` para a UI antiga
+/// continuar correta. Ver src/types/imports.ts (STAGE_TO_STATUS).
+///
+/// NUNCA gravar dado sensível em `metadata` (senha, token, connection string).
 model ImportHistory {
   id           String       @id @default(cuid())
   type         ImportType
@@ -936,9 +959,62 @@ model ImportHistory {
   errorMessage String?
   createdAt    DateTime     @default(now())
 
+  /// Ciclo de vida da importação (ver IMPORT_STAGES em src/types/imports.ts).
+  /// Null nas importações anteriores à infra Supabase Pro.
+  stage       String?
+  /// Bucket do Supabase Storage onde o arquivo original ficou guardado.
+  bucket      String?
+  /// Caminho do objeto dentro do bucket (imports/<modulo>/YYYY/MM/<arquivo>).
+  filePath    String?
+  fileSize    Int?
+  mimeType    String?
+  /// Linhas que passaram na validação e podem ir para a base oficial.
+  validRows   Int       @default(0)
+  /// Linhas descartadas por regra de negócio (não são erro).
+  ignoredRows Int       @default(0)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  /// Contexto livre da execução (layout detectado, período, contadores extras).
+  metadata    Json?
+  updatedAt   DateTime? @updatedAt
+
+  stagingRows ImportStagingRow[]
+
   @@index([type])
   @@index([status])
   @@index([createdAt])
+  @@index([stage])
+  @@index([type, createdAt])
+}
+
+/// Área de STAGING das importações grandes: cada linha da planilha cai aqui
+/// ANTES de tocar a base oficial. Só depois da validação completa o orquestrador
+/// aplica os dados; se a validação falhar, a base oficial fica intacta.
+///
+/// `status` é String (sem enum) de propósito — mesmo motivo do AuditLog: evita
+/// CREATE TYPE em migration Supabase e permite novos estados sem migração.
+/// Valores em IMPORT_ROW_STATUSES (src/types/imports.ts).
+model ImportStagingRow {
+  id              String        @id @default(cuid())
+  importHistoryId String
+  importHistory   ImportHistory @relation(fields: [importHistoryId], references: [id], onDelete: Cascade)
+
+  /// Valor de ImportType em texto (o staging é genérico, não amarra ao enum).
+  module       String
+  /// Número da linha na planilha de origem (1-based, para o usuário localizar).
+  rowNumber    Int
+  /// Linha crua como veio da planilha — trilha de auditoria da importação.
+  raw          Json
+  /// Linha já normalizada pelo importador do módulo (null enquanto não validada).
+  normalized   Json?
+  status       String
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([importHistoryId])
+  @@index([module])
+  @@index([status])
+  @@index([importHistoryId, status])
 }
 
 /// Trilha de auditoria administrativa do portal (fase 03). Registra ações sensíveis
@@ -947,16 +1023,16 @@ model ImportHistory {
 /// para evitar CREATE TYPE em migrations Supabase e permitir novas ações sem migração.
 /// NUNCA armazenar dados sensíveis em `details` (senha, hash, token, connection string).
 model AuditLog {
-  id          String   @id @default(cuid())
-  userId      String?
-  userName    String?
-  action      String
-  module      String
-  entityId    String?
-  entityName  String?
-  details     Json?
-  ipAddress   String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  userId     String?
+  userName   String?
+  action     String
+  module     String
+  entityId   String?
+  entityName String?
+  details    Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
 
   @@index([action])
   @@index([module])
