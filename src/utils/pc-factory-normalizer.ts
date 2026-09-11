@@ -397,9 +397,14 @@ export function classifyManagementGroup(statusCode: unknown, statusRaw?: unknown
  *   FORA_DE_TURNO           fora do Tempo de Carga (turno não existe)
  *   RECURSO_NAO_PROGRAMADO  fora do Tempo de Carga (máquina não programada)
  *   NAO_APONTADO            fora do Tempo de Carga (tempo sem apontamento — ver abaixo)
- *   PARADA_PLANEJADA        dentro da Carga, sai do Tempo Operacional
+ *   PARADA_PLANEJADA        SETUP — a única parada que sai do Tempo Operacional
  *   PARADA_NAO_PLANEJADA    dentro do Operacional, desconta do Tempo Trabalhado
  *   PRODUCAO                Tempo Trabalhado
+ *
+ * PARADA_PLANEJADA significa SETUP e nada mais (grupo 061xx, "Parada Planejada I/II"
+ * do G0134). Refeição, Limpeza, Manutenção Planejada e Medição de Abrasivos já
+ * estiveram aqui e saíram: no G0134 elas NÃO reduzem o Tempo Operacional. Manter o
+ * nome do valor evita migrar a coluna `availabilityBucket` já gravada.
  */
 export type PcFactoryAvailabilityBucket =
   | "PRODUCAO"
@@ -422,9 +427,13 @@ export type PcFactoryAvailabilityBucket =
  *    a manutenção é descontada, então esse tempo entra como "disponível" e empurra o
  *    indicador para cima — 89,60% contra 74,25% se estivesse fora. O bucket existe para
  *    que o volume continue visível no painel de qualidade em vez de desaparecer na conta.
- *  - Grupo Setup (061xx) e 0603 → PARADA_PLANEJADA, confirmado ao vivo no Mapa/Andon
- *    do PC-Factory em 2026-08-04 (ver commit 84c32fc): "06120-Setup - Serrad" aparece
- *    com o mesmo painel laranja de "0320-Refeição", não com o vermelho de manutenção.
+ *  - Grupo Setup (061xx) → PARADA_PLANEJADA, confirmado ao vivo no Mapa/Andon do
+ *    PC-Factory em 2026-08-04 (ver commit 84c32fc).
+ *
+ * Conferido contra o G0134 oficial (Zucchi, agosto/2026): só o grupo 061xx reproduz
+ * o Setup de 1.435,80 h do relatório — 1.435,84 h aqui. Incluir 0603 (Medição de
+ * Abrasivos, 0,39 h) subiria para 1.436,23 h e afastaria do oficial; a Disponibilidade
+ * fica em 90,12% dos dois jeitos, então o critério foi bater o Setup do relatório.
  */
 const AVAILABILITY_BUCKET_BY_CODE: Record<string, PcFactoryAvailabilityBucket> = {
   // Padrão do sistema
@@ -438,11 +447,11 @@ const AVAILABILITY_BUCKET_BY_CODE: Record<string, PcFactoryAvailabilityBucket> =
   "0201": "PARADA_NAO_PLANEJADA", // Mecânica
   "0202": "PARADA_NAO_PLANEJADA", // Elétrica
   "0206": "PARADA_NAO_PLANEJADA", // Automação
-  "0207": "PARADA_PLANEJADA", // Manutenção Planejada (Parada Planejada II na planilha)
+  "0207": "PARADA_NAO_PLANEJADA", // Manutenção Planejada — é MANUTENÇÃO, não Setup (G0134)
   "0208": "PARADA_NAO_PLANEJADA", // de Terceiros
-  // Operacional planejado
-  "0312": "PARADA_PLANEJADA", // Limpeza de Setor de Trabalho
-  "0320": "PARADA_PLANEJADA", // Refeição
+  // Operacional: paradas que NÃO saem do Tempo Operacional no G0134 (só Setup sai)
+  "0312": "PARADA_NAO_PLANEJADA", // Limpeza de Setor de Trabalho
+  "0320": "PARADA_NAO_PLANEJADA", // Refeição
   // Materiais / quebras — parada não planejada
   "0319": "PARADA_NAO_PLANEJADA", // Quebra de Chapa
   "0401": "PARADA_NAO_PLANEJADA", // Falta de Material
@@ -455,7 +464,7 @@ const AVAILABILITY_BUCKET_BY_CODE: Record<string, PcFactoryAvailabilityBucket> =
   "06130": "PARADA_PLANEJADA",
   "06140": "PARADA_PLANEJADA",
   "06150": "PARADA_PLANEJADA",
-  "0603": "PARADA_PLANEJADA" // Medição de Abrasivos (grupo Setup)
+  "0603": "PARADA_NAO_PLANEJADA" // Medição de Abrasivos — fora do Setup que o G0134 desconta
 };
 
 /** Bucket por NOME normalizado — usado quando o código não está mapeado. */
@@ -464,14 +473,14 @@ const AVAILABILITY_BUCKET_BY_NAME: Record<string, PcFactoryAvailabilityBucket> =
   [KEY.FORA_DE_TURNO]: "FORA_DE_TURNO",
   [KEY.RECURSO_NAO_PROGRAMADO]: "RECURSO_NAO_PROGRAMADO",
   [KEY.AGUARDANDO_LANCAMENTO]: "NAO_APONTADO",
-  [KEY.REFEICAO]: "PARADA_PLANEJADA",
-  "limpeza de setor de trabalho": "PARADA_PLANEJADA",
+  [KEY.REFEICAO]: "PARADA_NAO_PLANEJADA",
+  "limpeza de setor de trabalho": "PARADA_NAO_PLANEJADA",
   [KEY.MANUTENCAO_MECANICA]: "PARADA_NAO_PLANEJADA",
   [KEY.MANUTENCAO_ELETRICA]: "PARADA_NAO_PLANEJADA",
   [KEY.MANUTENCAO_AUTOMACAO]: "PARADA_NAO_PLANEJADA",
   [KEY.MANUTENCAO_TERCEIROS]: "PARADA_NAO_PLANEJADA",
   [KEY.AGUARDANDO_MANUTENCAO]: "PARADA_NAO_PLANEJADA",
-  [KEY.MANUTENCAO_PLANEJADA]: "PARADA_PLANEJADA",
+  [KEY.MANUTENCAO_PLANEJADA]: "PARADA_NAO_PLANEJADA",
   [KEY.FALTA_DE_MATERIAL]: "PARADA_NAO_PLANEJADA",
   [KEY.FALTA_DE_UTILIDADES]: "PARADA_NAO_PLANEJADA",
   [KEY.PARADA_NAO_IDENTIFICADA]: "NAO_APONTADO",
@@ -518,8 +527,9 @@ export function classifyAvailabilityBucket(record: {
     if (name.startsWith("quebra de ferramenta")) return "PARADA_NAO_PLANEJADA";
   }
 
-  // Heurística por prefixo de código, para códigos novos ainda não mapeados.
-  if (code.startsWith("061")) return "PARADA_PLANEJADA";
+  // Códigos novos do grupo Setup ainda não mapeados. Exige os 5 dígitos (06100..06159):
+  // `startsWith("061")` pegava também "0612" (Revezamento), que não é Setup.
+  if (/^061d{2}$/.test(code)) return "PARADA_PLANEJADA";
 
   const ref = normalizePcFactoryStatusName(record.classificationRef);
   if (ref && AVAILABILITY_BUCKET_BY_REF[ref]) return AVAILABILITY_BUCKET_BY_REF[ref];

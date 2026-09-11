@@ -40,14 +40,17 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
     {
       title: "Horas de manutenção",
       value: hours(kpis.maintenanceHours),
-      description: "Mecânica + Elétrica + Automação + Aguardando.",
+      description: "Mecânica + Elétrica + Automação + Planejada + Terceiros + Aguardando.",
+      hint:
+        "Manutenção = Mecânica + Elétrica + Automação + Planejada + Terceiros + Aguardando Manutenção. " +
+        "É o MESMO número que a fórmula da Disponibilidade subtrai — card e fórmula leem da mesma conta.",
       icon: Wrench,
       tone: "gold"
     },
     {
       title: "Eventos de manutenção",
       value: int(kpis.maintenanceEvents),
-      description: "Registros dos 4 status de manutenção.",
+      description: "Registros dos 6 status de manutenção.",
       icon: Hammer,
       tone: "blue"
     },
@@ -60,7 +63,10 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
       value: percent(kpis.availabilityPercent),
       description: "Base G0134: (Tempo Operacional − Manutenção) / Tempo Operacional.",
       hint:
-        "A disponibilidade segue a planilha oficial G0134: desconta Tempo de Manutenção + Tempo Aguardando Manutenção sobre o G0134.LOADTIME (Tempo Operacional = Tempo de Carga − Paradas Planejadas).",
+        "Tempo de Carga = Total − Fora de Turno − Recurso Não Programado. " +
+        "Tempo Operacional = Tempo de Carga − Setup (só o Setup sai; Refeição, Limpeza, Falta de Material e demais " +
+        "paradas continuam dentro). Manutenção = os 6 subtipos, incluindo Planejada e Aguardando Manutenção — é aí " +
+        "que esta conta difere do DTM% nativo do PC-Factory.",
       icon: CircleGauge,
       tone: "green"
     },

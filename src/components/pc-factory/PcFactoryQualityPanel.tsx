@@ -68,23 +68,45 @@ export function PcFactoryQualityPanel({ quality }: PcFactoryQualityPanelProps) {
       {quality.availabilityAudit.operationalHours > 0 ? (
         <details className="mt-3 rounded-lg border border-gold/15 bg-black/25 p-3">
           <summary className="cursor-pointer text-[11px] font-bold uppercase tracking-wide text-gold">
-            Como a Disponibilidade é calculada (base G0134)
+            Auditoria da Disponibilidade (base G0134)
           </summary>
           <div className="mt-2 space-y-1 text-[11px] text-zinc-300">
             <p className="font-mono text-[10px] text-zinc-400">{quality.availabilityAudit.formula}</p>
+
+            <AuditLine label="Tempo Total" value={`${fmt(quality.availabilityAudit.totalHours)} h`} />
+            <AuditLine label="− Fora de Turno" value={`${fmt(quality.availabilityAudit.outOfShiftHours)} h`} muted />
             <AuditLine
-              label="Tempo Operacional (= G0134.LOADTIME)"
-              value={`${fmt(quality.availabilityAudit.operationalHours)} h`}
-            />
-            <AuditLine
-              label="− Manutenção (inclui Aguardando Manutenção)"
-              value={`${fmt(quality.availabilityAudit.maintenanceHours)} h`}
-            />
-            <AuditLine
-              label="dos quais Aguardando Manutenção"
-              value={`${fmt(quality.availabilityAudit.waitingMaintenanceHours)} h`}
+              label="− Recurso Não Programado"
+              value={`${fmt(quality.availabilityAudit.unscheduledResourceHours)} h`}
               muted
             />
+            <AuditLine label="= Tempo de Carga" value={`${fmt(quality.availabilityAudit.loadHours)} h`} />
+
+            <AuditLine
+              label="− Setup (Parada Planejada I e II)"
+              value={`${fmt(quality.availabilityAudit.setupPlannedStopHours)} h`}
+              muted
+            />
+            <AuditLine
+              label="= Tempo Operacional (= G0134.LOADTIME)"
+              value={`${fmt(quality.availabilityAudit.operationalHours)} h`}
+            />
+
+            <AuditLine
+              label="− Manutenção (os 6 subtipos)"
+              value={`${fmt(quality.availabilityAudit.maintenanceHours)} h`}
+            />
+            <AuditLine label="Mecânica" value={`${fmt(quality.availabilityAudit.maintenanceMechanicalHours)} h`} muted />
+            <AuditLine label="Elétrica" value={`${fmt(quality.availabilityAudit.maintenanceElectricalHours)} h`} muted />
+            <AuditLine label="Automação" value={`${fmt(quality.availabilityAudit.maintenanceAutomationHours)} h`} muted />
+            <AuditLine label="Planejada" value={`${fmt(quality.availabilityAudit.maintenancePlannedHours)} h`} muted />
+            <AuditLine label="Terceiros" value={`${fmt(quality.availabilityAudit.maintenanceThirdPartyHours)} h`} muted />
+            <AuditLine
+              label="Aguardando Manutenção"
+              value={`${fmt(quality.availabilityAudit.maintenanceWaitingHours)} h`}
+              muted
+            />
+
             <AuditLine
               label="= Disponibilidade"
               value={
@@ -94,6 +116,21 @@ export function PcFactoryQualityPanel({ quality }: PcFactoryQualityPanelProps) {
               }
               strong
             />
+
+            <p className="pt-2 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+              Ficam DENTRO do Tempo Operacional (não subtraem)
+            </p>
+            <AuditLine label="Produção" value={`${fmt(quality.availabilityAudit.productiveHours)} h`} muted />
+            <AuditLine
+              label="Paradas não planejadas (Refeição, Limpeza, Falta de Material, Utilidades…)"
+              value={`${fmt(quality.availabilityAudit.unplannedStopHours)} h`}
+              muted
+            />
+            <AuditLine label="Não apontado" value={`${fmt(quality.availabilityAudit.notPointedHours)} h`} muted />
+            <p className="text-[10px] leading-snug text-zinc-500">
+              No G0134 só o Setup sai do Tempo Operacional. As paradas acima reduzem o Tempo Trabalhado e a Utilização,
+              mas não a Disponibilidade — por isso aparecem aqui só para diagnóstico.
+            </p>
             <p className="pt-1 text-[10px] leading-snug text-zinc-500">
               Para comparação, a <strong className="text-zinc-400">Utilização</strong> (Tempo Trabalhado ÷ Tempo Operacional,
               que desconta todas as paradas, não só manutenção) seria{" "}

@@ -37,6 +37,7 @@ import type {
   PcFactoryRecommendation,
   PcFactoryRecordRow,
   PcFactoryRecordsResult,
+  PcFactoryAvailabilityAudit,
   PcFactoryReferencePeriod,
   PcFactoryReliabilityRow,
   PcFactoryResourceDetails,
@@ -255,12 +256,26 @@ function clampEnd(value: Date | null, bound: Date | null): Date | null {
 }
 
 /**
- * Bucket oficial do registro. Usa a coluna gravada na importação e, se ela estiver
- * vazia (registros importados antes da migration), recalcula a partir de
- * statusCode/status/classificationRef — assim a Disponibilidade nunca depende de um
- * reimport para funcionar.
+ * Bucket oficial do registro — SEMPRE recalculado pela regra vigente.
+ *
+ * A coluna `availabilityBucket` gravada na importação é só um cache: a base atual foi
+ * importada quando Refeição, Limpeza e Manutenção Planejada ainda saíam do Tempo
+ * Operacional. Confiar no valor gravado congelaria a regra ANTIGA até alguém reimportar
+ * — e a Disponibilidade continuaria errada com o dado certo no banco.
+ *
+ * Classificar aqui é uma busca em mapa por registro, barata perto da consulta.
+ * O valor gravado só entra quando não há statusCode nem nome para classificar.
  */
 function resolveBucket(record: AnalyticsRecord): PcFactoryAvailabilityBucket {
+  const hasSignal = Boolean(record.statusCode || record.statusRaw || record.classificationRef);
+  if (hasSignal) {
+    return classifyAvailabilityBucket({
+      statusCode: record.statusCode,
+      statusRaw: record.statusRaw,
+      classificationRef: record.classificationRef
+    });
+  }
+
   const stored = record.availabilityBucket;
   if (stored === "PRODUCAO") return "PRODUCAO";
   if (stored === "PARADA_PLANEJADA") return "PARADA_PLANEJADA";
@@ -268,11 +283,7 @@ function resolveBucket(record: AnalyticsRecord): PcFactoryAvailabilityBucket {
   if (stored === "FORA_DE_TURNO") return "FORA_DE_TURNO";
   if (stored === "RECURSO_NAO_PROGRAMADO") return "RECURSO_NAO_PROGRAMADO";
   if (stored === "NAO_APONTADO") return "NAO_APONTADO";
-  return classifyAvailabilityBucket({
-    statusCode: record.statusCode,
-    statusRaw: record.statusRaw,
-    classificationRef: record.classificationRef
-  });
+  return "PARADA_NAO_PLANEJADA";
 }
 
 /* ------------------------------------------------------------------ */
@@ -299,12 +310,14 @@ type HoursAggregate = {
   /** Horas por bucket oficial de disponibilidade (TAREFAS 8 e 9). */
   bucketHours: Record<PcFactoryAvailabilityBucket, number>;
   /**
-   * Horas de manutenção que caem DENTRO do Tempo Operacional — numerador da
-   * Disponibilidade G0134. Difere de `maintenanceHours` por excluir "Manutenção
-   * Planejada" (0207), que está no bucket PARADA_PLANEJADA e portanto JÁ foi retirada do
-   * denominador: contá-la de novo aqui subtrairia o mesmo tempo duas vezes.
+   * Manutenção = Mecânica + Elétrica + Automação + Planejada + Terceiros + Aguardando.
+   *
+   * Número ÚNICO: é o mesmo no card "Horas de Manutenção", na fórmula da
+   * Disponibilidade e na auditoria. Existiam dois (`maintenanceHoursInOperational`
+   * excluía a Manutenção Planejada, então o card mostrava ~971 h e a fórmula usava
+   * ~923,6 h); como agora nenhuma manutenção sai do Tempo Operacional, não há mais o
+   * que separar — e um só número não pode divergir de si mesmo.
    */
-  maintenanceHoursInOperational: number;
   maintenanceEvents: number;
   mechanicalEvents: number;
   electricalEvents: number;
@@ -337,7 +350,6 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
   let planejadaEvents = 0;
   let terceirosEvents = 0;
   let waitingEvents = 0;
-  let maintenanceHoursInOperational = 0;
   const bucketHours: Record<PcFactoryAvailabilityBucket, number> = {
     PRODUCAO: 0,
     PARADA_PLANEJADA: 0,
@@ -365,12 +377,6 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
     switch (cat) {
       case PcFactoryStatusCategory.MANUTENCAO: {
         maintenanceHours += hours;
-        // Só a manutenção que está DENTRO do Tempo Operacional entra no numerador da
-        // Disponibilidade G0134. "Manutenção Planejada" (0207) é PARADA_PLANEJADA e já saiu
-        // do denominador — somá-la aqui subtrairia o mesmo tempo duas vezes.
-        if (bucket !== "PARADA_PLANEJADA" && !OUT_OF_LOAD_BUCKETS.has(bucket)) {
-          maintenanceHoursInOperational += hours;
-        }
         maintenanceEvents += 1;
         const kind = maintenanceKind(record.statusRaw);
         if (kind === "MECANICA") {
@@ -440,7 +446,6 @@ function aggregateHours(records: AnalyticsRecord[]): HoursAggregate {
       RECURSO_NAO_PROGRAMADO: round(bucketHours.RECURSO_NAO_PROGRAMADO),
       NAO_APONTADO: round(bucketHours.NAO_APONTADO)
     },
-    maintenanceHoursInOperational: round(maintenanceHoursInOperational),
     maintenanceEvents,
     mechanicalEvents,
     electricalEvents,
@@ -494,7 +499,7 @@ function availabilityBreakdown(agg: HoursAggregate) {
 function availability(agg: HoursAggregate): number | null {
   return calculateG0134BusinessAvailability({
     operationalHours: availabilityBreakdown(agg).operationalHours,
-    maintenanceHours: agg.maintenanceHoursInOperational
+    maintenanceHours: agg.maintenanceHours
   });
 }
 
@@ -1469,8 +1474,22 @@ async function buildDataQuality(params: PcFactoryQueryParams): Promise<PcFactory
     excludedOpenEndedHours: round(openEnded._sum.durationHours ?? 0),
     notReportedHours: breakdown.notReportedHours,
     availabilityAudit: {
+      totalHours: breakdown.totalHours,
+      outOfShiftHours: breakdown.outOfShiftHours,
+      unscheduledResourceHours: breakdown.unscheduledResourceHours,
+      loadHours: breakdown.loadHours,
+      setupPlannedStopHours: breakdown.plannedStopHours,
       operationalHours: breakdown.operationalHours,
-      maintenanceHours: hoursAgg.maintenanceHoursInOperational,
+      maintenanceMechanicalHours: hoursAgg.mechanicalHours,
+      maintenanceElectricalHours: hoursAgg.electricalHours,
+      maintenanceAutomationHours: hoursAgg.automationHours,
+      maintenancePlannedHours: hoursAgg.planejadaHours,
+      maintenanceThirdPartyHours: hoursAgg.terceirosHours,
+      maintenanceWaitingHours: hoursAgg.waitingHours,
+      unplannedStopHours: hoursAgg.bucketHours.PARADA_NAO_PLANEJADA,
+      productiveHours: hoursAgg.bucketHours.PRODUCAO,
+      notPointedHours: hoursAgg.bucketHours.NAO_APONTADO,
+      maintenanceHours: hoursAgg.maintenanceHours,
       waitingMaintenanceHours: hoursAgg.waitingHours,
       availabilityPercent: availability(hoursAgg),
       formula: "(operationalHours - maintenanceHours) / operationalHours * 100",
@@ -1478,6 +1497,30 @@ async function buildDataQuality(params: PcFactoryQueryParams): Promise<PcFactory
     }
   };
 }
+
+/** Auditoria zerada — recorte sem nenhum registro. Nunca NaN, nunca Infinity. */
+const EMPTY_AVAILABILITY_AUDIT: PcFactoryAvailabilityAudit = {
+  totalHours: 0,
+  outOfShiftHours: 0,
+  unscheduledResourceHours: 0,
+  loadHours: 0,
+  setupPlannedStopHours: 0,
+  operationalHours: 0,
+  maintenanceMechanicalHours: 0,
+  maintenanceElectricalHours: 0,
+  maintenanceAutomationHours: 0,
+  maintenancePlannedHours: 0,
+  maintenanceThirdPartyHours: 0,
+  maintenanceWaitingHours: 0,
+  unplannedStopHours: 0,
+  productiveHours: 0,
+  notPointedHours: 0,
+  maintenanceHours: 0,
+  waitingMaintenanceHours: 0,
+  availabilityPercent: null,
+  formula: "(operationalHours - maintenanceHours) / operationalHours * 100",
+  utilizationPercent: null
+};
 
 function resolveReference(params: PcFactoryQueryParams): PcFactoryReferencePeriod {
   if (params.startDate && params.endDate) {
@@ -1584,14 +1627,7 @@ function emptyPageData(
       recordsWithoutEndDate: 0,
       excludedOpenEndedHours: 0,
       notReportedHours: 0,
-      availabilityAudit: {
-        operationalHours: 0,
-        maintenanceHours: 0,
-        waitingMaintenanceHours: 0,
-        availabilityPercent: null,
-        formula: "(operationalHours - maintenanceHours) / operationalHours * 100",
-        utilizationPercent: null
-      }
+      availabilityAudit: EMPTY_AVAILABILITY_AUDIT
     },
     source
   };

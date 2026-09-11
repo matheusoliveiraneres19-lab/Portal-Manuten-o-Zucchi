@@ -412,9 +412,37 @@ export type PcFactoryDataQuality = {
  *   availabilityPercent     ↔ coluna Disponibilidade
  */
 export type PcFactoryAvailabilityAudit = {
-  /** = G0134.LOADTIME. Tempo de Carga − Paradas Planejadas. */
+  /* --- cadeia até o Tempo Operacional (cada linha da auditoria na tela) --- */
+  /** Soma de durationHours do recorte. */
+  totalHours: number;
+  /** Sai da Carga: turno não existe. */
+  outOfShiftHours: number;
+  /** Sai da Carga: máquina não programada. */
+  unscheduledResourceHours: number;
+  /** = Total − Fora de Turno − Recurso Não Programado. */
+  loadHours: number;
+  /** SETUP (grupo 061xx) — a ÚNICA parada que sai do Tempo Operacional. */
+  setupPlannedStopHours: number;
+  /** = G0134.LOADTIME. Tempo de Carga − Setup. */
   operationalHours: number;
-  /** Numerador subtraído: manutenção DENTRO do Tempo Operacional (inclui Aguardando). */
+
+  /* --- composição da manutenção (os 6 subtipos somam maintenanceHours) --- */
+  maintenanceMechanicalHours: number;
+  maintenanceElectricalHours: number;
+  maintenanceAutomationHours: number;
+  maintenancePlannedHours: number;
+  maintenanceThirdPartyHours: number;
+  maintenanceWaitingHours: number;
+
+  /* --- paradas que FICAM no Operacional (diagnóstico, não subtraem) --- */
+  unplannedStopHours: number;
+  productiveHours: number;
+  notPointedHours: number;
+
+  /**
+   * Manutenção total = os 6 subtipos acima. É o MESMO número do card "Horas de
+   * Manutenção" — card e fórmula leem daqui.
+   */
   maintenanceHours: number;
   /** Parcela de "Aguardando Manutenção" — o que o DTM [%] nativo NÃO desconta. */
   waitingMaintenanceHours: number;
