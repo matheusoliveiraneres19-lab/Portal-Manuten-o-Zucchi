@@ -64,6 +64,12 @@ const PROCESS_TIME_BUDGET_MS = 45_000;
 /** Teto de linhas por arquivo — trava contra planilha absurda derrubar a função. */
 const MAX_ROWS = 500_000;
 
+/**
+ * Acima disto, não se lê cor de status com o exceljs. Ver o comentário em
+ * processPcFactoryImport: é uma trava de MEMÓRIA, não de tempo.
+ */
+const STATUS_COLOR_MAX_ROWS = 20_000;
+
 export class PcFactoryImportError extends Error {
   readonly userMessage: string;
   constructor(userMessage: string, technical?: string) {
@@ -142,6 +148,12 @@ export type ProcessPcFactoryImportResult = {
 export type PcFactoryAudit = {
   layoutType: string;
   sheetUsed: string | null;
+  /** Todas as abas do arquivo — é o que responde "por que não achou a aba?". */
+  sheetNames: string[];
+  /** Células de data vazias neutralizadas antes do parse (export do PC-Factory). */
+  repairedCells: number;
+  /** Cores por status puladas por tamanho do arquivo — o gráfico usa a paleta padrão. */
+  statusColorsSkipped: boolean;
   readAs: "xlsx" | "csv";
   delimiterUsed: string | null;
   bomRemoved: boolean;
@@ -220,8 +232,15 @@ export async function processPcFactoryImport(params: {
 
   // 2) Converte TODAS as linhas pelas regras oficiais (mesma função do caminho
   //    legado). É barato e em memória; o custo real está na gravação.
+  // As cores por status são cosméticas (o gráfico tem paleta padrão em
+  // @/constants/pc-factory-colors), mas o exceljs carrega a planilha INTEIRA de
+  // novo: no export do G0015 são ~1 GB só aqui, somados aos ~950 MB que o
+  // sheetjs ainda segura. Acima do teto, pula — melhor cor padrão que OOM.
+  const statusColorsSkipped = read.readAs === "xlsx" && read.rows.length > STATUS_COLOR_MAX_ROWS;
   const statusColorMap: Map<string, SheetStatusColor> =
-    read.readAs === "csv" ? new Map() : await extractStatusColorsFromExcel(buffer, read.sheetUsed);
+    read.readAs === "csv" || statusColorsSkipped
+      ? new Map()
+      : await extractStatusColorsFromExcel(buffer, read.sheetUsed);
 
   const { records, result } = await buildPcFactoryRecords(
     read.rows,
@@ -259,7 +278,7 @@ export async function processPcFactoryImport(params: {
   }
 
   const done = cursor >= records.length;
-  const audit = done ? buildAudit(result, read) : null;
+  const audit = done ? buildAudit(result, read, statusColorsSkipped) : null;
 
   await prisma.importHistory.update({
     where: { id: history.id },
@@ -536,11 +555,22 @@ function fromIso(value: unknown): Date | null {
 /** Projeta o resultado da leitura no resumo que a tela mostra (TAREFA 14). */
 function buildAudit(
   result: PcFactoryImportResult,
-  read: { sheetUsed: string | null; readAs: "xlsx" | "csv"; delimiterUsed: string | null; bomRemoved: boolean }
+  read: {
+    sheetUsed: string | null;
+    readAs: "xlsx" | "csv";
+    delimiterUsed: string | null;
+    bomRemoved: boolean;
+    sheetNames: string[];
+    repairedCells: number;
+  },
+  statusColorsSkipped = false
 ): PcFactoryAudit {
   return {
     layoutType: result.layoutType,
     sheetUsed: read.sheetUsed,
+    sheetNames: read.sheetNames,
+    repairedCells: read.repairedCells,
+    statusColorsSkipped,
     readAs: read.readAs,
     delimiterUsed: read.delimiterUsed,
     bomRemoved: read.bomRemoved,

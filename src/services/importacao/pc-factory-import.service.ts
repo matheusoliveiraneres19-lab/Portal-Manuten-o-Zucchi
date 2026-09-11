@@ -268,6 +268,10 @@ export type ReadResult = {
   readAs: "xlsx" | "csv";
   delimiterUsed: ";" | "," | null;
   bomRemoved: boolean;
+  /** Todas as abas do arquivo — diagnóstico de "aba não encontrada" (TAREFA 3). */
+  sheetNames: string[];
+  /** Células de data vazias neutralizadas antes do parse. Ver repairWorkbookBuffer. */
+  repairedCells: number;
 };
 
 /* ------------------------------------------------------------------ */
@@ -487,7 +491,9 @@ export function readPcFactorySource(
       headers,
       readAs: "csv",
       delimiterUsed: delimiter,
-      bomRemoved
+      bomRemoved,
+      sheetNames: [],
+      repairedCells: 0
     };
   }
   return readPcFactorySheet(source, options.sheetName);
@@ -504,7 +510,10 @@ function detectLayout(headers: string[], sheetUsed: string | null, isCsv = false
   if (isCsv) {
     const { missingRequired } = checkCsvHeaders(headers);
     if (missingRequired.length === 0) return "PC_FACTORY_STATUS_HISTORY_CSV";
-    return "UNKNOWN";
+    // Não é o CSV histórico. Pode ainda ser o ag-grid exportado como CSV — mesmos
+    // cabeçalhos da planilha, só que separados por vírgula. O parser de CSV já
+    // resolve as colunas pelo COLUMN_MAP, então só falta reconhecer o layout:
+    // segue para a detecção por cabeçalho em vez de recusar o arquivo.
   }
 
   if (sheetUsed && sheetUsed.trim().toLowerCase() === "import_pc_factory") return "PC_FACTORY_IMPORT";
@@ -530,22 +539,158 @@ function detectLayout(headers: string[], sheetUsed: string | null, isCsv = false
   return "UNKNOWN";
 }
 
+/**
+ * Aba não encontrada. Carrega as abas do arquivo para o usuário ver o que o
+ * portal enxergou — sem isso o erro é indistinguível de "arquivo corrompido".
+ */
+export class PcFactoryWorksheetError extends Error {
+  readonly code = "PC_FACTORY_WORKSHEET_NOT_FOUND";
+  readonly sheetNames: string[];
+  readonly userMessage = "Não foi possível localizar uma aba com dados na planilha do PC-Factory.";
+
+  constructor(sheetNames: string[]) {
+    super(
+      [
+        "Não foi possível localizar uma aba com dados na planilha do PC-Factory.",
+        `Abas encontradas: ${sheetNames.length ? sheetNames.join(", ") : "(nenhuma)"}`,
+        "Cabeçalhos esperados: Recurso/Apelido Recurso, Nome Status Recurso e Tempo Decorrido [hr] " +
+          "(layout ag-grid); ou resourceName, status, startDateTime e durationHours (layout histórico).",
+        "Se a planilha abre normalmente no Excel, exporte de novo pelo PC-Factory e repita a importação."
+      ].join("\n")
+    );
+    this.name = "PcFactoryWorksheetError";
+    this.sheetNames = sheetNames;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Reparo de células de data vazias                                           */
+/* -------------------------------------------------------------------------- */
+
+const XLSX_C_OPEN = Buffer.from("<c");
+const XLSX_T_DATE = Buffer.from(' t="d"');
+const XLSX_EMPTY_V = [Buffer.from("<v></v>"), Buffer.from("<v/>"), Buffer.from("<v />")];
+
+/**
+ * Tira o `t="d"` das células de data cujo `<v>` está VAZIO.
+ *
+ * POR QUE ISTO EXISTE
+ * O export do PC-Factory grava o término ausente como
+ * `<c r="F7203" t="d" s="73"><v></v></c>`. O sheetjs deixa `p.v` indefinido (o
+ * `<v>` existe, mas é vazio), não entra no desvio de célula-vazia porque `t` não
+ * é nulo, e chama `parseDate(undefined)` — que estoura. O `safe_parse_sheet`
+ * ENGOLE a exceção: a aba some de `workbook.Sheets` e o nome continua em
+ * `SheetNames`. Para o portal, o arquivo parecia não ter aba alguma.
+ *
+ * Sem o `t="d"` a célula vira vazia — que é o que ela de fato é. A regra de
+ * término ausente não muda: quem deduz `endDateTime = início + durationHours`
+ * continua sendo o parser de datas, e esses registros seguem contados em
+ * invalidEndDates/derivedEndDates.
+ *
+ * Trabalha em BYTES de propósito: o XML desta planilha tem 88 MB, e passá-lo por
+ * string custaria ~350 MB de UTF-16 dentro da função serverless.
+ */
+function repairEmptyDateCells(sheetXml: Buffer): { buffer: Buffer; repaired: number } | null {
+  const cuts: Array<[number, number]> = [];
+
+  for (const needle of XLSX_EMPTY_V) {
+    let at = sheetXml.indexOf(needle);
+    while (at !== -1) {
+      const cellStart = sheetXml.lastIndexOf(XLSX_C_OPEN, at);
+      if (cellStart !== -1) {
+        const tagEnd = sheetXml.indexOf(0x3e /* ">" */, cellStart);
+        if (tagEnd !== -1 && tagEnd < at) {
+          const rel = sheetXml.subarray(cellStart, tagEnd).indexOf(XLSX_T_DATE);
+          if (rel !== -1) cuts.push([cellStart + rel, cellStart + rel + XLSX_T_DATE.length]);
+        }
+      }
+      at = sheetXml.indexOf(needle, at + needle.length);
+    }
+  }
+  if (cuts.length === 0) return null;
+
+  cuts.sort((a, b) => a[0] - b[0]);
+  const parts: Buffer[] = [];
+  let prev = 0;
+  let repaired = 0;
+  for (const [start, end] of cuts) {
+    if (start < prev) continue; // sobreposto: já cortado
+    parts.push(sheetXml.subarray(prev, start));
+    prev = end;
+    repaired += 1;
+  }
+  parts.push(sheetXml.subarray(prev));
+  return { buffer: Buffer.concat(parts), repaired };
+}
+
+/**
+ * Reescreve o .xlsx com as células de data vazias neutralizadas. Devolve null
+ * quando não havia nada a reparar — aí o arquivo tem outro problema, e o erro de
+ * aba original é o diagnóstico correto.
+ *
+ * Rezipa SEM compressão: o buffer morre logo depois do parse, e comprimir 88 MB
+ * custaria segundos sem ganho nenhum.
+ */
+export function repairWorkbookBuffer(
+  source: string | Buffer | ArrayBuffer
+): { buffer: Buffer; repaired: number } | null {
+  try {
+    const container =
+      typeof source === "string"
+        ? XLSX.CFB.read(source, { type: "file" })
+        : XLSX.CFB.read(Buffer.isBuffer(source) ? source : Buffer.from(source), { type: "buffer" });
+
+    let repaired = 0;
+    for (const entry of container.FileIndex) {
+      if (!/sheet\d*\.xml$/i.test(entry.name) || !entry.content || !entry.size) continue;
+      const current = Buffer.isBuffer(entry.content) ? entry.content : Buffer.from(entry.content);
+      const fixedSheet = repairEmptyDateCells(current);
+      if (!fixedSheet) continue;
+      entry.content = fixedSheet.buffer;
+      entry.size = fixedSheet.buffer.length;
+      repaired += fixedSheet.repaired;
+    }
+    if (repaired === 0) return null;
+
+    const rebuilt = XLSX.CFB.write(container, { type: "buffer", fileType: "zip", compression: false });
+    return { buffer: Buffer.isBuffer(rebuilt) ? rebuilt : Buffer.from(rebuilt as Uint8Array), repaired };
+  } catch {
+    // Reparo é melhor-esforço. Falhou? O erro de aba original é o que vale.
+    return null;
+  }
+}
+
 /** Lê a planilha resolvendo a aba preferida e devolve as linhas, o nome da aba e o layout. */
 export function readPcFactorySheet(source: string | Buffer | ArrayBuffer, sheetName?: string): ReadResult {
   // cellDates:false de propósito: algumas planilhas (ex.: export G0009) formatam colunas
   // de DURAÇÃO como tempo, e com cellDates:true o xlsx as devolve como Date deslocada por
   // fuso — quebrando o parse de duração. Lendo como número, a duração vem limpa e as
   // colunas de data viram serial Excel, convertidas em UTC por converterDataExcel/parsePcFactoryDate.
-  const workbook =
-    typeof source === "string"
-      ? XLSX.readFile(source, { cellDates: false })
-      : XLSX.read(source, { type: "buffer", cellDates: false });
+  const openWorkbook = (input: string | Buffer | ArrayBuffer) =>
+    typeof input === "string"
+      ? XLSX.readFile(input, { cellDates: false })
+      : XLSX.read(input, { type: "buffer", cellDates: false });
 
-  const resolvedName = resolveSheetName(workbook.SheetNames, sheetName);
-  const worksheet = resolvedName ? workbook.Sheets[resolvedName] : undefined;
+  let workbook = openWorkbook(source);
+  let resolvedName = resolveSheetName(workbook.SheetNames, sheetName);
+  let worksheet = resolvedName ? workbook.Sheets[resolvedName] : undefined;
+  let repairedCells = 0;
+
+  // A aba está no índice mas não no workbook: o sheetjs abortou o parse dela e
+  // engoliu o erro. A causa conhecida é a célula de data com <v> vazio — veja
+  // repairWorkbookBuffer. Repara e lê de novo ANTES de desistir.
+  if (!worksheet && workbook.SheetNames.length > 0) {
+    const repair = repairWorkbookBuffer(source);
+    if (repair) {
+      repairedCells = repair.repaired;
+      workbook = openWorkbook(repair.buffer);
+      resolvedName = resolveSheetName(workbook.SheetNames, sheetName);
+      worksheet = resolvedName ? workbook.Sheets[resolvedName] : undefined;
+    }
+  }
 
   if (!worksheet) {
-    throw new Error("Não foi possível localizar uma aba com dados na planilha do PC-Factory.");
+    throw new PcFactoryWorksheetError(workbook.SheetNames);
   }
 
   const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: "", raw: true });
@@ -558,7 +703,9 @@ export function readPcFactorySheet(source: string | Buffer | ArrayBuffer, sheetN
     headers,
     readAs: "xlsx",
     delimiterUsed: null,
-    bomRemoved: false
+    bomRemoved: false,
+    sheetNames: workbook.SheetNames,
+    repairedCells
   };
 }
 
@@ -1028,6 +1175,12 @@ export function buildLayoutDiagnostic(read: ReadResult, options: ImportOptions):
     `Linhas lidas: ${read.rows.length.toLocaleString("pt-BR")}`,
     `Colunas encontradas (${read.headers.length}): ${read.headers.join(", ") || "(nenhuma)"}`
   ];
+  if (read.sheetNames.length > 0) {
+    lines.push(`Abas do arquivo: ${read.sheetNames.join(", ")}`);
+  }
+  if (read.repairedCells > 0) {
+    lines.push(`Células de data vazias reparadas: ${read.repairedCells}`);
+  }
   if (missingRequired.length > 0) {
     lines.push(`Colunas obrigatórias ausentes: ${missingRequired.join(", ")}`);
   }

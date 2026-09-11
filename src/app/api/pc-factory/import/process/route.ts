@@ -12,7 +12,8 @@
  */
 import { type NextRequest } from "next/server";
 import { requireRole } from "@/lib/auth-guard";
-import { badRequest, errorMessage, ok, serverError } from "@/lib/api-response";
+import { badRequest, errorMessage, fail, ok, serverError } from "@/lib/api-response";
+import { PcFactoryWorksheetError } from "@/services/importacao/pc-factory-import.service";
 import {
   PcFactoryImportError,
   failPcFactoryImport,
@@ -55,6 +56,11 @@ export async function POST(request: NextRequest) {
     // "Validando" para sempre. A base oficial não foi tocada nesta etapa.
     if (importId) await failPcFactoryImport(importId, error);
 
+    // Aba não encontrada: `details` lista as abas do arquivo e os cabeçalhos
+    // esperados, e o `code` deixa o modal tratar o caso sem ler a mensagem.
+    if (error instanceof PcFactoryWorksheetError) {
+      return fail(400, error.userMessage, details, error.code);
+    }
     if (error instanceof PcFactoryImportError) {
       // `userMessage` é curta; `details` carrega o diagnóstico de layout completo.
       return badRequest(error.userMessage, details);

@@ -21,11 +21,12 @@ import { type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import {
   PcFactoryLayoutError,
+  PcFactoryWorksheetError,
   importPcFactoryFromExcel
 } from "@/services/importacao/pc-factory-import.service";
 import { getSession, requireRole } from "@/lib/auth-guard";
 import { auditImport } from "@/lib/audit-import";
-import { badRequest, errorMessage, ok, serverError, tooLarge } from "@/lib/api-response";
+import { badRequest, errorMessage, fail, ok, serverError, tooLarge } from "@/lib/api-response";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -104,6 +105,9 @@ export async function POST(request: NextRequest) {
 
     // Layout irreconhecível é o arquivo que não serve, não o servidor que quebrou.
     // O diagnóstico completo vai em `details` e o modal o exibe na íntegra.
+    if (error instanceof PcFactoryWorksheetError) {
+      return fail(400, error.userMessage, details, error.code);
+    }
     if (error instanceof PcFactoryLayoutError) {
       return badRequest("O arquivo enviado não tem o layout esperado do PC-Factory.", details);
     }
