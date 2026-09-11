@@ -23,7 +23,26 @@ export type PcFactoryManagementGroupRow = {
 /* Parâmetros de consulta/análise                                     */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Como as horas são atribuídas ao período filtrado.
+ *
+ *   G0134_OFICIAL   o registro pertence ao mês em que COMEÇOU, com a duração
+ *                   inteira. É o agrupamento do relatório nativo do PC-Factory,
+ *                   e é o que permite conferir o portal contra o G0134.
+ *   INTERVALO_REAL  o registro é rateado entre os meses que atravessa, e o
+ *                   filtro conta só a fatia dentro da janela. Mede o que de fato
+ *                   aconteceu dentro do período — diverge do G0134 de propósito.
+ *
+ * A FÓRMULA da disponibilidade é a mesma nos dois: muda só quais horas entram.
+ */
+export type PcFactoryCalculationMode = "G0134_OFICIAL" | "INTERVALO_REAL";
+
+/** Modo da tela quando nada é escolhido: a gestão compara com o relatório oficial. */
+export const PC_FACTORY_DEFAULT_MODE: PcFactoryCalculationMode = "G0134_OFICIAL";
+
 export type PcFactoryQueryParams = {
+  /** Ver PcFactoryCalculationMode. Ausente = PC_FACTORY_DEFAULT_MODE. */
+  mode?: PcFactoryCalculationMode;
   /** Janela livre (yyyy-mm-dd) aplicada a startDateTime dos registros. */
   startDate?: string;
   endDate?: string;
@@ -412,6 +431,9 @@ export type PcFactoryDataQuality = {
  *   availabilityPercent     ↔ coluna Disponibilidade
  */
 export type PcFactoryAvailabilityAudit = {
+  /** Modo que gerou estes números — a auditoria não faz sentido sem ele. */
+  mode: PcFactoryCalculationMode;
+
   /* --- cadeia até o Tempo Operacional (cada linha da auditoria na tela) --- */
   /** Soma de durationHours do recorte. */
   totalHours: number;

@@ -71,6 +71,17 @@ export function PcFactoryQualityPanel({ quality }: PcFactoryQualityPanelProps) {
             Auditoria da Disponibilidade (base G0134)
           </summary>
           <div className="mt-2 space-y-1 text-[11px] text-zinc-300">
+            <p className="text-[11px]">
+              <span className="text-zinc-500">Modo de cálculo: </span>
+              <strong className="font-semibold text-gold">
+                {quality.availabilityAudit.mode === "G0134_OFICIAL" ? "Oficial G0134" : "Intervalo real"}
+              </strong>
+            </p>
+            <p className="text-[10px] leading-snug text-zinc-500">
+              {quality.availabilityAudit.mode === "G0134_OFICIAL"
+                ? "O registro conta inteiro no período em que começou — é o agrupamento do relatório nativo do PC-Factory, e é o que permite conferir o portal contra o G0134."
+                : "Registros que atravessam meses são rateados proporcionalmente, e o período conta só a fatia dentro da janela. Por isso este modo pode divergir do G0134: a diferença é de atribuição das horas, não de fórmula."}
+            </p>
             <p className="font-mono text-[10px] text-zinc-400">{quality.availabilityAudit.formula}</p>
 
             <AuditLine label="Tempo Total" value={`${fmt(quality.availabilityAudit.totalHours)} h`} />

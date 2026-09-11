@@ -1,6 +1,7 @@
 import { PcFactoryStatusCategory } from "@prisma/client";
 import { PcFactoryPage, type AppliedPcFactoryFilters } from "@/components/pc-factory/PcFactoryPage";
 import { getPcFactoryPageData } from "@/services/pc-factory.service";
+import { PC_FACTORY_DEFAULT_MODE, type PcFactoryCalculationMode } from "@/types/pc-factory";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,7 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
   const onlyWaiting = isTrue(searchParams.onlyWaiting);
   const excludeOutOfPlanned = isTrue(searchParams.excludeOutOfPlanned);
   const search = firstParam(searchParams.q);
+  const mode = parseMode(searchParams.mode);
 
   const data = await getPcFactoryPageData({
     startDate,
@@ -44,7 +46,8 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
     onlyAutomation,
     onlyWaiting,
     excludeOutOfPlanned,
-    search
+    search,
+    mode
   });
 
   const appliedFilters: AppliedPcFactoryFilters = {
@@ -63,7 +66,8 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
     onlyAutomation,
     onlyWaiting,
     excludeOutOfPlanned,
-    search: search ?? ""
+    search: search ?? "",
+    mode
   };
 
   return <PcFactoryPage data={data} appliedFilters={appliedFilters} />;
@@ -85,4 +89,10 @@ function parseCategories(values: string[]): PcFactoryStatusCategory[] {
 
 function isTrue(value: string | string[] | undefined): boolean {
   return firstParam(value) === "1";
+}
+
+/** Só os dois valores conhecidos entram; qualquer outra coisa cai no padrão. */
+function parseMode(value: string | string[] | undefined): PcFactoryCalculationMode {
+  const raw = firstParam(value);
+  return raw === "INTERVALO_REAL" || raw === "G0134_OFICIAL" ? raw : PC_FACTORY_DEFAULT_MODE;
 }

@@ -16,7 +16,13 @@ import { PcFactoryImportModal } from "@/components/pc-factory/PcFactoryImportMod
 import { PcFactoryQualityPanel } from "@/components/pc-factory/PcFactoryQualityPanel";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import { PC_FACTORY_CATEGORY_LABELS } from "@/utils/pc-factory-normalizer";
-import type { PcFactoryPageData, PcFactoryResourceDetails, PcFactoryStatusCategory } from "@/types/pc-factory";
+import { PC_FACTORY_DEFAULT_MODE } from "@/types/pc-factory";
+import type {
+  PcFactoryCalculationMode,
+  PcFactoryPageData,
+  PcFactoryResourceDetails,
+  PcFactoryStatusCategory
+} from "@/types/pc-factory";
 
 const PcFactoryStatusChart = dynamic(() => import("@/components/pc-factory/PcFactoryStatusChart").then((m) => m.PcFactoryStatusChart), {
   ssr: false,
@@ -57,6 +63,8 @@ export type AppliedPcFactoryFilters = {
   onlyWaiting: boolean;
   excludeOutOfPlanned: boolean;
   search: string;
+  /** Modo de apuração ativo — ver PcFactoryCalculationMode. */
+  mode: PcFactoryCalculationMode;
 };
 
 type PcFactoryPageProps = {
@@ -100,8 +108,19 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
   }
 
   function clearFilters() {
-    startTransition(() => router.push(pathname));
+    // O modo de apuração não é um filtro: limpar os filtros não deve devolver o
+    // usuário ao modo oficial se ele escolheu analisar por intervalo real.
+    const params = new URLSearchParams();
+    if (appliedFilters.mode !== PC_FACTORY_DEFAULT_MODE) params.set("mode", appliedFilters.mode);
+    const query = params.toString();
+    startTransition(() => router.push(query ? `${pathname}?${query}` : pathname));
     toast("Filtros limpos");
+  }
+
+  /** Troca de modo aplica na hora — não passa pelo rascunho de filtros. */
+  function changeMode(mode: PcFactoryCalculationMode) {
+    if (mode === appliedFilters.mode) return;
+    navigate({ ...appliedFilters, mode });
   }
 
   function fetchDetails(resource: string) {
@@ -185,6 +204,29 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
           <RefreshCw className="h-4 w-4" /> Atualizar dados
         </ActionButton>
         <ActionButton onClick={clearFilters}>Limpar filtros</ActionButton>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gold/15 bg-black/25 px-3 py-2">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-gold">Modo de cálculo</span>
+        <div className="flex gap-1">
+          <ModeButton
+            active={appliedFilters.mode === "G0134_OFICIAL"}
+            disabled={isPending || isRefreshing}
+            onClick={() => changeMode("G0134_OFICIAL")}
+            label="Oficial G0134"
+          />
+          <ModeButton
+            active={appliedFilters.mode === "INTERVALO_REAL"}
+            disabled={isPending || isRefreshing}
+            onClick={() => changeMode("INTERVALO_REAL")}
+            label="Intervalo real"
+          />
+        </div>
+        <p className="text-[11px] leading-snug text-zinc-400">
+          {appliedFilters.mode === "G0134_OFICIAL"
+            ? "Replica o relatório nativo do PC-Factory: o registro conta inteiro no período em que começou."
+            : "Distribui eventos longos entre os meses reais — pode divergir do G0134 de propósito."}
+        </p>
       </div>
 
       <PcFactoryFilters
@@ -366,6 +408,32 @@ function removeChip(chip: Chip, applied: AppliedPcFactoryFilters): AppliedPcFact
   return next;
 }
 
+function ModeButton({
+  active,
+  disabled,
+  onClick,
+  label
+}: {
+  active: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition disabled:opacity-50 ${
+        active ? "bg-gold text-black" : "border border-gold/25 text-zinc-300 hover:border-gold/50"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
 function filtersToParams(filters: AppliedPcFactoryFilters): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.startDate) params.set("startDate", filters.startDate);
@@ -383,6 +451,8 @@ function filtersToParams(filters: AppliedPcFactoryFilters): URLSearchParams {
   if (filters.onlyAutomation) params.set("onlyAutomation", "1");
   if (filters.onlyWaiting) params.set("onlyWaiting", "1");
   if (filters.excludeOutOfPlanned) params.set("excludeOutOfPlanned", "1");
+  // Só vai para a URL quando NÃO é o padrão: link limpo para o caso normal.
+  if (filters.mode !== PC_FACTORY_DEFAULT_MODE) params.set("mode", filters.mode);
   if (filters.search) params.set("q", filters.search);
   return params;
 }

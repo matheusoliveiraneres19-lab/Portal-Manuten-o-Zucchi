@@ -38,6 +38,7 @@ import type {
   PcFactoryRecordRow,
   PcFactoryRecordsResult,
   PcFactoryAvailabilityAudit,
+  PcFactoryCalculationMode,
   PcFactoryReferencePeriod,
   PcFactoryReliabilityRow,
   PcFactoryResourceDetails,
@@ -46,6 +47,7 @@ import type {
   PcFactoryTopResource,
   PcFactoryTrendPoint
 } from "@/types/pc-factory";
+import { PC_FACTORY_DEFAULT_MODE } from "@/types/pc-factory";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -103,17 +105,27 @@ function buildWhere(params: PcFactoryQueryParams): Prisma.PcFactoryRecordWhereIn
   // que atravessa a fronteira contaria integralmente nos dois períodos.
   const bounds = periodBounds(params);
   if (bounds.start || bounds.end) {
-    const overlap: Prisma.PcFactoryRecordWhereInput[] = [];
-    if (bounds.end) overlap.push({ startDateTime: { lte: bounds.end } });
-    if (bounds.start) {
-      overlap.push({
-        OR: [
-          { endDateTime: { gte: bounds.start } },
-          { endDateTime: null, startDateTime: { gte: bounds.start } }
-        ]
-      });
+    if (resolveMode(params) === "G0134_OFICIAL") {
+      // Modo oficial: o registro pertence ao período em que COMEÇOU, inteiro.
+      // É assim que o G0134 agrupa — uma manutenção que vira o mês conta toda no
+      // mês de abertura. Sem isso o portal nunca fecha com o relatório.
+      const dentro: Prisma.PcFactoryRecordWhereInput = { startDateTime: {} };
+      if (bounds.start) (dentro.startDateTime as Prisma.DateTimeFilter).gte = bounds.start;
+      if (bounds.end) (dentro.startDateTime as Prisma.DateTimeFilter).lte = bounds.end;
+      and.push(dentro);
+    } else {
+      const overlap: Prisma.PcFactoryRecordWhereInput[] = [];
+      if (bounds.end) overlap.push({ startDateTime: { lte: bounds.end } });
+      if (bounds.start) {
+        overlap.push({
+          OR: [
+            { endDateTime: { gte: bounds.start } },
+            { endDateTime: null, startDateTime: { gte: bounds.start } }
+          ]
+        });
+      }
+      and.push({ AND: overlap });
     }
-    and.push({ AND: overlap });
   }
 
   if (params.search) {
@@ -154,6 +166,11 @@ function buildWhere(params: PcFactoryQueryParams): Prisma.PcFactoryRecordWhereIn
  * PC-Factory.
  */
 const MEASURABLE_DURATION: Prisma.PcFactoryRecordWhereInput = { endDateTime: { not: null } };
+
+/** Modo pedido, ou o padrão da tela. */
+function resolveMode(params: PcFactoryQueryParams): PcFactoryCalculationMode {
+  return params.mode ?? PC_FACTORY_DEFAULT_MODE;
+}
 
 type AnalyticsRecord = {
   resourceName: string;
@@ -219,6 +236,11 @@ const loadRecords = cache(async (params: PcFactoryQueryParams): Promise<Analytic
 
   const bounds = periodBounds(params);
   if (!bounds.start && !bounds.end) return rows;
+
+  // Modo oficial: nada de recorte. O `where` já trouxe só o que COMEÇA na janela,
+  // e a duração vai inteira para o período — inclusive a parte que vaza para o mês
+  // seguinte. É essa soma que o G0134 publica.
+  if (resolveMode(params) === "G0134_OFICIAL") return rows;
 
   // Recorte à janela filtrada (TAREFA 9). `overlapHours` rateia durationHours —
   // a base oficial — pela fração do intervalo que cai dentro do período.
@@ -1474,6 +1496,7 @@ async function buildDataQuality(params: PcFactoryQueryParams): Promise<PcFactory
     excludedOpenEndedHours: round(openEnded._sum.durationHours ?? 0),
     notReportedHours: breakdown.notReportedHours,
     availabilityAudit: {
+      mode: resolveMode(params),
       totalHours: breakdown.totalHours,
       outOfShiftHours: breakdown.outOfShiftHours,
       unscheduledResourceHours: breakdown.unscheduledResourceHours,
@@ -1500,6 +1523,7 @@ async function buildDataQuality(params: PcFactoryQueryParams): Promise<PcFactory
 
 /** Auditoria zerada — recorte sem nenhum registro. Nunca NaN, nunca Infinity. */
 const EMPTY_AVAILABILITY_AUDIT: PcFactoryAvailabilityAudit = {
+  mode: PC_FACTORY_DEFAULT_MODE,
   totalHours: 0,
   outOfShiftHours: 0,
   unscheduledResourceHours: 0,

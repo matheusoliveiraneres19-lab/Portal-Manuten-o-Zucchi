@@ -132,17 +132,44 @@ async function confrontarComOficial(arquivo: string) {
 /*  Modo 2 — invariantes sobre o banco, em vários recortes                     */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * No modo oficial o banco PODE ser comparado com o relatório: os dois agrupam o
+ * registro pelo período em que ele começou. O que sobra de diferença é entre as
+ * extrações (a janela de agosto no banco tem ~15 h a mais que o export usado no
+ * relatório), então as horas usam tolerância larga e o que se cobra de perto é a
+ * disponibilidade e a manutenção.
+ */
+async function confrontarBancoNoModoOficial() {
+  const a = (await getPcFactoryPageData({ ...AGOSTO, mode: "G0134_OFICIAL" })).dataQuality.availabilityAudit;
+  console.log("=== BANCO NO MODO OFICIAL G0134 (agosto/2026) ===");
+  conferir("Tempo Total", a.totalHours, OFICIAL.totalHours, 20, " h");
+  conferir("= Tempo de Carga", a.loadHours, OFICIAL.loadHours, 20, " h");
+  conferir("− Setup", a.setupPlannedStopHours, OFICIAL.setupPlannedStopHours, TOL_HORAS, " h");
+  conferir("= Tempo Operacional", a.operationalHours, OFICIAL.operationalHours, 20, " h");
+  conferir("Manutenção TOTAL", a.maintenanceHours, OFICIAL.maintenanceHours, TOL_HORAS, " h");
+  if (a.availabilityPercent === null) {
+    falhas += 1;
+    console.log("  ✗ DISPONIBILIDADE veio null.");
+    return;
+  }
+  conferir("DISPONIBILIDADE", a.availabilityPercent, OFICIAL.availabilityPercent, TOL_PP, " %");
+}
+
 async function verificarInvariantes() {
   const page = await getPcFactoryPageData(AGOSTO);
   const maquina = page.criticalResources[0]?.resourceName;
 
+  const SEMANA = { startDate: "2026-08-04", endDate: "2026-08-10" };
   const recortes: Array<[string, PcFactoryQueryParams]> = [
     ["agosto/2026", AGOSTO],
-    ["1 semana", { startDate: "2026-08-04", endDate: "2026-08-10" }],
+    ["agosto (real)", { ...AGOSTO, mode: "INTERVALO_REAL" }],
+    ["1 semana", SEMANA],
+    ["1 semana (real)", { ...SEMANA, mode: "INTERVALO_REAL" }],
     ...(maquina
       ? ([
           ["1 máquina", { ...AGOSTO, resources: [maquina] }],
-          ["máquina + semana", { startDate: "2026-08-04", endDate: "2026-08-10", resources: [maquina] }]
+          ["máquina + semana", { ...SEMANA, resources: [maquina] }],
+          ["máquina (real)", { ...AGOSTO, resources: [maquina], mode: "INTERVALO_REAL" }]
         ] as Array<[string, PcFactoryQueryParams]>)
       : [])
   ];
@@ -172,7 +199,7 @@ async function verificarInvariantes() {
     const todasOk = checagens.every(([, ok]) => ok);
     if (!todasOk) falhas += 1;
     console.log(
-      `  ${todasOk ? "✓" : "✗"} ${rotulo.padEnd(18)} disponibilidade ${a.availabilityPercent === null ? "null" : `${a.availabilityPercent.toFixed(2)}%`}` +
+      `  ${todasOk ? "✓" : "✗"} ${rotulo.padEnd(18)} [${a.mode === "G0134_OFICIAL" ? "oficial" : "real   "}] disponibilidade ${a.availabilityPercent === null ? "null" : `${a.availabilityPercent.toFixed(2)}%`}` +
         ` | operacional ${a.operationalHours.toFixed(2)} h | manutenção ${a.maintenanceHours.toFixed(2)} h`
     );
     for (const [nome, ok] of checagens) if (!ok) console.log(`      ✗ ${nome}`);
@@ -206,6 +233,8 @@ async function main() {
     console.log("");
   }
 
+  await confrontarBancoNoModoOficial();
+  console.log("");
   await verificarInvariantes();
 
   console.log("");
