@@ -616,12 +616,14 @@ function topByMaintenance(rows: PcFactoryResourceRow[]): PcFactoryTopResource {
  * (Management View). Base de tempo = durationHours (Tempo Decorrido), via metricHours().
  *
  * Definições (decididas com o gestor):
- *  - Reparo (repairHours)   = Mecânica + Elétrica + Automação + Terceiros. NÃO inclui
- *                             "Aguardando Manutenção" nem "Manutenção Planejada".
- *  - Aguardando (waiting)   = "Aguardando Manutenção" — entra só no MTTA e nas Paradas.
+ *  - Reparo (repairHours)   = Mecânica + Elétrica + Automação + Planejada + Terceiros.
+ *                             É tempo de REPARO: não inclui "Aguardando Manutenção".
+ *  - Aguardando (waiting)   = "Aguardando Manutenção" — entra no MTTA e nas Paradas.
  *  - Quebras (failureEvents)= eventos de Mecânica+Elétrica+Automação+Terceiros+Aguardando
  *                             (exclui Planejada — manutenção preventiva não é falha).
- *  - Paradas (downtime)     = repairHours + waitingHours.
+ *  - Paradas (downtime)     = repairHours + waitingHours = os SEIS subtipos, o mesmo
+ *                             número do card "Horas de Manutenção" e do numerador da
+ *                             Disponibilidade. Uma conta só para os três lugares.
  *  - Tempo planejado        = Tempo Decorrido excluindo os buckets FORA do Tempo de Carga
  *                             (Fora de Turno, Recurso Não Programado e Não Apontado) —
  *                             mesma regra dos cards principais, sem regra paralela.
@@ -632,7 +634,7 @@ function topByMaintenance(rows: PcFactoryResourceRow[]): PcFactoryTopResource {
  * numerador (paradas de manutenção). Não há regra paralela.
  *
  * Fórmulas:
- *  - MTBF = (plannedHours − paradas) / quebras
+ *  - MTBF = Tempo Operacional / quebras           (Operacional = Carga − Setup)
  *  - MTTR = repairHours / quebras                 (só tempo de reparo)
  *  - MTTA = waitingHours / quebras
  *  - Disponibilidade = (Tempo Operacional − paradas de manutenção) / Tempo Operacional × 100
@@ -653,7 +655,8 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
     let plannedStopHours = 0;
     let repairHours = 0;
     let waitingHours = 0;
-    let repairEvents = 0;
+    /** Eventos que são FALHA (sem Planejada): é o divisor de MTBF/MTTR/MTTA. */
+    let failureRepairEvents = 0;
     let waitingEvents = 0;
 
     for (const record of list) {
@@ -671,15 +674,18 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
       const kind = maintenanceKind(record.statusRaw);
       if (kind === "MECANICA" || kind === "ELETRICA" || kind === "AUTOMACAO" || kind === "TERCEIROS") {
         repairHours += hours;
-        repairEvents += 1;
+        failureRepairEvents += 1;
+      } else if (kind === "PLANEJADA") {
+        // Tempo de reparo (entra em Paradas e no MTTR), mas NÃO é quebra: manutenção
+        // preventiva não conta como falha no divisor de MTBF/MTTR/MTTA.
+        repairHours += hours;
       } else if (kind === "AGUARDANDO") {
         waitingHours += hours;
         waitingEvents += 1;
       }
-      // kind === "PLANEJADA" → conta só no tempo planejado (não é falha/quebra).
     }
 
-    const failureEvents = repairEvents + waitingEvents;
+    const failureEvents = failureRepairEvents + waitingEvents;
     if (failureEvents <= 0) continue; // sem quebras → fora do dashboard de confiabilidade
 
     plannedHours = round(plannedHours);
@@ -706,7 +712,10 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
       repairHours,
       waitingMaintenanceHours: waitingHours,
       maintenanceDowntimeHours,
-      mtbf: hasPlanned ? safeRound(operatingHours / failureEvents) : null,
+      // MTBF sobre o Tempo Operacional (Carga − Setup), o mesmo denominador da
+      // Disponibilidade. Antes dividia `operatingHours` (Carga − manutenção), que é
+      // outra base e não correspondia à regra validada.
+      mtbf: hasPlanned ? safeRound(officialOperationalHours / failureEvents) : null,
       mttr: repairHours > 0 ? safeRound(repairHours / failureEvents) : null,
       mtta: waitingHours > 0 ? safeRound(waitingHours / failureEvents) : null,
       downtimeHours: maintenanceDowntimeHours,

@@ -187,7 +187,22 @@ async function verificarInvariantes() {
       a.maintenanceThirdPartyHours +
       a.maintenanceWaitingHours;
 
+    // A tabela "Confiabilidade por Máquina" tem de fechar com a conta central:
+    // a soma das Paradas de todas as máquinas é a Manutenção do recorte, e cada
+    // linha usa o mesmo Tempo Operacional (Carga − Setup) da auditoria.
+    const linhas = dados.reliabilityByMachine;
+    const somaParadas = linhas.reduce((soma, linha) => soma + linha.downtimeHours, 0);
+    const linhasFinitas = linhas.every((linha) =>
+      [linha.mtbf, linha.mttr, linha.mtta, linha.availability].every((v) => v === null || Number.isFinite(v))
+    );
+    const mtbfCoerente = linhas.every(
+      (linha) => linha.mtbf === null || linha.failureEvents <= 0 || linha.mtbf > 0
+    );
+
     const checagens: Array<[string, boolean]> = [
+      ["tabela: soma das Paradas = Manutenção do recorte", Math.abs(somaParadas - a.maintenanceHours) <= 0.05],
+      ["tabela: sem NaN/Infinity em MTBF/MTTR/MTTA/Disponib.", linhasFinitas],
+      ["tabela: MTBF positivo onde há quebras", mtbfCoerente],
       ["Carga = Total − Fora de Turno − Não Programado", Math.abs(a.loadHours - (a.totalHours - a.outOfShiftHours - a.unscheduledResourceHours)) <= 0.05],
       ["Operacional = Carga − Setup", Math.abs(a.operationalHours - (a.loadHours - a.setupPlannedStopHours)) <= 0.05],
       ["Manutenção = soma dos 6 subtipos", Math.abs(somaSubtipos - a.maintenanceHours) <= 0.05],

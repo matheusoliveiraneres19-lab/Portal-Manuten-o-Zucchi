@@ -16,11 +16,17 @@ const MAX_ROWS = 12;
 /** Fórmulas oficiais (tooltip do cabeçalho — base: Tempo Decorrido / durationHours). */
 const HEADER_HINTS = {
   failures: "Quebras = eventos de manutenção (Mecânica + Elétrica + Automação + Terceiros + Aguardando).",
-  mtbf: "MTBF = Tempo operacional / Quebras  (operacional = planejado − paradas de manutenção).",
-  mttr: "MTTR = Tempo de reparo / Quebras  (reparo = Mecânica + Elétrica + Automação + Terceiros).",
+  mtbf: "MTBF = Tempo Operacional / Quebras  (Tempo Operacional = Tempo de Carga − Setup).",
+  mttr:
+    "MTTR = Tempo de reparo / Quebras  (reparo = Mecânica + Elétrica + Automação + Planejada + Terceiros; " +
+    "não inclui Aguardando Manutenção).",
   mtta: "MTTA = Tempo aguardando manutenção / Quebras.",
-  downtime: "Paradas = Tempo de reparo + Tempo aguardando manutenção.",
-  availability: "Disponibilidade = (Tempo planejado − Paradas) / Tempo planejado."
+  downtime:
+    "Paradas = Manutenção total = Mecânica + Elétrica + Automação + Planejada + Terceiros + Aguardando. " +
+    "É o mesmo número do card Horas de Manutenção e do que a Disponibilidade subtrai.",
+  availability:
+    "Disponibilidade = (Tempo Operacional − Manutenção total) / Tempo Operacional × 100, " +
+    "com Tempo Operacional = Tempo de Carga − Setup. Mesma fórmula do card principal, por máquina."
 } as const;
 
 /**
