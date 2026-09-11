@@ -44,7 +44,13 @@ export async function POST(request: NextRequest) {
     const state = await getPcFactoryImportState(importId);
     const fileName = state?.fileName ?? "(desconhecido)";
 
+    console.info(`[PC_FACTORY_IMPORT_APPLY] importId=${importId} file="${fileName}"`);
+
     const result = await finishPcFactoryImport({ importId });
+
+    console.info(
+      `[PC_FACTORY_IMPORT_DONE] importId=${importId} aplicados=${result.appliedRows} substituidos=${result.replacedRows}`
+    );
 
     await auditImport({ request, session, module: "PC-Factory", fileName, result });
 
@@ -60,7 +66,7 @@ export async function POST(request: NextRequest) {
     return ok(result);
   } catch (error) {
     const details = errorMessage(error);
-    console.error("[pc-factory/import/finish] Falha ao aplicar a importação:", details);
+    console.error(`[PC_FACTORY_IMPORT_FAILED] etapa=finish importId=${importId || "-"}`, details);
 
     if (importId) {
       await failPcFactoryImport(importId, error);

@@ -347,8 +347,8 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
 
       {!summary && !running ? (
         <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] leading-snug text-amber-200/90">
-          <strong className="font-semibold">Atenção:</strong> a importação <strong>substitui toda a base</strong> do
-          PC-Factory. A troca acontece dentro de uma transação: se algo falhar, os dados atuais permanecem intactos.
+          <strong className="font-semibold">Atenção:</strong> a importação é <strong>validada antes</strong> de
+          substituir a base oficial do PC-Factory. Se houver falha, os dados atuais são preservados.
         </div>
       ) : null}
 

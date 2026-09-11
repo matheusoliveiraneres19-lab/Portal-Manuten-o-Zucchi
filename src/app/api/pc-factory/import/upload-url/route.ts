@@ -46,6 +46,9 @@ export async function POST(request: NextRequest) {
 
     const upload = await createImportUploadUrl(IMPORT_MODULES.PC_FACTORY, fileName);
 
+    // Só o destino. A URL assinada carrega um token de escrita e não é logada.
+    console.info(`[PC_FACTORY_STORAGE_UPLOAD_READY] bucket=${upload.bucket} path=${upload.path}`);
+
     // `apiKey` é a chave anon/publishable: o gateway do Supabase exige o header
     // `apikey` em qualquer requisição, mas quem AUTORIZA o upload é o token da URL
     // assinada. É pública por design (protegida por RLS) — mesmo contrato já usado

@@ -113,6 +113,12 @@ export async function startPcFactoryImport(
     select: { id: true }
   });
 
+  // Rastro de auditoria: identificadores e metadados apenas. Nunca a URL
+  // assinada, a service role key ou o conteúdo da planilha.
+  console.info(
+    `[PC_FACTORY_IMPORT_START] importId=${row.id} file="${params.fileName}" bytes=${params.fileSize} path=${params.filePath}`
+  );
+
   return { importId: row.id };
 }
 

@@ -38,11 +38,18 @@ export async function POST(request: NextRequest) {
     if (!importId) return badRequest("Informe o identificador da importação.", "campo 'importId' ausente");
 
     const offset = typeof body.offset === "number" && body.offset > 0 ? Math.floor(body.offset) : 0;
+    console.info(`[PC_FACTORY_IMPORT_PROCESS] importId=${importId} offset=${offset}`);
+
     const result = await processPcFactoryImport({ importId, offset });
+
+    console.info(
+      `[PC_FACTORY_IMPORT_STAGING] importId=${importId} linhas=${result.processedRows}/${result.totalRows} done=${result.done}`
+    );
+
     return ok(result);
   } catch (error) {
     const details = errorMessage(error);
-    console.error("[pc-factory/import/process] Falha ao processar:", details);
+    console.error(`[PC_FACTORY_IMPORT_FAILED] etapa=process importId=${importId || "-"}`, details);
 
     // Marca a importação como falha para o histórico não ficar preso em
     // "Validando" para sempre. A base oficial não foi tocada nesta etapa.
