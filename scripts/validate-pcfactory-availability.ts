@@ -198,11 +198,33 @@ async function verificarInvariantes() {
     const mtbfCoerente = linhas.every(
       (linha) => linha.mtbf === null || linha.failureEvents <= 0 || linha.mtbf > 0
     );
+    // Paradas = os SEIS subtipos, mas o MTTR é ESTRITAMENTE corretivo: a Planejada
+    // entra nas Paradas e fica fora do MTTR. Se alguém somar a Planejada de volta ao
+    // numerador do MTTR, esta checagem quebra.
+    const paradasCompostas = linhas.every(
+      (linha) =>
+        Math.abs(
+          linha.repairHours + linha.plannedMaintenanceHours + linha.waitingMaintenanceHours - linha.maintenanceDowntimeHours
+        ) <= 0.05
+    );
+    const mttrCorretivo = linhas.every((linha) =>
+      linha.repairHours > 0 && linha.failureEvents > 0
+        ? linha.mttr !== null && Math.abs(linha.mttr - linha.repairHours / linha.failureEvents) <= 0.02
+        : linha.mttr === null
+    );
+    const mttaSoAguardando = linhas.every((linha) =>
+      linha.waitingMaintenanceHours > 0 && linha.failureEvents > 0
+        ? linha.mtta !== null && Math.abs(linha.mtta - linha.waitingMaintenanceHours / linha.failureEvents) <= 0.02
+        : linha.mtta === null
+    );
 
     const checagens: Array<[string, boolean]> = [
       ["tabela: soma das Paradas = Manutenção do recorte", Math.abs(somaParadas - a.maintenanceHours) <= 0.05],
       ["tabela: sem NaN/Infinity em MTBF/MTTR/MTTA/Disponib.", linhasFinitas],
       ["tabela: MTBF positivo onde há quebras", mtbfCoerente],
+      ["tabela: Paradas = corretiva + planejada + aguardando", paradasCompostas],
+      ["tabela: MTTR = reparo corretivo / quebras (sem Planejada)", mttrCorretivo],
+      ["tabela: MTTA = aguardando / quebras", mttaSoAguardando],
       ["Carga = Total − Fora de Turno − Não Programado", Math.abs(a.loadHours - (a.totalHours - a.outOfShiftHours - a.unscheduledResourceHours)) <= 0.05],
       ["Operacional = Carga − Setup", Math.abs(a.operationalHours - (a.loadHours - a.setupPlannedStopHours)) <= 0.05],
       ["Manutenção = soma dos 6 subtipos", Math.abs(somaSubtipos - a.maintenanceHours) <= 0.05],

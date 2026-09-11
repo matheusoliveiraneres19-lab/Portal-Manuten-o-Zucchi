@@ -18,12 +18,13 @@ const HEADER_HINTS = {
   failures: "Quebras = eventos de manutenção (Mecânica + Elétrica + Automação + Terceiros + Aguardando).",
   mtbf: "MTBF = Tempo Operacional / Quebras  (Tempo Operacional = Tempo de Carga − Setup).",
   mttr:
-    "MTTR = Tempo de reparo / Quebras  (reparo = Mecânica + Elétrica + Automação + Planejada + Terceiros; " +
-    "não inclui Aguardando Manutenção).",
+    "MTTR = Tempo de reparo corretivo / Quebras  (reparo = Mecânica + Elétrica + Automação + Terceiros). " +
+    "Não inclui Aguardando Manutenção (é o MTTA) nem Manutenção Planejada (não é falha).",
   mtta: "MTTA = Tempo aguardando manutenção / Quebras.",
   downtime:
     "Paradas = Manutenção total = Mecânica + Elétrica + Automação + Planejada + Terceiros + Aguardando. " +
-    "É o mesmo número do card Horas de Manutenção e do que a Disponibilidade subtrai.",
+    "É o mesmo número do card Horas de Manutenção e do que a Disponibilidade subtrai — maior que o " +
+    "numerador do MTTR, que é só o reparo corretivo. Passe o mouse na célula para ver a composição.",
   availability:
     "Disponibilidade = (Tempo Operacional − Manutenção total) / Tempo Operacional × 100, " +
     "com Tempo Operacional = Tempo de Carga − Setup. Mesma fórmula do card principal, por máquina."
@@ -83,7 +84,9 @@ export function PcFactoryReliabilityTable({ rows, className = "", onSelect }: Pc
                   <td className="px-3 py-2 text-right tabular-nums">{formatHours(row.mtbf)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatHours(row.mttr)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{formatHours(row.mtta)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatHours(row.downtimeHours)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums" title={downtimeBreakdown(row)}>
+                    {formatHours(row.downtimeHours)}
+                  </td>
                   <td className="py-2 pl-3 text-right">
                     <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold ${availabilityClass(row.availability)}`}>
                       {formatPercent(row.availability)}
@@ -112,6 +115,23 @@ function formatPercent(value: number | null): string {
 }
 
 /** Verde ≥ 90%, âmbar 70-90%, vermelho < 70% (metas usuais de disponibilidade). */
+/**
+ * Composição das Paradas da máquina, para a célula não ser um número sem origem.
+ * Corretiva e Planejada aparecem separadas justamente porque só a corretiva entra
+ * no MTTR — as duas somam nas Paradas e na Disponibilidade.
+ */
+function downtimeBreakdown(row: PcFactoryReliabilityRow): string {
+  const h = (value: number) => `${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} h`;
+  return [
+    `Composição das Paradas — ${row.machineName}`,
+    `Reparo corretivo (Mec. + Elét. + Autom. + Terceiros): ${h(row.repairHours)}`,
+    `Manutenção Planejada: ${h(row.plannedMaintenanceHours)}`,
+    `Aguardando Manutenção: ${h(row.waitingMaintenanceHours)}`,
+    `Total: ${h(row.maintenanceDowntimeHours)}`,
+    "Só o reparo corretivo entra no MTTR; Aguardando entra no MTTA."
+  ].join("\n");
+}
+
 function availabilityClass(value: number | null): string {
   if (value === null) return "bg-zinc-200 text-zinc-600";
   if (value >= 90) return "bg-success/15 text-success-strong";

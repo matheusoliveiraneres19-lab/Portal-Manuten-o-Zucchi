@@ -202,11 +202,20 @@ export type PcFactoryReliabilityRow = {
   /** Quebras = eventos de manutenção (Mec+Elét+Autom+Terceiros+Aguardando). Exclui Planejada. */
   failureEvents: number;
 
-  /** Soma de durationHours de Mecânica+Elétrica+Automação+Terceiros (sem Aguardando). */
+  /**
+   * Reparo CORRETIVO: Mecânica + Elétrica + Automação + Terceiros.
+   * Numerador do MTTR. Sem Aguardando (é MTTA) e sem Planejada (não é falha).
+   */
   repairHours: number;
+  /** Soma de durationHours de "Manutenção Planejada" — preventiva, não é quebra. */
+  plannedMaintenanceHours: number;
   /** Soma de durationHours de "Aguardando Manutenção". */
   waitingMaintenanceHours: number;
-  /** Paradas de manutenção = repairHours + waitingMaintenanceHours. */
+  /**
+   * Paradas = os SEIS subtipos = repairHours + plannedMaintenanceHours +
+   * waitingMaintenanceHours. É o que a Disponibilidade subtrai e o mesmo número do
+   * card "Horas de Manutenção" — não confundir com o numerador do MTTR.
+   */
   maintenanceDowntimeHours: number;
 
   /** (operatingHours / failureEvents). null = sem tempo planejado ou sem quebras. */

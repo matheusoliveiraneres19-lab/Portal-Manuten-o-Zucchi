@@ -616,12 +616,16 @@ function topByMaintenance(rows: PcFactoryResourceRow[]): PcFactoryTopResource {
  * (Management View). Base de tempo = durationHours (Tempo Decorrido), via metricHours().
  *
  * Definições (decididas com o gestor):
- *  - Reparo (repairHours)   = Mecânica + Elétrica + Automação + Planejada + Terceiros.
- *                             É tempo de REPARO: não inclui "Aguardando Manutenção".
+ *  - Reparo (repairHours)   = Mecânica + Elétrica + Automação + Terceiros. É o reparo
+ *                             CORRETIVO e só ele entra no MTTR: "Aguardando Manutenção"
+ *                             é MTTA, e "Manutenção Planejada" não é quebra — somá-la ao
+ *                             numerador sem somar ao contador de quebras inflaria o MTTR.
+ *  - Planejada (planned)    = "Manutenção Planejada" — entra nas Paradas (e portanto na
+ *                             Disponibilidade), mas fica fora de MTTR/MTTA/quebras.
  *  - Aguardando (waiting)   = "Aguardando Manutenção" — entra no MTTA e nas Paradas.
  *  - Quebras (failureEvents)= eventos de Mecânica+Elétrica+Automação+Terceiros+Aguardando
  *                             (exclui Planejada — manutenção preventiva não é falha).
- *  - Paradas (downtime)     = repairHours + waitingHours = os SEIS subtipos, o mesmo
+ *  - Paradas (downtime)     = repair + planejada + aguardando = os SEIS subtipos, o mesmo
  *                             número do card "Horas de Manutenção" e do numerador da
  *                             Disponibilidade. Uma conta só para os três lugares.
  *  - Tempo planejado        = Tempo Decorrido excluindo os buckets FORA do Tempo de Carga
@@ -654,6 +658,7 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
     let plannedHours = 0;
     let plannedStopHours = 0;
     let repairHours = 0;
+    let plannedMaintenanceHours = 0;
     let waitingHours = 0;
     /** Eventos que são FALHA (sem Planejada): é o divisor de MTBF/MTTR/MTTA. */
     let failureRepairEvents = 0;
@@ -676,9 +681,9 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
         repairHours += hours;
         failureRepairEvents += 1;
       } else if (kind === "PLANEJADA") {
-        // Tempo de reparo (entra em Paradas e no MTTR), mas NÃO é quebra: manutenção
-        // preventiva não conta como falha no divisor de MTBF/MTTR/MTTA.
-        repairHours += hours;
+        // Entra nas Paradas (e na Disponibilidade), mas não no MTTR nem nas quebras:
+        // preventiva não é falha, e no numerador do MTTR só inflaria o indicador.
+        plannedMaintenanceHours += hours;
       } else if (kind === "AGUARDANDO") {
         waitingHours += hours;
         waitingEvents += 1;
@@ -691,8 +696,10 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
     plannedHours = round(plannedHours);
     plannedStopHours = round(plannedStopHours);
     repairHours = round(repairHours);
+    plannedMaintenanceHours = round(plannedMaintenanceHours);
     waitingHours = round(waitingHours);
-    const maintenanceDowntimeHours = round(repairHours + waitingHours);
+    // Paradas = os SEIS subtipos. A Planejada entra aqui mesmo ficando fora do MTTR.
+    const maintenanceDowntimeHours = round(repairHours + plannedMaintenanceHours + waitingHours);
     const operatingHours = round(Math.max(0, plannedHours - maintenanceDowntimeHours));
     // Tempo Operacional oficial da máquina (= G0134.LOADTIME): Carga − Paradas Planejadas.
     // É o denominador da Disponibilidade, o mesmo do card principal.
@@ -710,6 +717,7 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
       operatingHours,
       failureEvents,
       repairHours,
+      plannedMaintenanceHours,
       waitingMaintenanceHours: waitingHours,
       maintenanceDowntimeHours,
       // MTBF sobre o Tempo Operacional (Carga − Setup), o mesmo denominador da
