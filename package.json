@@ -24,6 +24,7 @@
     "test:purchases-columns": "tsx scripts/test-purchase-import-columns.ts",
     "test:purchases-analysis": "tsx scripts/test-purchase-priority-analysis.ts",
     "storage:setup-imports": "tsx scripts/setup-import-storage.ts",
+    "debug:pc-factory": "tsx scripts/debug-pcfactory-xlsx.ts",
     "auth:hash-passwords": "tsx scripts/hash-passwords.ts",
     "auth:set-password": "tsx scripts/set-password.ts",
     "capture": "node scripts/capture-portal.mjs",

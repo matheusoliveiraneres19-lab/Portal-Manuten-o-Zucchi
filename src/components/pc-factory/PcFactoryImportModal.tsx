@@ -76,6 +76,10 @@ type PcFactoryAudit = {
   missingRecommendedColumns: string[];
   groupsDetected: string[];
   statusDetected: string[];
+  /** Abas do arquivo e reparo do XLSX — preenchidos só no fluxo de staging. */
+  sheetNames?: string[];
+  repairedCells?: number;
+  statusColorsSkipped?: boolean;
 };
 
 type ImportSummary = {
@@ -384,6 +388,9 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
                 />
                 <Summary label="Fim recalculado" value={audit.derivedEndDates} tone={audit.derivedEndDates > 0 ? "gold" : "default"} />
                 <Summary label="Registros multi-mês" value={audit.multiMonthIntervals} />
+                {audit.repairedCells ? (
+                  <Summary label="Células de data vazias reparadas" value={audit.repairedCells} tone="gold" />
+                ) : null}
                 <Summary
                   label="Diferença original × segmentado"
                   value={audit.originalVsSegmentedDifference}
@@ -391,6 +398,12 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
                   tone={audit.originalVsSegmentedDifference > 0.01 ? "danger" : "default"}
                 />
               </dl>
+              {audit.statusColorsSkipped ? (
+                <p className="mt-2 text-[11px] leading-snug text-amber-200/90">
+                  Planilha grande: as cores de status não foram lidas do arquivo e o gráfico usa a
+                  paleta padrão do portal. Os números da importação não mudam.
+                </p>
+              ) : null}
               {audit.originalVsSegmentedDifference > 0.01 ? (
                 <p className="mt-2 text-[11px] leading-snug text-rose-200">
                   <strong className="font-semibold">Atenção:</strong> a soma dos segmentos mensais divergiu do total
