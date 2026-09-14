@@ -26,8 +26,9 @@ const HEADER_HINTS = {
     "É o mesmo número do card Horas de Manutenção e do que a Disponibilidade subtrai — maior que o " +
     "numerador do MTTR, que é só o reparo corretivo. Passe o mouse na célula para ver a composição.",
   availability:
-    "Disponibilidade = (Tempo Operacional − Manutenção total) / Tempo Operacional × 100, " +
-    "com Tempo Operacional = Tempo de Carga − Setup. Mesma fórmula do card principal, por máquina."
+    "Disponibilidade = (LOADTIME − (Manutenção + Aguardando Manutenção)) / LOADTIME × 100, " +
+    "com LOADTIME = Tempo de Carga − Setup (= G0134.LOADTIME). Soma direta de horas: não usa " +
+    "MTTR, MTBF, MTTA nem quebras. Passe o mouse na célula para ver a conta da máquina."
 } as const;
 
 /**
@@ -87,7 +88,7 @@ export function PcFactoryReliabilityTable({ rows, className = "", onSelect }: Pc
                   <td className="px-3 py-2 text-right tabular-nums" title={downtimeBreakdown(row)}>
                     {formatHours(row.downtimeHours)}
                   </td>
-                  <td className="py-2 pl-3 text-right">
+                  <td className="py-2 pl-3 text-right" title={availabilityBreakdown(row)}>
                     <span className={`inline-block rounded-md px-2 py-0.5 text-xs font-bold ${availabilityClass(row.availability)}`}>
                       {formatPercent(row.availability)}
                     </span>
@@ -129,6 +130,23 @@ function downtimeBreakdown(row: PcFactoryReliabilityRow): string {
     `Aguardando Manutenção: ${h(row.waitingMaintenanceHours)}`,
     `Total: ${h(row.maintenanceDowntimeHours)}`,
     "Só o reparo corretivo entra no MTTR; Aguardando entra no MTTA."
+  ].join("\n");
+}
+
+/**
+ * A conta da Disponibilidade da máquina aberta na célula — os mesmos termos das colunas
+ * do relatório oficial G0134, para conferir sem sair da tela.
+ */
+function availabilityBreakdown(row: PcFactoryReliabilityRow): string {
+  const h = (value: number) => `${value.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h`;
+  return [
+    `Disponibilidade — ${row.machineName}`,
+    `LOADTIME: ${h(row.loadTimeHours)}  (carga ${h(row.plannedHours)} − setup ${h(row.plannedStopHours)})`,
+    `Manutenção: ${h(row.maintenanceHours)}`,
+    `Aguardando: ${h(row.waitingMaintenanceHours)}`,
+    `Manutenção total usada: ${h(row.maintenanceDowntimeHours)}`,
+    `Disponibilidade: ${formatPercent(row.availability)}`,
+    "(LOADTIME − manutenção total) ÷ LOADTIME × 100 — sem MTTR/MTBF/MTTA/quebras."
   ].join("\n");
 }
 

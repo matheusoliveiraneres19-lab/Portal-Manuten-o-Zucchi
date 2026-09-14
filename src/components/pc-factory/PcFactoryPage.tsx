@@ -92,6 +92,15 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedSignature]);
 
+  // Filtro mudou com o painel aberto → recarrega o detalhe no novo recorte. Sem isto o
+  // painel continuaria exibindo os números do filtro anterior enquanto a tabela atrás
+  // dele já teria mudado.
+  useEffect(() => {
+    if (!selectedResource) return;
+    fetchDetails(selectedResource);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedSignature, selectedResource]);
+
   function navigate(filters: AppliedPcFactoryFilters) {
     const params = filtersToParams(filters);
     const query = params.toString();
@@ -129,7 +138,14 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
     setDetailsLoading(true);
     setDetailsError(null);
 
-    fetch(`/api/pc-factory/details?resource=${encodeURIComponent(resource)}`)
+    // Os MESMOS filtros da tela vão junto: sem isso o painel respondia com o histórico
+    // completo da máquina e mostrava outro período que a linha da tabela clicada.
+    // A máquina clicada viaja em `machine` para não colidir com `resource`, que é o
+    // filtro de máquina (multi-seleção) montado por filtersToParams.
+    const query = filtersToParams(appliedFilters);
+    query.set("machine", resource);
+
+    fetch(`/api/pc-factory/details?${query.toString()}`)
       .then(async (response) => {
         if (!response.ok) throw new Error("request failed");
         return (await response.json()) as PcFactoryResourceDetails;
@@ -151,7 +167,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
   function openDetails(resource: string) {
     setSelectedResource(resource);
     setDetails(null);
-    fetchDetails(resource);
+    // A busca em si fica com o efeito acima, que também reage a troca de filtro.
   }
 
   function closeDetails() {

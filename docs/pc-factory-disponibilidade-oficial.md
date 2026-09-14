@@ -24,11 +24,18 @@ Disponibilidade = (G0134.LOADTIME − (Tempo de Manutenção + Tempo Ag. Manuten
 No portal a fonte de dados é o histórico de status (`PcFactoryRecord`), não a planilha.
 O equivalente de cada termo:
 
-| Planilha | Portal |
-|---|---|
-| `G0134.LOADTIME` | `availabilityBreakdown(agg).operationalHours` = Tempo de Carga − Paradas Planejadas |
-| `Tempo de Manutenção` + `Tempo Ag. Manutenção` | `agg.maintenanceHoursInOperational` |
-| `Disponibilidade` | `availability(agg)` |
+| Planilha | Portal (recorte inteiro) | Portal (uma máquina) |
+|---|---|---|
+| `G0134.LOADTIME` | `availabilityBreakdown(agg).operationalHours` | `metrics.loadTimeHours` |
+| `Tempo de Manutenção` | — (vem somado com o Aguardando) | `metrics.maintenanceHours` |
+| `Tempo Ag. Manutenção` | `agg.waitingHours` | `metrics.waitingMaintenanceHours` |
+| `Disponibilidade` | `availability(agg)` | `metrics.availabilityPercent` |
+
+Os dois caminhos terminam na MESMA função pura:
+`calculateMachineG0134Availability({ loadTimeHours, maintenanceHours, waitingMaintenanceHours })`.
+`calculateG0134BusinessAvailability()` continua existindo para o agregado e hoje só
+delega para ela (o `maintenanceHours` do agregado já inclui o Aguardando, então entra
+com `waitingMaintenanceHours: 0`). **A divisão acontece num lugar só.**
 
 Onde o Tempo de Carga é:
 
@@ -64,11 +71,30 @@ O bucket continua existindo para que o volume apareça no painel de qualidade e 
 resultado da importação, em vez de desaparecer dentro da conta. Quanto maior essa fatia,
 menos o indicador fala sobre a máquina e mais sobre a falta de apontamento.
 
-**Fonte única:** `calculateG0134BusinessAvailability()` em
+**Fonte única:** `calculateMachineG0134Availability()` em
 `src/utils/pc-factory-normalizer.ts`. Toda Disponibilidade do módulo passa por ela:
 card principal, tabela Confiabilidade por Máquina, ranking, evolução mensal, detalhes
 por máquina, Máquinas Críticas da home e Máquinas abaixo da média. **Não criar regra
 paralela.**
+
+A função recebe HORAS e só horas. Ela não vê — e não pode passar a ver — MTTR, MTBF,
+MTTA, quantidade de quebras ou eventos de manutenção. Esses indicadores aparecem ao lado
+da Disponibilidade na tabela, nunca dentro dela.
+
+### Uma máquina: `buildMachineAvailabilityMetrics()`
+
+Em `src/services/pc-factory.service.ts`. Recebe os registros JÁ filtrados de UMA
+máquina e devolve a decomposição inteira (Total → Carga → LOADTIME → manutenção →
+disponibilidade) mais MTBF/MTTR/MTTA.
+
+É a fonte única da linha da tabela **Confiabilidade por Máquina** E do painel lateral
+**Detalhe da Máquina** — de propósito. Antes o painel montava os números por outro
+caminho e, pior, consultava o histórico COMPLETO da máquina sem nenhum filtro: com a tela
+em agosto/2026, a tabela mostrava 50,4% / 128,6 h e o painel da mesma máquina mostrava
+54,5% / 1.188,8 h. Hoje `getPcFactoryResourceDetails(machine, params)` recebe os mesmos
+`params` da tela e passa pelo mesmo `loadRecords()`; a rota `/api/pc-factory/details`
+carrega período, modo, grupo, linha, máquina e status na query string (a máquina clicada
+viaja em `machine`, para não colidir com o filtro `resource` da tela).
 
 ## Agregação: sempre ponderada
 
@@ -164,22 +190,20 @@ maior que a Disponibilidade. Na primeira linha da planilha:
 A planilha do negócio desconta os dois, e o portal segue a planilha. **`DTM [%]` não é
 usado como disponibilidade final.**
 
-## Manutenção Planejada (0207): por que não entra no numerador
+## Manutenção Planejada (0207): entra no numerador
 
-`Manutenção Planejada` está na categoria `MANUTENCAO`, mas seu bucket de disponibilidade
-é `PARADA_PLANEJADA` — ou seja, já foi retirada do **denominador** (Tempo Operacional =
-Carga − Paradas Planejadas). Somá-la também no numerador subtrairia o mesmo tempo duas
-vezes.
+`Manutenção Planejada` está na categoria `MANUTENCAO` e o bucket de disponibilidade dela
+é `PARADA_NAO_PLANEJADA` — ela NÃO sai do denominador (só o Setup sai). Por isso entra
+normalmente no numerador, junto com Mecânica, Elétrica, Automação e Terceiros.
 
-Por isso existem dois campos distintos no agregado:
+Houve uma fase em que ela era `PARADA_PLANEJADA` e, por já estar fora do denominador,
+precisava ficar fora do numerador; daí o antigo par
+`maintenanceHours` / `maintenanceHoursInOperational`. Com a regra atual não há mais o que
+separar, e o campo duplicado foi removido: **um número só** alimenta o card "Horas de
+manutenção", a coluna Paradas da tabela e o numerador da Disponibilidade.
 
-- `maintenanceHours` — todas as horas de manutenção. Alimenta o card "Horas de
-  manutenção", MTTR, MTBF e a composição da manutenção.
-- `maintenanceHoursInOperational` — só a manutenção **dentro** do Tempo Operacional.
-  É o numerador da Disponibilidade.
-
-No histórico de jan–jul/2026 a diferença é de 31,2 h (0,04 pp) — pequena, mas a conta
-está certa.
+O que continua separado é outra coisa: a Planejada fica fora do **MTTR** e da contagem de
+**quebras**, porque preventiva não é falha. Soma nas horas, não soma nos eventos.
 
 ## Auditoria
 
@@ -229,6 +253,54 @@ mensal, para não duplicar. No portal esse caso não existe: a evolução mensal
 | 2026-08-05 | regra da planilha G0134 | o negócio já reportava Disponibilidade por essa fórmula; o portal passou a segui-la |
 | 2026-08-05 | `0008` e `0002` de volta para dentro da Carga | decisão do gestor |
 | **2026-08-05 (atual)** | **status abertos (`endDateTime` nulo) fora das somas de horas** | 42 registros carregavam 205.679 h — quase metade da base — com duração que era artefato da janela do export. Indicador vai para **78,67 %** e os meses voltam a ser comparáveis |
+
+## Quando o LOADTIME oficial vem como período cheio
+
+O relatório publica, em algumas linhas, `G0134.LOADTIME` igual ao período inteiro —
+31,0000 dias num mês de 31 —, ou seja, sem descontar nada. Acontece com máquinas
+diferentes em meses diferentes (MF04 em FEV/MAI/JUN, MF06 em FEV, MF01 e MF02 em AGO), e
+em janeiro três recursos aparecem com 154,63 dias, 499% do mês.
+
+Em agosto/2026 isso explica as duas divergências que restam:
+
+| Máquina | LOADTIME oficial | LOADTIME derivado | Oficial | Portal |
+|---|---|---|---|---|
+| Multifio 02 - Gasp | 744,00 h (mês cheio) | 259,04 h | 82,71 % | 50,36 % |
+| Multifio 01 - Gasp | 744,00 h (mês cheio) | 314,26 h | 93,20 % | 83,91 % |
+
+As horas de manutenção batem exatamente nas duas (26,28 + 24,27 h na MF01 contra
+26,29 + 24,28 h do relatório), então é a mesma extração. O que não bate é o denominador:
+o relatório diz que a máquina esteve programada 100% do mês enquanto o próprio export traz
+**399,77 h** (MF01) e **483,36 h** (MF02) de "Recurso Não Programado" apontadas em blocos
+normais de turno, 57 e 63 registros.
+
+O portal deriva o LOADTIME do histórico importado e por isso **não reproduz** esses dois
+números. A correção é na origem: fechar o calendário desses recursos no PC-Factory. Nas
+outras 23 máquinas comparadas de agosto a diferença é menor que 1 p.p. e vem de as duas
+extrações não terem saído no mesmo instante.
+
+## Varredura contra a planilha oficial
+
+```bash
+npm run validate:pc-factory-machines -- "disponibilidade mensal exportado.xlsx" --month 2026-08
+```
+
+Compara TODAS as máquinas da planilha (sem lista fixa de códigos) e separa as diferenças
+por causa, em vez de jogar tudo em "divergiu":
+
+| Causa | Significa |
+|---|---|
+| `FORMULA` | mesmos insumos, resultado diferente — **bug**, e o único caso que reprova |
+| `INSUMO` | a conta está certa dos dois lados; LOADTIME/manutenção diferem entre extrações |
+| `RELATORIO` | LOADTIME oficial = período cheio (seção acima) |
+| `NOMES_AGRUPADOS` | dois códigos oficiais com o mesmo nome de recurso viram uma linha no portal |
+
+O script também confere que `calculateMachineG0134Availability()` reproduz a coluna
+`Disponibilidade` da planilha linha a linha, que tabela e painel de detalhe mostram os
+mesmos números no mesmo filtro, e que o agregado é ponderado pela carga.
+
+Resultado em agosto/2026: 26/26 linhas reproduzidas pela fórmula, 25 máquinas comparadas,
+**0 divergências de cálculo**.
 
 ## Base de tempo
 

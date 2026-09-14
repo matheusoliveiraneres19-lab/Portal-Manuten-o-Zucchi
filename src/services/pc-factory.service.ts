@@ -10,10 +10,10 @@ import {
   PC_FACTORY_CATEGORY_ORDER,
   PC_FACTORY_MANAGEMENT_GROUP_LABELS,
   PC_FACTORY_MANAGEMENT_GROUP_ORDER,
-  OUT_OF_LOAD_BUCKETS,
   classifyAvailabilityBucket,
   classifyManagementGroup,
   calculateG0134BusinessAvailability,
+  calculateMachineG0134Availability,
   calculateOfficialPcFactoryAvailability,
   maintenanceKind,
   normalizePcFactoryStatusKey,
@@ -645,67 +645,201 @@ function topByMaintenance(rows: PcFactoryResourceRow[]): PcFactoryTopResource {
  *
  * Toda divisão é protegida → null quando não aplicável (UI mostra "—", nunca 0/NaN/Infinity).
  */
-function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabilityRow[] {
+export type MachineAvailabilityMetrics = {
+  /** Tempo Total do recurso no recorte, antes de qualquer exclusão. */
+  totalHours: number;
+  outOfShiftHours: number;
+  unscheduledResourceHours: number;
+  /** Tempo de Carga = Total − Fora de Turno − Recurso Não Programado. */
+  loadHours: number;
+  /** Paradas planejadas (Setup) dentro da Carga. */
+  plannedStopHours: number;
+  /** G0134.LOADTIME = Carga − Setup. Denominador ÚNICO da Disponibilidade. */
+  loadTimeHours: number;
+
+  mechanicalHours: number;
+  electricalHours: number;
+  automationHours: number;
+  thirdPartyHours: number;
+  plannedMaintenanceHours: number;
+  /** Reparo CORRETIVO = Mecânica + Elétrica + Automação + Terceiros (numerador do MTTR). */
+  repairHours: number;
+  /** "Tempo de Manutenção" da planilha = corretiva + Planejada. SEM o Aguardando. */
+  maintenanceHours: number;
+  /** "Tempo Ag. Manutenção" da planilha. */
+  waitingMaintenanceHours: number;
+  /** Manutenção + Aguardando = o que a Disponibilidade subtrai (os SEIS subtipos). */
+  totalMaintenanceForAvailability: number;
+
+  failureRepairEvents: number;
+  waitingEvents: number;
+  /** Quebras = eventos corretivos + aguardando. Exclui Planejada (preventiva não é falha). */
+  failureEvents: number;
+
+  mtbf: number | null;
+  mttr: number | null;
+  mtta: number | null;
+  /** Vem de calculateMachineG0134Availability(). null = sem LOADTIME. */
+  availabilityPercent: number | null;
+  dataQualityIssue: string | null;
+};
+
+/**
+ * MÉTRICAS DE UMA MÁQUINA no recorte já filtrado — FONTE ÚNICA da linha da tabela
+ * "Confiabilidade por Máquina" E do painel lateral "Detalhe da Máquina".
+ *
+ * Existe exatamente para que os dois não possam divergir: recebem a MESMA lista de
+ * registros (mesmo período, mesmo modo, mesmos filtros) e passam pela MESMA conta. Antes
+ * o detalhe montava os números por outro caminho e sem filtro nenhum, e a tela mostrava
+ * 50,4% / 128,6 h na tabela contra 54,5% / 1.188,8 h no painel da MESMA máquina.
+ *
+ * Decomposição (base: Tempo Decorrido / durationHours, via metricHours):
+ *
+ *   Tempo de Carga  = Total − Fora de Turno − Recurso Não Programado
+ *   LOADTIME        = Carga − Setup                         (= G0134.LOADTIME)
+ *   Manutenção      = Mecânica + Elétrica + Automação + Planejada + Terceiros
+ *   Aguardando      = Aguardando Manutenção
+ *   Disponibilidade = (LOADTIME − (Manutenção + Aguardando)) / LOADTIME × 100
+ *
+ * A Disponibilidade sai de `calculateMachineG0134Availability()` — soma direta de horas.
+ * MTBF/MTTR/MTTA são calculados aqui ao LADO dela e não entram na conta: mexer em
+ * qualquer um deles não pode mover a Disponibilidade em nenhum ponto do módulo.
+ *
+ * Vale para QUALQUER recurso — não há lista de códigos nem exceção por máquina.
+ */
+export function buildMachineAvailabilityMetrics(records: AnalyticsRecord[]): MachineAvailabilityMetrics {
+  let totalHours = 0;
+  let outOfShiftHours = 0;
+  let unscheduledResourceHours = 0;
+  let plannedStopHours = 0;
+  let mechanicalHours = 0;
+  let electricalHours = 0;
+  let automationHours = 0;
+  let thirdPartyHours = 0;
+  let plannedMaintenanceHours = 0;
+  let waitingMaintenanceHours = 0;
+  /** Eventos que são FALHA (sem Planejada): é o divisor de MTBF/MTTR/MTTA. */
+  let failureRepairEvents = 0;
+  let waitingEvents = 0;
+
+  for (const record of records) {
+    const hours = metricHours(record); // Tempo Decorrido (durationHours) — base oficial
+    totalHours += hours;
+
+    // Fora de Turno / Recurso Não Programado saem da Carga — usa o bucket oficial (mesma
+    // regra central da Disponibilidade), não a categoria. O tempo NÃO APONTADO permanece,
+    // por decisão de 2026-08-05: fica dentro da Carga e, portanto, dentro do LOADTIME.
+    const bucket = resolveBucket(record);
+    if (bucket === "FORA_DE_TURNO") {
+      outOfShiftHours += hours;
+      continue;
+    }
+    if (bucket === "RECURSO_NAO_PROGRAMADO") {
+      unscheduledResourceHours += hours;
+      continue;
+    }
+    // Setup sai do LOADTIME (mesmo denominador do card principal e da planilha).
+    if (bucket === "PARADA_PLANEJADA") plannedStopHours += hours;
+
+    const kind = maintenanceKind(record.statusRaw);
+    if (kind === "MECANICA") {
+      mechanicalHours += hours;
+      failureRepairEvents += 1;
+    } else if (kind === "ELETRICA") {
+      electricalHours += hours;
+      failureRepairEvents += 1;
+    } else if (kind === "AUTOMACAO") {
+      automationHours += hours;
+      failureRepairEvents += 1;
+    } else if (kind === "TERCEIROS") {
+      thirdPartyHours += hours;
+      failureRepairEvents += 1;
+    } else if (kind === "PLANEJADA") {
+      // Entra na Manutenção (e na Disponibilidade), mas não no MTTR nem nas quebras:
+      // preventiva não é falha, e no numerador do MTTR só inflaria o indicador.
+      plannedMaintenanceHours += hours;
+    } else if (kind === "AGUARDANDO") {
+      waitingMaintenanceHours += hours;
+      waitingEvents += 1;
+    }
+  }
+
+  const loadHours = round(Math.max(0, totalHours - outOfShiftHours - unscheduledResourceHours));
+  const repairHours = round(mechanicalHours + electricalHours + automationHours + thirdPartyHours);
+  const maintenanceHours = round(repairHours + plannedMaintenanceHours);
+
+  // A Disponibilidade e as parcelas dela vêm da função central — nunca refeitas aqui.
+  const availability = calculateMachineG0134Availability({
+    loadTimeHours: loadHours - plannedStopHours,
+    maintenanceHours,
+    waitingMaintenanceHours
+  });
+
+  const failureEvents = failureRepairEvents + waitingEvents;
+  const operatingHours = round(Math.max(0, loadHours - availability.totalMaintenanceForAvailability));
+
+  return {
+    totalHours: round(totalHours),
+    outOfShiftHours: round(outOfShiftHours),
+    unscheduledResourceHours: round(unscheduledResourceHours),
+    loadHours,
+    plannedStopHours: round(plannedStopHours),
+    loadTimeHours: availability.loadTimeHours,
+
+    mechanicalHours: round(mechanicalHours),
+    electricalHours: round(electricalHours),
+    automationHours: round(automationHours),
+    thirdPartyHours: round(thirdPartyHours),
+    plannedMaintenanceHours: round(plannedMaintenanceHours),
+    repairHours,
+    maintenanceHours: availability.maintenanceHours,
+    waitingMaintenanceHours: availability.waitingMaintenanceHours,
+    totalMaintenanceForAvailability: availability.totalMaintenanceForAvailability,
+
+    failureRepairEvents,
+    waitingEvents,
+    failureEvents,
+
+    // MTBF sobre o LOADTIME, a mesma base da Disponibilidade. MTTR estritamente
+    // corretivo; MTTA só o Aguardando. Nenhum dos três alimenta a Disponibilidade.
+    mtbf: loadHours > 0 && failureEvents > 0 ? safeRound(availability.loadTimeHours / failureEvents) : null,
+    mttr: repairHours > 0 && failureEvents > 0 ? safeRound(repairHours / failureEvents) : null,
+    mtta:
+      availability.waitingMaintenanceHours > 0 && failureEvents > 0
+        ? safeRound(availability.waitingMaintenanceHours / failureEvents)
+        : null,
+    availabilityPercent: availability.availabilityPercent,
+    dataQualityIssue:
+      loadHours <= 0
+        ? "Sem tempo de carga no período — LOADTIME/disponibilidade não calculáveis."
+        : availability.loadTimeHours <= 0
+          ? "Todo o tempo de carga é Setup — sem LOADTIME para calcular disponibilidade."
+          : availability.totalMaintenanceForAvailability > availability.loadTimeHours
+            ? "Manutenção excede o LOADTIME (verificar importação)."
+            : operatingHours <= 0
+              ? "Toda a base de tempo é manutenção (sem produção) — MTBF/disponibilidade pouco representativos."
+              : null
+  };
+}
+
+/** Agrupa os registros do recorte por máquina, preservando a ordem de chegada. */
+function groupRecordsByMachine(records: AnalyticsRecord[]): Map<string, AnalyticsRecord[]> {
   const groups = new Map<string, AnalyticsRecord[]>();
   for (const record of records) {
     const list = groups.get(record.resourceName);
     if (list) list.push(record);
     else groups.set(record.resourceName, [record]);
   }
+  return groups;
+}
 
+function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabilityRow[] {
   const rows: PcFactoryReliabilityRow[] = [];
-  for (const [machineName, list] of Array.from(groups.entries())) {
-    let plannedHours = 0;
-    let plannedStopHours = 0;
-    let repairHours = 0;
-    let plannedMaintenanceHours = 0;
-    let waitingHours = 0;
-    /** Eventos que são FALHA (sem Planejada): é o divisor de MTBF/MTTR/MTTA. */
-    let failureRepairEvents = 0;
-    let waitingEvents = 0;
 
-    for (const record of list) {
-      const hours = metricHours(record); // Tempo Decorrido (durationHours) — base oficial
-      // Fora de Turno / Recurso Não Programado saem do tempo planejado — usa o bucket
-      // oficial (mesma regra central da Disponibilidade), não a categoria. O tempo NÃO
-      // APONTADO permanece, por decisão de 2026-08-05: ele entra em plannedHours e, com
-      // isso, no MTBF desta tabela.
-      const bucket = resolveBucket(record);
-      if (OUT_OF_LOAD_BUCKETS.has(bucket)) continue;
-      plannedHours += hours;
-      // Paradas planejadas saem do Tempo Operacional (mesmo denominador do card principal).
-      if (bucket === "PARADA_PLANEJADA") plannedStopHours += hours;
+  for (const [machineName, list] of Array.from(groupRecordsByMachine(records).entries())) {
+    const metrics = buildMachineAvailabilityMetrics(list);
+    if (metrics.failureEvents <= 0) continue; // sem quebras → fora do dashboard de confiabilidade
 
-      const kind = maintenanceKind(record.statusRaw);
-      if (kind === "MECANICA" || kind === "ELETRICA" || kind === "AUTOMACAO" || kind === "TERCEIROS") {
-        repairHours += hours;
-        failureRepairEvents += 1;
-      } else if (kind === "PLANEJADA") {
-        // Entra nas Paradas (e na Disponibilidade), mas não no MTTR nem nas quebras:
-        // preventiva não é falha, e no numerador do MTTR só inflaria o indicador.
-        plannedMaintenanceHours += hours;
-      } else if (kind === "AGUARDANDO") {
-        waitingHours += hours;
-        waitingEvents += 1;
-      }
-    }
-
-    const failureEvents = failureRepairEvents + waitingEvents;
-    if (failureEvents <= 0) continue; // sem quebras → fora do dashboard de confiabilidade
-
-    plannedHours = round(plannedHours);
-    plannedStopHours = round(plannedStopHours);
-    repairHours = round(repairHours);
-    plannedMaintenanceHours = round(plannedMaintenanceHours);
-    waitingHours = round(waitingHours);
-    // Paradas = os SEIS subtipos. A Planejada entra aqui mesmo ficando fora do MTTR.
-    const maintenanceDowntimeHours = round(repairHours + plannedMaintenanceHours + waitingHours);
-    const operatingHours = round(Math.max(0, plannedHours - maintenanceDowntimeHours));
-    // Tempo Operacional oficial da máquina (= G0134.LOADTIME): Carga − Paradas Planejadas.
-    // É o denominador da Disponibilidade, o mesmo do card principal.
-    const officialOperationalHours = round(Math.max(0, plannedHours - plannedStopHours));
-
-    const hasPlanned = plannedHours > 0;
     const sample = list.find((item) => item.resourceCode) ?? list[0];
 
     rows.push({
@@ -713,32 +847,22 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
       machineCode: sample.resourceCode ?? null,
       productionLine: list.find((item) => item.productionLine)?.productionLine ?? null,
       groupPortal: list.find((item) => item.groupPortal)?.groupPortal ?? null,
-      plannedHours,
-      operatingHours,
-      failureEvents,
-      repairHours,
-      plannedMaintenanceHours,
-      waitingMaintenanceHours: waitingHours,
-      maintenanceDowntimeHours,
-      // MTBF sobre o Tempo Operacional (Carga − Setup), o mesmo denominador da
-      // Disponibilidade. Antes dividia `operatingHours` (Carga − manutenção), que é
-      // outra base e não correspondia à regra validada.
-      mtbf: hasPlanned ? safeRound(officialOperationalHours / failureEvents) : null,
-      mttr: repairHours > 0 ? safeRound(repairHours / failureEvents) : null,
-      mtta: waitingHours > 0 ? safeRound(waitingHours / failureEvents) : null,
-      downtimeHours: maintenanceDowntimeHours,
-      // Mesma fórmula do card principal (planilha G0134), por máquina — sem regra paralela.
-      availability: calculateG0134BusinessAvailability({
-        operationalHours: officialOperationalHours,
-        maintenanceHours: maintenanceDowntimeHours
-      }),
-      dataQualityIssue: !hasPlanned
-        ? "Sem tempo planejado no período — MTBF/disponibilidade não calculáveis."
-        : maintenanceDowntimeHours > plannedHours
-          ? "Paradas de manutenção excedem o tempo planejado (verificar importação)."
-          : operatingHours <= 0
-            ? "Toda a base de tempo é manutenção (sem produção) — MTBF/disponibilidade pouco representativos."
-            : null
+      plannedHours: metrics.loadHours,
+      operatingHours: round(Math.max(0, metrics.loadHours - metrics.totalMaintenanceForAvailability)),
+      loadTimeHours: metrics.loadTimeHours,
+      plannedStopHours: metrics.plannedStopHours,
+      failureEvents: metrics.failureEvents,
+      repairHours: metrics.repairHours,
+      plannedMaintenanceHours: metrics.plannedMaintenanceHours,
+      maintenanceHours: metrics.maintenanceHours,
+      waitingMaintenanceHours: metrics.waitingMaintenanceHours,
+      maintenanceDowntimeHours: metrics.totalMaintenanceForAvailability,
+      mtbf: metrics.mtbf,
+      mttr: metrics.mttr,
+      mtta: metrics.mtta,
+      downtimeHours: metrics.totalMaintenanceForAvailability,
+      availability: metrics.availabilityPercent,
+      dataQualityIssue: metrics.dataQualityIssue
     });
   }
 
@@ -748,6 +872,44 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
 
 export async function getPcFactoryReliabilityByMachine(params: PcFactoryQueryParams): Promise<PcFactoryReliabilityRow[]> {
   return buildReliabilityByMachine(await loadRecords(params));
+}
+
+/** Uma máquina do recorte com a identificação dela e as métricas da fórmula G0134. */
+export type PcFactoryMachineAvailabilityRow = MachineAvailabilityMetrics & {
+  machineName: string;
+  machineCode: string | null;
+  productionLine: string | null;
+  groupPortal: string | null;
+};
+
+/**
+ * Disponibilidade G0134 de TODAS as máquinas do recorte, inclusive as que não tiveram
+ * nenhuma quebra no período.
+ *
+ * Diferença para `getPcFactoryReliabilityByMachine`: aquela alimenta o painel de
+ * CONFIABILIDADE e por isso lista só quem quebrou (sem quebras não há MTBF/MTTR/MTTA a
+ * mostrar). Esta existe para conferência contra o relatório oficial, onde uma máquina com
+ * 100% de disponibilidade também tem linha. As duas passam pela MESMA
+ * `buildMachineAvailabilityMetrics()`, então não podem discordar da disponibilidade.
+ */
+export async function getPcFactoryAvailabilityByMachine(
+  params: PcFactoryQueryParams
+): Promise<PcFactoryMachineAvailabilityRow[]> {
+  const records = await loadRecords(params);
+  const rows: PcFactoryMachineAvailabilityRow[] = [];
+
+  for (const [machineName, list] of Array.from(groupRecordsByMachine(records).entries())) {
+    const sample = list.find((item) => item.resourceCode) ?? list[0];
+    rows.push({
+      ...buildMachineAvailabilityMetrics(list),
+      machineName,
+      machineCode: sample.resourceCode ?? null,
+      productionLine: list.find((item) => item.productionLine)?.productionLine ?? null,
+      groupPortal: list.find((item) => item.groupPortal)?.groupPortal ?? null
+    });
+  }
+
+  return rows.sort((a, b) => b.totalMaintenanceForAvailability - a.totalMaintenanceForAvailability);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1278,48 +1440,67 @@ function clampPageSize(value?: number): number {
 /* 7. Detalhe da máquina/recurso                                      */
 /* ------------------------------------------------------------------ */
 
-export async function getPcFactoryResourceDetails(resourceCodeOrName: string): Promise<PcFactoryResourceDetails | null> {
+/**
+ * Resolve o termo clicado (nome OU código do recurso) para o NOME do recurso, que é a
+ * chave usada por `loadRecords`/`buildReliabilityByMachine` para agrupar por máquina.
+ * null quando o recurso não existe na base.
+ */
+async function resolveResourceName(term: string): Promise<string | null> {
+  const exactName = await prisma.pcFactoryRecord.findFirst({
+    where: { resourceName: term },
+    select: { resourceName: true }
+  });
+  if (exactName) return exactName.resourceName;
+
+  const byCode = await prisma.pcFactoryRecord.findFirst({
+    where: { resourceCode: term },
+    select: { resourceName: true }
+  });
+  return byCode?.resourceName ?? null;
+}
+
+/**
+ * DETALHE DE UMA MÁQUINA — no MESMO recorte da tela.
+ *
+ * Antes esta função recebia só o nome do recurso e consultava o histórico COMPLETO,
+ * ignorando período, modo de cálculo e todos os demais filtros. Com a tela filtrada em
+ * agosto, a tabela mostrava 50,4% / 128,6 h e o painel da mesma máquina mostrava
+ * 54,5% / 1.188,8 h — os números do período inteiro importado.
+ *
+ * Agora ela recebe os `params` da tela e passa por `loadRecords()`, o mesmo funil da
+ * tabela: mesmo where, mesmo filtro de duração mensurável, mesmo modo (G0134 oficial ou
+ * intervalo real) e o mesmo recorte de horas na fronteira do período. Os indicadores
+ * saem de `buildMachineAvailabilityMetrics()`, a MESMA função que monta a linha da
+ * tabela — por construção os dois não podem divergir.
+ *
+ * As listas de registros (histórico recente e eventos de manutenção) seguem o mesmo
+ * recorte, mas sem o filtro de duração mensurável: o usuário precisa enxergar o status
+ * ABERTO da máquina dele, mesmo que ele não pese nos indicadores.
+ */
+export async function getPcFactoryResourceDetails(
+  resourceCodeOrName: string,
+  params: PcFactoryQueryParams = {}
+): Promise<PcFactoryResourceDetails | null> {
   const term = resourceCodeOrName.trim();
   if (!term) return null;
 
-  const where: Prisma.PcFactoryRecordWhereInput = { OR: [{ resourceName: term }, { resourceCode: term }] };
+  const resourceName = await resolveResourceName(term);
+  if (!resourceName) return null;
+
+  // O recorte do painel é o da tela, com o filtro de máquina fixado na clicada.
+  const scopedParams: PcFactoryQueryParams = { ...params, resources: [resourceName] };
+  const listWhere = buildWhere(scopedParams);
 
   const [analytics, recent, maintenance] = await Promise.all([
+    loadRecords(scopedParams),
     prisma.pcFactoryRecord.findMany({
-      // Soma horas → mesmo filtro de duração mensurável dos KPIs, para o drawer não
-      // divergir do card. As listas de registros abaixo NÃO filtram: o usuário precisa
-      // ver o status aberto na máquina dele.
-      where: { AND: [where, MEASURABLE_DURATION] },
-      select: {
-        resourceName: true,
-        resourceCode: true,
-        productionLine: true,
-        groupPortal: true,
-        sector: true,
-        statusRaw: true,
-        statusKey: true,
-        statusColorHex: true,
-        statusCode: true,
-        statusCategory: true,
-        managementGroup: true,
-        availabilityBucket: true,
-        classificationRef: true,
-        durationHours: true,
-        realDurationHours: true,
-        startDateTime: true,
-        // Sem recorte aqui: este drawer é o histórico COMPLETO da máquina, sem
-        // filtro de período. O campo entra só porque AnalyticsRecord o exige.
-        endDateTime: true
-      }
-    }),
-    prisma.pcFactoryRecord.findMany({
-      where,
+      where: listWhere,
       orderBy: [{ startDateTime: "desc" }, { createdAt: "desc" }],
       take: 25,
       select: recordSelect
     }),
     prisma.pcFactoryRecord.findMany({
-      where: { ...where, statusCategory: PcFactoryStatusCategory.MANUTENCAO },
+      where: { AND: [listWhere, { statusCategory: PcFactoryStatusCategory.MANUTENCAO }] },
       orderBy: [{ startDateTime: "desc" }, { createdAt: "desc" }],
       take: 25,
       select: recordSelect
@@ -1328,9 +1509,11 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
 
   if (analytics.length === 0) return null;
 
+  // MESMA função da linha da tabela — é isso que garante o critério "ao clicar numa
+  // máquina, os números do detalhe batem com a linha no mesmo filtro".
+  const metrics = buildMachineAvailabilityMetrics(analytics);
   const agg = aggregateHours(analytics);
   const sample = analytics.find((item) => item.resourceCode) ?? analytics[0];
-  const availabilityPercent = availability(agg);
 
   return {
     resourceName: sample.resourceName,
@@ -1338,24 +1521,49 @@ export async function getPcFactoryResourceDetails(resourceCodeOrName: string): P
     productionLine: analytics.find((i) => i.productionLine)?.productionLine ?? null,
     groupPortal: analytics.find((i) => i.groupPortal)?.groupPortal ?? null,
     sector: analytics.find((i) => i.sector)?.sector ?? null,
-    plannedHours: agg.plannedHours,
-    maintenanceHours: agg.maintenanceHours,
-    mechanicalHours: agg.mechanicalHours,
-    electricalHours: agg.electricalHours,
-    automationHours: agg.automationHours,
-    waitingHours: agg.waitingHours,
+    plannedHours: metrics.loadHours,
+    // Manutenção total (os SEIS subtipos) = coluna "Paradas" da tabela. Mesmo número.
+    maintenanceHours: metrics.totalMaintenanceForAvailability,
+    mechanicalHours: metrics.mechanicalHours,
+    electricalHours: metrics.electricalHours,
+    automationHours: metrics.automationHours,
+    waitingHours: metrics.waitingMaintenanceHours,
     stoppedHours: agg.stoppedHours,
-    maintenanceEvents: agg.maintenanceEvents,
-    waitingEvents: agg.waitingEvents,
-    mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
-    mtbf: mtbf(agg.plannedHours, agg.maintenanceHours, agg.maintenanceEvents),
-    mtta: mtta(agg.waitingHours, agg.waitingEvents),
-    availabilityPercent,
+    maintenanceEvents: metrics.failureRepairEvents + metrics.waitingEvents,
+    waitingEvents: metrics.waitingEvents,
+    // MTTR/MTBF/MTTA com as MESMAS definições da tabela (corretiva ÷ quebras,
+    // LOADTIME ÷ quebras, aguardando ÷ quebras). Nenhum deles toca a Disponibilidade.
+    mttr: metrics.mttr,
+    mtbf: metrics.mtbf,
+    mtta: metrics.mtta,
+    availabilityPercent: metrics.availabilityPercent,
+    availabilityAudit: {
+      loadTimeHours: metrics.loadTimeHours,
+      maintenanceHours: metrics.maintenanceHours,
+      waitingMaintenanceHours: metrics.waitingMaintenanceHours,
+      totalMaintenanceForAvailability: metrics.totalMaintenanceForAvailability,
+      availabilityPercent: metrics.availabilityPercent,
+      totalHours: metrics.totalHours,
+      outOfShiftHours: metrics.outOfShiftHours,
+      unscheduledResourceHours: metrics.unscheduledResourceHours,
+      loadHours: metrics.loadHours,
+      plannedStopHours: metrics.plannedStopHours
+    },
+    periodLabel: describePeriod(params),
     categoryDistribution: categoryDistributionFromAggregate(agg),
     maintenanceTimeline: maintenance.map(toRecordRow),
     recentRecords: recent.map(toRecordRow),
-    recommendations: buildRecommendations(agg, availabilityPercent)
+    recommendations: buildRecommendations(agg, metrics.availabilityPercent)
   };
+}
+
+/** Rótulo curto do recorte ativo, para o painel deixar o filtro explícito. */
+function describePeriod(params: PcFactoryQueryParams): string {
+  const format = (value: string) => value.split("-").reverse().join("/");
+  if (params.startDate && params.endDate) return `${format(params.startDate)} a ${format(params.endDate)}`;
+  if (params.startDate) return `a partir de ${format(params.startDate)}`;
+  if (params.endDate) return `até ${format(params.endDate)}`;
+  return "período completo importado";
 }
 
 function buildRecommendations(agg: HoursAggregate, availabilityPercent: number | null): PcFactoryRecommendation[] {

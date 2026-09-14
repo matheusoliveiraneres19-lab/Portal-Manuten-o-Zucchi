@@ -3,7 +3,11 @@
 import { useEffect } from "react";
 import { AnimatePresence, m } from "framer-motion";
 import { AlarmClock, AlertTriangle, CircleGauge, Cog, Info, Loader2, Timer, Wrench, X, Zap } from "lucide-react";
-import type { PcFactoryRecommendation, PcFactoryResourceDetails } from "@/types/pc-factory";
+import type {
+  PcFactoryMachineAvailabilityAudit,
+  PcFactoryRecommendation,
+  PcFactoryResourceDetails
+} from "@/types/pc-factory";
 
 type PcFactoryDetailsDrawerProps = {
   open: boolean;
@@ -43,11 +47,18 @@ export function PcFactoryDetailsDrawer({ open, loading, error, details, onClose 
                   {details?.resourceName ?? "Carregando..."}
                 </h2>
                 {details ? (
-                  <p className="mt-0.5 font-mono text-xs text-zinc-400">
-                    {details.resourceCode ?? "Sem código"}
-                    {details.productionLine ? ` · ${details.productionLine}` : ""}
-                    {details.sector ? ` · ${details.sector}` : ""}
-                  </p>
+                  <>
+                    <p className="mt-0.5 font-mono text-xs text-zinc-400">
+                      {details.resourceCode ?? "Sem código"}
+                      {details.productionLine ? ` · ${details.productionLine}` : ""}
+                      {details.sector ? ` · ${details.sector}` : ""}
+                    </p>
+                    {/* O recorte fica explícito: estes números são os do filtro da tela,
+                        os mesmos da linha da tabela — não o histórico completo. */}
+                    <p className="mt-1 text-[11px] text-zinc-400">
+                      Período: <span className="font-semibold text-champagne">{details.periodLabel}</span>
+                    </p>
+                  </>
                 ) : null}
               </div>
               <button
@@ -87,6 +98,10 @@ export function PcFactoryDetailsDrawer({ open, loading, error, details, onClose 
                       <InlineInfo label="Horas paradas (perda)" value={hours(details.stoppedHours)} />
                       <InlineInfo label="Tempo planejado" value={hours(details.plannedHours)} />
                     </div>
+                  </Section>
+
+                  <Section title="Como a disponibilidade foi calculada (G0134)">
+                    <AvailabilityAudit audit={details.availabilityAudit} />
                   </Section>
 
                   <Section title="Distribuição por classificação">
@@ -164,6 +179,57 @@ export function PcFactoryDetailsDrawer({ open, loading, error, details, onClose 
         </m.div>
       ) : null}
     </AnimatePresence>
+  );
+}
+
+/**
+ * A conta da Disponibilidade aberta, linha a linha — as mesmas colunas do relatório
+ * oficial G0134, para conferência direta contra a planilha:
+ *
+ *   LOADTIME ↔ G0134.LOADTIME
+ *   Manutenção ↔ Tempo de Manutenção      Aguardando ↔ Tempo Ag. Manutenção
+ *   Disponibilidade ↔ Disponibilidade
+ */
+function AvailabilityAudit({ audit }: { audit: PcFactoryMachineAvailabilityAudit }) {
+  return (
+    <div className="space-y-2 rounded-lg border border-gold/10 bg-black/20 px-3 py-2.5 text-xs">
+      <div className="space-y-1 font-mono text-[11px] text-zinc-300">
+        <AuditLine label="Tempo total" value={audit.totalHours} />
+        <AuditLine label="− Fora de turno" value={audit.outOfShiftHours} />
+        <AuditLine label="− Recurso não programado" value={audit.unscheduledResourceHours} />
+        <AuditLine label="= Tempo de carga" value={audit.loadHours} strong />
+        <AuditLine label="− Setup" value={audit.plannedStopHours} />
+        <AuditLine label="= LOADTIME" value={audit.loadTimeHours} strong />
+      </div>
+
+      <div className="space-y-1 border-t border-gold/10 pt-2 font-mono text-[11px] text-zinc-300">
+        <AuditLine label="Manutenção" value={audit.maintenanceHours} />
+        <AuditLine label="Aguardando manutenção" value={audit.waitingMaintenanceHours} />
+        <AuditLine label="= Manutenção total usada" value={audit.totalMaintenanceForAvailability} strong />
+      </div>
+
+      <div className="border-t border-gold/10 pt-2">
+        <p className="font-mono text-[11px] text-zinc-400">
+          (LOADTIME − Manutenção total) ÷ LOADTIME × 100
+        </p>
+        <p className="mt-0.5 font-mono text-sm font-bold text-gold">
+          Disponibilidade: {percent(audit.availabilityPercent)}
+        </p>
+      </div>
+
+      <p className="text-[10px] leading-snug text-zinc-500">
+        Soma direta de horas. MTTR, MTBF, MTTA e quebras aparecem acima para leitura, mas não entram nesta conta.
+      </p>
+    </div>
+  );
+}
+
+function AuditLine({ label, value, strong = false }: { label: string; value: number; strong?: boolean }) {
+  return (
+    <div className={`flex items-baseline justify-between gap-3 ${strong ? "text-champagne" : ""}`}>
+      <span className={strong ? "font-semibold" : ""}>{label}</span>
+      <span className={`tabular-nums ${strong ? "font-bold" : ""}`}>{hours(value)}</span>
+    </div>
   );
 }
 

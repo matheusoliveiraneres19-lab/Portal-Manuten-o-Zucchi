@@ -26,6 +26,7 @@
     "storage:setup-imports": "tsx scripts/setup-import-storage.ts",
     "debug:pc-factory": "tsx scripts/debug-pcfactory-xlsx.ts",
     "validate:pc-factory": "tsx scripts/validate-pcfactory-availability.ts",
+    "validate:pc-factory-machines": "tsx scripts/validate-pcfactory-machine-availability.ts",
     "auth:hash-passwords": "tsx scripts/hash-passwords.ts",
     "auth:set-password": "tsx scripts/set-password.ts",
     "capture": "node scripts/capture-portal.mjs",

@@ -194,10 +194,17 @@ export type PcFactoryReliabilityRow = {
   productionLine: string | null;
   groupPortal: string | null;
 
-  /** Tempo planejado (Tempo Decorrido) excluindo Fora de Turno e Recurso Não Programado. */
+  /** Tempo de Carga (Tempo Decorrido) excluindo Fora de Turno e Recurso Não Programado. */
   plannedHours: number;
   /** plannedHours − paradas de manutenção (≥ 0). */
   operatingHours: number;
+  /**
+   * G0134.LOADTIME da máquina = Tempo de Carga − Setup. É o DENOMINADOR da
+   * Disponibilidade — o mesmo número da coluna `G0134.LOADTIME` da planilha oficial.
+   */
+  loadTimeHours: number;
+  /** Setup (paradas planejadas) descontado da Carga para chegar ao LOADTIME. */
+  plannedStopHours: number;
 
   /** Quebras = eventos de manutenção (Mec+Elét+Autom+Terceiros+Aguardando). Exclui Planejada. */
   failureEvents: number;
@@ -209,7 +216,12 @@ export type PcFactoryReliabilityRow = {
   repairHours: number;
   /** Soma de durationHours de "Manutenção Planejada" — preventiva, não é quebra. */
   plannedMaintenanceHours: number;
-  /** Soma de durationHours de "Aguardando Manutenção". */
+  /**
+   * "Tempo de Manutenção" da planilha oficial = Mecânica + Elétrica + Automação +
+   * Planejada + Terceiros. SEM o Aguardando, que é a coluna vizinha do G0134.
+   */
+  maintenanceHours: number;
+  /** "Tempo Ag. Manutenção" da planilha = soma de durationHours de "Aguardando Manutenção". */
   waitingMaintenanceHours: number;
   /**
    * Paradas = os SEIS subtipos = repairHours + plannedMaintenanceHours +
@@ -228,9 +240,12 @@ export type PcFactoryReliabilityRow = {
   /** Alias de maintenanceDowntimeHours (coluna "Paradas"). */
   downtimeHours: number;
   /**
-   * Disponibilidade da máquina (%) — MESMA fórmula do card principal (planilha G0134):
-   * ((Tempo Operacional − paradas de manutenção) / Tempo Operacional) × 100, onde
-   * Tempo Operacional = plannedHours − paradas planejadas. null = sem Tempo Operacional.
+   * Disponibilidade da máquina (%), de `calculateMachineG0134Availability()`:
+   *
+   *   (loadTimeHours − (maintenanceHours + waitingMaintenanceHours)) / loadTimeHours × 100
+   *
+   * Soma direta de horas. NUNCA derivada de MTTR, MTBF, MTTA ou quantidade de quebras —
+   * esses aparecem nas colunas vizinhas mas não entram nesta conta. null = sem LOADTIME.
    */
   availability: number | null;
 
@@ -343,13 +358,43 @@ export type PcFactoryRecommendation = {
   message: string;
 };
 
+/**
+ * Auditoria da Disponibilidade de UMA máquina — os números exatos que entraram na
+ * fórmula, para conferir linha a linha contra as colunas do G0134.
+ */
+export type PcFactoryMachineAvailabilityAudit = {
+  /** ↔ G0134.LOADTIME */
+  loadTimeHours: number;
+  /** ↔ Tempo de Manutenção (Mecânica + Elétrica + Automação + Planejada + Terceiros) */
+  maintenanceHours: number;
+  /** ↔ Tempo Ag. Manutenção */
+  waitingMaintenanceHours: number;
+  /** maintenanceHours + waitingMaintenanceHours */
+  totalMaintenanceForAvailability: number;
+  /** ↔ Disponibilidade */
+  availabilityPercent: number | null;
+  /** Cadeia até o LOADTIME, para explicar de onde ele veio. */
+  totalHours: number;
+  outOfShiftHours: number;
+  unscheduledResourceHours: number;
+  loadHours: number;
+  plannedStopHours: number;
+};
+
+/**
+ * Detalhe de um recurso — SEMPRE no mesmo recorte da tela (período, modo, grupo, linha,
+ * máquina, status). Os números vêm da MESMA função que monta a linha da tabela
+ * "Confiabilidade por Máquina", então painel e tabela não podem divergir.
+ */
 export type PcFactoryResourceDetails = {
   resourceName: string;
   resourceCode: string | null;
   productionLine: string | null;
   sector: string | null;
   groupPortal: string | null;
+  /** Tempo de Carga = Total − Fora de Turno − Recurso Não Programado. */
   plannedHours: number;
+  /** Manutenção total (os SEIS subtipos) — o mesmo da coluna "Paradas" da tabela. */
   maintenanceHours: number;
   mechanicalHours: number;
   electricalHours: number;
@@ -362,6 +407,10 @@ export type PcFactoryResourceDetails = {
   mtbf: number | null;
   mtta: number | null;
   availabilityPercent: number | null;
+  /** Números da fórmula, exibidos na seção técnica do painel. */
+  availabilityAudit: PcFactoryMachineAvailabilityAudit;
+  /** Rótulo do recorte aplicado, para o painel deixar claro que está filtrado. */
+  periodLabel: string;
   categoryDistribution: PcFactoryCategorySlice[];
   maintenanceTimeline: PcFactoryRecordRow[];
   recentRecords: PcFactoryRecordRow[];

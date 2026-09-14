@@ -677,14 +677,112 @@ export function calculateG0134BusinessAvailability(params: {
   operationalHours: number;
   maintenanceHours: number;
 }): number | null {
+  // O `maintenanceHours` do agregado JÁ soma o Aguardando Manutenção (é a soma dos seis
+  // subtipos), então aqui o Aguardando entra zerado para não ser descontado duas vezes.
+  // A divisão em si mora num lugar só: calculateMachineG0134Availability().
+  return calculateMachineG0134Availability({
+    loadTimeHours: params.operationalHours,
+    maintenanceHours: params.maintenanceHours,
+    waitingMaintenanceHours: 0
+  }).availabilityPercent;
+}
+
+/**
+ * Entrada da Disponibilidade oficial POR MÁQUINA/RECURSO. Horas já somadas no recorte
+ * filtrado — esta função não sabe de período, filtro ou banco: só faz a conta.
+ */
+export type MachineAvailabilityInput = {
+  /**
+   * `G0134.LOADTIME` do recurso no período.
+   *
+   * Quando a base é o histórico de status importado do PC-Factory (o caso do portal),
+   * é derivado assim:
+   *
+   *   LOADTIME = Tempo Total − Fora de Turno − Recurso Não Programado − Setup
+   */
+  loadTimeHours: number;
+  /**
+   * `Tempo de Manutenção` = Mecânica + Elétrica + Automação + Planejada + Terceiros.
+   * SEM o Aguardando Manutenção, que entra separado (é a coluna vizinha na planilha).
+   */
+  maintenanceHours: number;
+  /** `Tempo Ag. Manutenção` = Aguardando Manutenção, isolado. */
+  waitingMaintenanceHours: number;
+};
+
+/** Saída da conta, com as parcelas expostas para auditoria contra o G0134. */
+export type MachineAvailabilityResult = {
+  loadTimeHours: number;
+  maintenanceHours: number;
+  waitingMaintenanceHours: number;
+  /** Tempo de Manutenção + Tempo Ag. Manutenção — o que a Disponibilidade subtrai. */
+  totalMaintenanceForAvailability: number;
+  /** null (nunca NaN/Infinity) quando não há LOADTIME; a UI mostra "—". */
+  availabilityPercent: number | null;
+};
+
+/**
+ * DISPONIBILIDADE OFICIAL G0134 DE UMA MÁQUINA — função central, pura e única.
+ *
+ *     Disponibilidade = (LOADTIME − (Manutenção + Ag. Manutenção)) / LOADTIME × 100
+ *
+ * É a fórmula literal das células da planilha `disponibilidade mensal exportado.xlsx`
+ * (L = D+E, M = L/C, O = 100−N) — ver docs/pc-factory-disponibilidade-oficial.md.
+ *
+ * Soma direta de horas, e SÓ isso. Não usa — nem pode passar a usar — MTTR, MTBF, MTTA,
+ * quantidade de quebras, eventos de manutenção ou média de disponibilidades: esses
+ * indicadores continuam na tabela, mas ao LADO da Disponibilidade, nunca dentro dela.
+ *
+ * Para um conjunto de máquinas, some as horas de todas e chame UMA vez (média ponderada
+ * pela carga). Média simples das disponibilidades é outra conta e dá outro número — ver
+ * `calculateFleetG0134Availability()`.
+ *
+ * Blindada contra NaN/Infinity: entrada não finita ou negativa vira 0, LOADTIME ≤ 0
+ * devolve `availabilityPercent: null`, e o resultado é limitado a [0, 100].
+ */
+export function calculateMachineG0134Availability(params: MachineAvailabilityInput): MachineAvailabilityResult {
   const safeNumber = (value: number) => (Number.isFinite(value) && value > 0 ? value : 0);
-  const operational = safeNumber(params.operationalHours);
-  const maintenance = safeNumber(params.maintenanceHours);
+  const loadTimeHours = safeNumber(params.loadTimeHours);
+  const maintenanceHours = safeNumber(params.maintenanceHours);
+  const waitingMaintenanceHours = safeNumber(params.waitingMaintenanceHours);
 
-  if (operational <= 0) return null;
+  const totalMaintenanceForAvailability = maintenanceHours + waitingMaintenanceHours;
 
-  const availability = ((operational - maintenance) / operational) * 100;
-  return Math.round(Math.max(0, Math.min(100, availability)) * 100) / 100;
+  const availabilityPercent =
+    loadTimeHours > 0 ? ((loadTimeHours - totalMaintenanceForAvailability) / loadTimeHours) * 100 : null;
+
+  return {
+    loadTimeHours: round(loadTimeHours),
+    maintenanceHours: round(maintenanceHours),
+    waitingMaintenanceHours: round(waitingMaintenanceHours),
+    totalMaintenanceForAvailability: round(totalMaintenanceForAvailability),
+    availabilityPercent:
+      availabilityPercent === null ? null : Math.round(Math.max(0, Math.min(100, availabilityPercent)) * 100) / 100
+  };
+}
+
+/**
+ * Disponibilidade de um CONJUNTO de máquinas — ponderada pela carga, nunca média simples.
+ *
+ *     Disponibilidade = (Σ LOADTIME − Σ Manutenção total) / Σ LOADTIME × 100
+ *
+ * A diferença não é cosmética: na planilha de janeiro a ponderada dá 89,06% e a média
+ * simples das 33 máquinas dá 84,28%. Numa média simples, uma máquina parada 10 minutos
+ * no mês pesa igual a uma parada 300 h.
+ */
+export function calculateFleetG0134Availability(machines: MachineAvailabilityInput[]): MachineAvailabilityResult {
+  let loadTimeHours = 0;
+  let maintenanceHours = 0;
+  let waitingMaintenanceHours = 0;
+
+  for (const machine of machines) {
+    const safe = calculateMachineG0134Availability(machine);
+    loadTimeHours += safe.loadTimeHours;
+    maintenanceHours += safe.maintenanceHours;
+    waitingMaintenanceHours += safe.waitingMaintenanceHours;
+  }
+
+  return calculateMachineG0134Availability({ loadTimeHours, maintenanceHours, waitingMaintenanceHours });
 }
 
 /** Rótulos dos grupos gerenciais (idênticos à tela do PC-Factory). */
