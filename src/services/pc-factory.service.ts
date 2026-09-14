@@ -3,6 +3,7 @@ import type { PageDataSource } from "@/types/page-data";
 import { PcFactoryStatusCategory, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { overlapHours, splitPcFactoryRecordByMonth } from "@/utils/pc-factory-segments";
+import { hiddenFilterLabels, optionsFromGroups } from "@/utils/filter-options";
 import { PC_FACTORY_COLORS, PC_FACTORY_MANAGEMENT_GROUP_COLORS } from "@/constants/pc-factory-colors";
 import {
   PC_FACTORY_CATEGORY_COLORS,
@@ -26,6 +27,7 @@ import type {
   PcFactoryStatusSlice,
   PcFactoryDashboardSummary,
   PcFactoryDataQuality,
+  PcFactoryFilterAudit,
   PcFactoryFilterOptions,
   PcFactoryGroupRow,
   PcFactoryKpis,
@@ -1590,30 +1592,99 @@ function buildRecommendations(agg: HoursAggregate, availabilityPercent: number |
 /* Opções de filtro                                                   */
 /* ------------------------------------------------------------------ */
 
-export async function getPcFactoryFilterOptions(): Promise<PcFactoryFilterOptions> {
-  const [resources, lines, groups, sectors, shifts, statusNames] = await Promise.all([
-    prisma.pcFactoryRecord.findMany({ select: { resourceName: true }, distinct: ["resourceName"], orderBy: { resourceName: "asc" } }),
-    prisma.pcFactoryRecord.findMany({ select: { productionLine: true }, distinct: ["productionLine"], orderBy: { productionLine: "asc" } }),
-    prisma.pcFactoryRecord.findMany({ select: { groupPortal: true }, distinct: ["groupPortal"], orderBy: { groupPortal: "asc" } }),
-    prisma.pcFactoryRecord.findMany({ select: { sector: true }, distinct: ["sector"], orderBy: { sector: "asc" } }),
-    prisma.pcFactoryRecord.findMany({ select: { shift: true }, distinct: ["shift"], orderBy: { shift: "asc" } }),
-    prisma.pcFactoryRecord.findMany({ select: { statusRaw: true }, distinct: ["statusRaw"], orderBy: { statusRaw: "asc" } })
+/**
+ * Recorte que define as OPÇÕES de filtro: período e modo de cálculo, e mais nada.
+ *
+ * Os multi-seleção (máquina, grupo, linha, status...) ficam de fora de propósito.
+ * Se entrassem, escolher "Multifio 04" apagaria todas as outras máquinas da lista e
+ * o usuário não teria como trocar de máquina sem limpar o filtro antes.
+ */
+function filterScopeParams(params: PcFactoryQueryParams): PcFactoryQueryParams {
+  return { startDate: params.startDate, endDate: params.endDate, mode: params.mode };
+}
+
+/**
+ * OPÇÕES DOS FILTROS DA ABA — só o que tem registro no recorte ativo (FASE 4).
+ *
+ * Antes: `distinct` sobre a tabela inteira. Em agosto/2026 isso listava 83 máquinas
+ * para 40 com dados — 43 opções (52% do filtro) abriam uma tela vazia, que foi
+ * exatamente a reclamação da gestão. Agora cada lista sai de um `groupBy` sobre o
+ * MESMO where da página, e já vem com a contagem do período ao lado do rótulo.
+ *
+ * Dimensões inexistentes na base (hoje Grupo Portal, Linha/Área, Setor e Turno estão
+ * 100% nulas nos 71.638 registros) devolvem lista vazia: a UI não renderiza o campo e
+ * declara o filtro escondido no painel de Qualidade dos Dados.
+ *
+ * Sem `MEASURABLE_DURATION` aqui: a opção some se não houver NENHUM registro visível,
+ * não se as horas forem zero. Um status aberto continua aparecendo na tabela de
+ * registros, então o filtro dele precisa continuar existindo.
+ */
+export async function getPcFactoryFilterOptions(params: PcFactoryQueryParams = {}): Promise<PcFactoryFilterOptions> {
+  const where = buildWhere(filterScopeParams(params));
+
+  const [resources, lines, groups, sectors, shifts, statusNames, categories] = await Promise.all([
+    prisma.pcFactoryRecord.groupBy({ by: ["resourceName"], where, _count: true }),
+    prisma.pcFactoryRecord.groupBy({ by: ["productionLine"], where, _count: true }),
+    prisma.pcFactoryRecord.groupBy({ by: ["groupPortal"], where, _count: true }),
+    prisma.pcFactoryRecord.groupBy({ by: ["sector"], where, _count: true }),
+    prisma.pcFactoryRecord.groupBy({ by: ["shift"], where, _count: true }),
+    prisma.pcFactoryRecord.groupBy({ by: ["statusRaw"], where, _count: true }),
+    prisma.pcFactoryRecord.groupBy({ by: ["statusCategory"], where, _count: true })
   ]);
 
-  const clean = (rows: Array<{ [k: string]: string | null }>, key: string) =>
-    rows
-      .map((row) => row[key])
-      .filter((value): value is string => Boolean(value && value.trim()))
-      .map((value) => ({ value, label: value }));
+  const contagemPorCategoria = new Map(categories.map((row) => [row.statusCategory, readGroupCount(row._count)]));
 
   return {
-    resources: resources.map((r) => ({ value: r.resourceName, label: r.resourceName })),
-    productionLines: clean(lines, "productionLine"),
-    groupPortals: clean(groups, "groupPortal"),
-    sectors: clean(sectors, "sector"),
-    shifts: clean(shifts, "shift"),
-    statusNames: clean(statusNames, "statusRaw"),
-    categories: PC_FACTORY_CATEGORY_ORDER.map((category) => ({ value: category, label: PC_FACTORY_CATEGORY_LABELS[category] }))
+    resources: optionsFromGroups(resources, "resourceName"),
+    productionLines: optionsFromGroups(lines, "productionLine"),
+    groupPortals: optionsFromGroups(groups, "groupPortal"),
+    sectors: optionsFromGroups(sectors, "sector"),
+    shifts: optionsFromGroups(shifts, "shift"),
+    statusNames: optionsFromGroups(statusNames, "statusRaw"),
+    // Classificação é uma lista fechada do domínio, não um distinct da base: as que
+    // não têm registro no recorte saem, as demais levam a contagem junto.
+    categories: PC_FACTORY_CATEGORY_ORDER.filter((category) => (contagemPorCategoria.get(category) ?? 0) > 0).map(
+      (category) => ({
+        value: category,
+        label: PC_FACTORY_CATEGORY_LABELS[category],
+        count: contagemPorCategoria.get(category)
+      })
+    )
+  };
+}
+
+/** `_count` do groupBy vem como número ou como { _all }. */
+function readGroupCount(count: number | { _all: number }): number {
+  return typeof count === "number" ? count : count._all;
+}
+
+/**
+ * Auditoria dos filtros (FASE 4): quantas máquinas existem, quantas sobreviveram ao
+ * recorte, quantas chegam à tabela de Confiabilidade e o que foi escondido.
+ */
+async function buildFilterAudit(
+  params: PcFactoryQueryParams,
+  options: PcFactoryFilterOptions,
+  reliabilityRows: number
+): Promise<PcFactoryFilterAudit> {
+  const naBase = await prisma.pcFactoryRecord.groupBy({ by: ["resourceName"], _count: true });
+  const resourcesInDatabase = naBase.length;
+  const resourcesInPeriod = options.resources.length;
+
+  return {
+    resourcesInDatabase,
+    resourcesInPeriod,
+    resourcesInReliabilityTable: reliabilityRows,
+    resourcesRemovedFromFilter: Math.max(0, resourcesInDatabase - resourcesInPeriod),
+    hiddenFilters: hiddenFilterLabels([
+      { label: "Grupo Portal", options: options.groupPortals },
+      { label: "Linha / Área", options: options.productionLines },
+      { label: "Setor", options: options.sectors },
+      { label: "Turno", options: options.shifts },
+      { label: "Nome Status Recurso", options: options.statusNames },
+      { label: "Classificação", options: options.categories },
+      { label: "Máquina / recurso", options: options.resources }
+    ])
   };
 }
 
@@ -1652,9 +1723,13 @@ async function loadPcFactoryPageData(params: PcFactoryQueryParams): Promise<PcFa
     getPcFactoryTrend(params),
     getPcFactoryRootCausePareto(params),
     getPcFactoryRecords(params),
-    getPcFactoryFilterOptions(),
+    // Os MESMOS params da tela: as opções saem do recorte, não da base inteira.
+    getPcFactoryFilterOptions(params),
     buildDataQuality(params)
   ]);
+
+  const reliabilityByMachine = buildReliabilityByMachine(records);
+  const filterAudit = await buildFilterAudit(params, filterOptions, reliabilityByMachine.length);
 
   const criticalResources = [...ranking].filter((r) => r.maintenanceHours > 0).sort((a, b) => b.maintenanceHours - a.maintenanceHours).slice(0, 10);
   const topMechanical = [...ranking].filter((r) => r.mechanicalHours > 0).sort((a, b) => b.mechanicalHours - a.mechanicalHours).slice(0, 10);
@@ -1670,7 +1745,7 @@ async function loadPcFactoryPageData(params: PcFactoryQueryParams): Promise<PcFa
     managementTable: buildManagementTable(records),
     maintenanceSplit: maintenanceSplitFromAggregate(agg),
     criticalResources,
-    reliabilityByMachine: buildReliabilityByMachine(records),
+    reliabilityByMachine,
     topMechanical,
     topElectrical,
     topAutomation,
@@ -1681,6 +1756,7 @@ async function loadPcFactoryPageData(params: PcFactoryQueryParams): Promise<PcFa
     rootCausePareto,
     records: records_,
     filterOptions,
+    filterAudit,
     dataQuality,
     source: "database"
   };
@@ -1863,7 +1939,16 @@ function emptyPageData(
       sectors: [],
       shifts: [],
       statusNames: [],
-      categories: PC_FACTORY_CATEGORY_ORDER.map((category) => ({ value: category, label: PC_FACTORY_CATEGORY_LABELS[category] }))
+      // Sem dados não há opção com registro: a tela vazia não deve oferecer filtro
+      // nenhum, senão volta a existir o "filtro morto" que a FASE 4 eliminou.
+      categories: []
+    },
+    filterAudit: {
+      resourcesInDatabase: 0,
+      resourcesInPeriod: 0,
+      resourcesInReliabilityTable: 0,
+      resourcesRemovedFromFilter: 0,
+      hiddenFilters: []
     },
     dataQuality: {
       totalRecords: 0,

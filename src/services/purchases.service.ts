@@ -10,10 +10,13 @@
  * Mantém as funções consumidas pelo dashboard principal
  * (getPendingPurchasesCount / getPendingPurchases / getPurchasesByMonth).
  */
-import { Prisma, PurchaseOperationalStatus, PurchaseStatus, PurchaseType } from "@prisma/client";
+import { ImportType, Prisma, PurchaseOperationalStatus, PurchaseStatus, PurchaseType } from "@prisma/client";
 import type { PageDataSource } from "@/types/page-data";
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
+import { hiddenFilterLabels, optionsFromGroups } from "@/utils/filter-options";
+import { buildDataQualitySummary } from "@/services/shared/data-quality";
+import { emptyDataQualitySummary, type DataQualityNotice, type DataQualitySummary } from "@/types/data-quality";
 import {
   NO_PURCHASE_PRIORITY,
   getPurchaseRecordReferenceDate,
@@ -1257,14 +1260,66 @@ export async function getPurchaseProcessTimes(params: PurchaseQueryParams = {}):
 /* Opções de filtro                                                   */
 /* ------------------------------------------------------------------ */
 
-export async function getPurchaseFilterOptions(): Promise<PurchaseFilterOptions> {
-  const [suppliers, categories, purchasingGroups, requesters, range] = await Promise.all([
-    prisma.purchaseRecord.findMany({ where: { supplierName: { not: null } }, select: { supplierName: true }, distinct: ["supplierName"], orderBy: { supplierName: "asc" } }),
-    prisma.purchaseRecord.findMany({ where: { goodsGroupCode: { not: null } }, select: { goodsGroupCode: true, goodsGroupDescription: true }, distinct: ["goodsGroupCode"], orderBy: { goodsGroupCode: "asc" } }),
-    prisma.purchaseRecord.findMany({ where: { purchasingGroup: { not: null } }, select: { purchasingGroup: true }, distinct: ["purchasingGroup"], orderBy: { purchasingGroup: "asc" } }),
-    prisma.purchaseRecord.findMany({ where: { requester: { not: null } }, select: { requester: true }, distinct: ["requester"], orderBy: { requester: "asc" } }),
-    prisma.purchaseRecord.aggregate({ _min: { requisitionDate: true, purchaseOrderDate: true }, _max: { requisitionDate: true, purchaseOrderDate: true } })
+/** Recorte de página cujas opções de filtro devem ser montadas. */
+export type PurchaseFilterScope = "pendentes" | "realizadas" | "todas";
+
+/**
+ * Recorte que define as OPÇÕES de filtro: período e escopo da página.
+ *
+ * Os multi-seleção (fornecedor, categoria, grupo, requisitante) ficam de fora — se
+ * entrassem, escolher um fornecedor apagaria os outros da lista e não haveria como
+ * trocar sem limpar o filtro antes.
+ */
+function filterScopeParams(params: PurchaseQueryParams): PurchaseQueryParams {
+  return {
+    startDate: params.startDate,
+    endDate: params.endDate,
+    dateField: params.dateField,
+    latestImportOnly: params.latestImportOnly
+  };
+}
+
+/**
+ * OPÇÕES DOS FILTROS DE COMPRAS — a partir do que a PÁGINA realmente mostra.
+ *
+ * Antes: quatro `distinct` sobre os 10.934 registros de todos os lotes. A aba de
+ * pendentes oferecia os 397 fornecedores da base inteira para um recorte de 305
+ * requisições que, por definição, ainda NÃO TÊM fornecedor — praticamente todas as
+ * opções levavam a uma tela vazia.
+ *
+ * Agora o `where` é o mesmo da página (período + escopo pendentes/realizadas), e as
+ * listas vêm de `groupBy` com a contagem do recorte. Fornecedor, categoria, grupo de
+ * compras e requisitante seguem essa regra; os anos vêm do intervalo real dos dados.
+ *
+ * Status é lista fechada do domínio: mantém só os que têm registro no recorte.
+ */
+export async function getPurchaseFilterOptions(
+  params: PurchaseQueryParams = {},
+  scope: PurchaseFilterScope = "todas"
+): Promise<PurchaseFilterOptions> {
+  const today = getTodayDate();
+  const scoped = filterScopeParams(params);
+  const where =
+    scope === "pendentes"
+      ? await pendingWhere(scoped, today)
+      : scope === "realizadas"
+        ? await completedWhere(scoped, today)
+        : mergeWhere(buildFilterWhere(scoped, today), await snapshotWhere(scoped));
+
+  const [suppliers, categories, purchasingGroups, requesters, statuses, range] = await Promise.all([
+    prisma.purchaseRecord.groupBy({ by: ["supplierName"], where, _count: true }),
+    prisma.purchaseRecord.groupBy({ by: ["goodsGroupCode", "goodsGroupDescription"], where, _count: true }),
+    prisma.purchaseRecord.groupBy({ by: ["purchasingGroup"], where, _count: true }),
+    prisma.purchaseRecord.groupBy({ by: ["requester"], where, _count: true }),
+    prisma.purchaseRecord.groupBy({ by: ["operationalStatus"], where, _count: true }),
+    prisma.purchaseRecord.aggregate({
+      where,
+      _min: { requisitionDate: true, purchaseOrderDate: true },
+      _max: { requisitionDate: true, purchaseOrderDate: true }
+    })
   ]);
+
+  const count = (value: number | { _all: number }) => (typeof value === "number" ? value : value._all);
 
   const minYear = minDate(range._min.purchaseOrderDate, range._min.requisitionDate)?.getUTCFullYear();
   const maxYear = maxDate(range._max.purchaseOrderDate, range._max.requisitionDate)?.getUTCFullYear();
@@ -1273,13 +1328,30 @@ export async function getPurchaseFilterOptions(): Promise<PurchaseFilterOptions>
     for (let year = maxYear; year >= minYear; year -= 1) years.push(year);
   }
 
+  // Categoria é rotulada "código — descrição", então a contagem soma por CÓDIGO
+  // (duas descrições do mesmo código viram uma opção só).
+  const porCategoria = new Map<string, { label: string; count: number }>();
+  for (const row of categories) {
+    const code = row.goodsGroupCode?.trim();
+    if (!code) continue;
+    const existente = porCategoria.get(code);
+    porCategoria.set(code, {
+      label: existente?.label ?? (row.goodsGroupDescription ? `${code} — ${row.goodsGroupDescription}` : code),
+      count: (existente?.count ?? 0) + count(row._count)
+    });
+  }
+
+  const statusPresentes = new Set(
+    statuses.filter((row) => count(row._count) > 0).map((row) => row.operationalStatus)
+  );
+
   return {
-    suppliers: suppliers.map((item) => item.supplierName!).filter(Boolean).map((name) => ({ value: name, label: name })),
-    categories: categories
-      .filter((item) => item.goodsGroupCode)
-      .map((item) => ({ value: item.goodsGroupCode!, label: item.goodsGroupDescription ? `${item.goodsGroupCode} — ${item.goodsGroupDescription}` : item.goodsGroupCode! })),
-    purchasingGroups: purchasingGroups.map((item) => item.purchasingGroup!).filter(Boolean).map((group) => ({ value: group, label: group })),
-    requesters: requesters.map((item) => item.requester!).filter(Boolean),
+    suppliers: optionsFromGroups(suppliers, "supplierName"),
+    categories: Array.from(porCategoria.entries())
+      .map(([value, item]) => ({ value, label: item.label, count: item.count }))
+      .sort((a, b) => a.label.localeCompare(b.label, "pt-BR")),
+    purchasingGroups: optionsFromGroups(purchasingGroups, "purchasingGroup"),
+    requesters: optionsFromGroups(requesters, "requester").map((option) => option.value),
     statuses: [
       OS.PENDENTE_COMPRA,
       OS.COMPRADO,
@@ -1288,7 +1360,7 @@ export async function getPurchaseFilterOptions(): Promise<PurchaseFilterOptions>
       OS.REGULARIZACAO,
       OS.SERVICO,
       OS.IGNORADO
-    ],
+    ].filter((status) => statusPresentes.has(status)),
     years
   };
 }
@@ -1309,21 +1381,41 @@ export async function getPendingPurchasesCount(): Promise<number> {
   });
 }
 
-/** Lista de compras pendentes para a tabela do dashboard (regra v3.1). */
+/**
+ * Lista de compras pendentes para a tabela do dashboard (regra v3.1).
+ *
+ * Fornecedor, previsão de entrega e valor NÃO são selecionados: uma requisição
+ * pendente de compra ainda não virou pedido, então os três são nulos em 100% das
+ * linhas — a home mostrava "—" em três das quatro colunas. Os campos abaixo existem
+ * na requisição desde a abertura e respondem quem pediu, o quê e há quanto tempo.
+ */
 export async function getPendingPurchases(limit = 5): Promise<PendingPurchaseData[]> {
   const today = getTodayDate();
   const records = await prisma.purchaseRecord.findMany({
     where: mergeWhere(await latestImportWhere(), v31Where("PENDENTE_COMPRA", today)),
-    select: { itemDescription: true, supplierName: true, expectedDeliveryDate: true, netTotal: true, grossTotal: true },
+    select: {
+      itemDescription: true,
+      requisitionNumber: true,
+      requester: true,
+      requisitionDate: true,
+      purchasePriority: true
+    },
+    // Mais antigas primeiro: é a fila que a gestão precisa enxergar.
     orderBy: [{ requisitionDate: "asc" }, { requisitionNumber: "asc" }],
     take: limit
   });
 
+  const umDia = 24 * 60 * 60 * 1000;
+
   return records.map((record) => ({
     item: record.itemDescription,
-    supplier: record.supplierName,
-    expectedDate: record.expectedDeliveryDate,
-    totalValue: resolvePurchaseValue(record.netTotal, record.grossTotal),
+    requisitionNumber: record.requisitionNumber,
+    requester: record.requester,
+    requisitionDate: record.requisitionDate,
+    daysOpen: record.requisitionDate
+      ? Math.max(0, Math.floor((today.getTime() - record.requisitionDate.getTime()) / umDia))
+      : null,
+    priority: purchasePriorityKey(record.purchasePriority),
     // Pendente de compra nunca tem pedido, logo nunca é "atrasada" na regra v3.1.
     status: PurchaseStatus.SOLICITADA
   }));
@@ -1374,6 +1466,7 @@ function emptyPendingPurchasesPageData(
   source: PageDataSource = "empty"
 ): PendingPurchasesPageData {
   return {
+    dataQuality: emptyDataQualitySummary("Banco de dados — importação de Compras"),
     period: resolvePeriodWindow(params),
     kpis: emptyKpis(),
     v31Audit: emptyPurchaseV31Audit(),
@@ -1440,7 +1533,8 @@ async function loadPendingPurchasesPageData(params: PurchaseQueryParams): Promis
     getPurchaseV31Audit(params, today),
     loadPendingAnalysisRows(paramsWithoutClassification),
     getPendingPurchasesList(params, today),
-    getPurchaseFilterOptions(),
+    // Opções do recorte REAL desta aba (pendentes + período), não da base inteira.
+    getPurchaseFilterOptions(params, "pendentes"),
     hasClassificationData(),
     hasPriorityData()
   ]);
@@ -1469,6 +1563,7 @@ async function loadPendingPurchasesPageData(params: PurchaseQueryParams): Promis
   }
 
   return {
+    dataQuality: await buildPendingDataQuality(pendingRowsUnfiltered.length, pendingRows.length, filterOptions, classificationAvailable),
     period,
     kpis,
     v31Audit,
@@ -1490,6 +1585,71 @@ async function loadPendingPurchasesPageData(params: PurchaseQueryParams): Promis
     filterOptions,
     source: "database"
   };
+}
+
+/**
+ * QUALIDADE DOS DADOS de Compras Pendentes.
+ *
+ * Os campos ausentes aqui são estruturais, não erro de importação, e a tela precisa
+ * dizer isso: "Centro de Custo" não existe no modelo de compras do portal, e
+ * fornecedor/previsão/valor só passam a existir quando a requisição vira pedido — é
+ * por isso que a tabela da home deixou de mostrar essas três colunas.
+ */
+async function buildPendingDataQuality(
+  analisados: number,
+  exibidos: number,
+  filterOptions: PurchaseFilterOptions,
+  classificationAvailable: boolean
+): Promise<DataQualitySummary> {
+  const missingFields: string[] = ["Centro de Custo"];
+  const notices: DataQualityNotice[] = [
+    {
+      id: "centro-de-custo",
+      message: "Centro de Custo indisponível: a base de compras importada não possui essa coluna.",
+      detail:
+        "O campo não existe no modelo de compras do portal — nenhum ajuste de filtro ou reimportação da planilha atual o habilita. Requer incluir a coluna na origem e ampliar a importação.",
+      tone: "info"
+    },
+    {
+      id: "requisicao-sem-pedido",
+      message: "Fornecedor, previsão de entrega e valor não se aplicam a requisições pendentes.",
+      detail:
+        "Uma requisição só ganha fornecedor, prazo e preço quando vira pedido de compra. Por isso esses três campos aparecem vazios aqui e foram retirados da tabela da tela inicial — não é falha de importação.",
+      tone: "info"
+    }
+  ];
+
+  if (!classificationAvailable) {
+    missingFields.push("Classificação N1–N4");
+    notices.push({
+      id: "classificacao-n1-n4",
+      message: "Análise por classificação N1 > N2 > N3 > N4 indisponível: a base importada não traz esses níveis.",
+      detail:
+        "Não confundir com a PRIORIDADE N1..N4 do acompanhamento, que está preenchida e alimenta os cards no topo da aba. A classificação é uma taxonomia separada e ainda não vem na planilha.",
+      tone: "info"
+    });
+  }
+
+  return buildDataQualitySummary({
+    importType: ImportType.COMPRAS,
+    analyzedRecords: analisados,
+    validRecords: exibidos,
+    ignoredRecords: Math.max(0, analisados - exibidos),
+    missingFields,
+    hiddenFilters: hiddenFilterLabels([
+      { label: "Fornecedor", options: filterOptions.suppliers },
+      { label: "Grupo de mercadoria", options: filterOptions.categories },
+      { label: "Grupo de compras", options: filterOptions.purchasingGroups },
+      { label: "Requisitante", options: filterOptions.requesters }
+    ]),
+    removedFilterOptions: 0,
+    sourceLabel: "Banco de dados — importação de Compras (regra v3.1, último retrato importado)",
+    metrics: [
+      { label: "Requisitantes distintos", value: String(filterOptions.requesters.length) },
+      { label: "Fornecedores no recorte", value: String(filterOptions.suppliers.length) }
+    ],
+    notices
+  });
 }
 
 /** Estado vazio da aba Compras Realizadas (sem dados importados OU falha de banco). */
@@ -1576,7 +1736,8 @@ async function loadCompletedPurchasesPageData(params: PurchaseQueryParams): Prom
     loadCompletedTableRows(paramsWithoutClassification),
     getPurchaseProcessTimes(params),
     getCompletedPurchasesList(params, today),
-    getPurchaseFilterOptions(),
+    // Opções do recorte REAL desta aba (realizadas + período), não da base inteira.
+    getPurchaseFilterOptions(params, "realizadas"),
     hasClassificationData()
   ]);
 

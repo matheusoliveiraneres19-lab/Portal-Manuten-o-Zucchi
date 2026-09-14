@@ -3,7 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Search, X } from "lucide-react";
 
-export type MultiSelectOption = { value: string; label: string };
+export type MultiSelectOption = {
+  value: string;
+  label: string;
+  /**
+   * Quantos registros a opção tem NO RECORTE ATUAL (não na base inteira).
+   * Opcional: quando vem, a lista mostra o número ao lado do rótulo, e o usuário
+   * sabe o peso da opção antes de clicar. Ver src/utils/filter-options.ts.
+   */
+  count?: number;
+};
 
 type MultiSelectFilterProps = {
   label: string;
@@ -20,6 +29,12 @@ type MultiSelectFilterProps = {
   disabled?: boolean;
   /** Quantos rótulos selecionados mostrar antes de resumir como "+N". */
   maxVisibleTags?: number;
+  /**
+   * Sem nenhuma opção, o filtro não é renderizado (padrão). Um seletor vazio parece
+   * carregamento que falhou e é exatamente o "filtro morto" que a gestão apontou.
+   * A página declara o filtro escondido no painel de Qualidade dos Dados.
+   */
+  hideWhenEmpty?: boolean;
 };
 
 /**
@@ -44,7 +59,8 @@ export function MultiSelectFilter({
   searchPlaceholder = "Buscar...",
   searchable = true,
   disabled = false,
-  maxVisibleTags = 2
+  maxVisibleTags = 2,
+  hideWhenEmpty = true
 }: MultiSelectFilterProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -109,6 +125,9 @@ export function MultiSelectFilter({
     const extra = selected.length - labels.length;
     return extra > 0 ? `${labels.join(", ")} +${extra}` : labels.join(", ");
   }, [selected, options, placeholder, maxVisibleTags]);
+
+  // Nada a escolher e nada escolhido → o campo não vai para a tela.
+  if (hideWhenEmpty && options.length === 0 && selected.length === 0) return null;
 
   return (
     <div className="block" ref={containerRef}>
@@ -196,9 +215,17 @@ export function MultiSelectFilter({
                         >
                           {checked ? <Check className="h-3 w-3" /> : null}
                         </span>
-                        <span className="truncate" title={option.label}>
+                        <span className="flex-1 truncate" title={option.label}>
                           {option.label}
                         </span>
+                        {typeof option.count === "number" ? (
+                          <span
+                            className="shrink-0 text-[11px] tabular-nums text-neutralized"
+                            title={`${option.count.toLocaleString("pt-BR")} registro(s) no período filtrado`}
+                          >
+                            {option.count.toLocaleString("pt-BR")}
+                          </span>
+                        ) : null}
                       </button>
                     </li>
                   );

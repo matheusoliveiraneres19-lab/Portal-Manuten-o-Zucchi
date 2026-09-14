@@ -58,6 +58,7 @@ const CriticalEquipmentActivityChart = dynamic(
 );
 import { ModuleEmptyState } from "@/components/ui/ModuleEmptyState";
 import { CriticalEquipmentFieldNotice } from "@/components/critical-equipments/CriticalEquipmentFieldNotice";
+import { DataQualityPanel } from "@/components/ui/DataQualityPanel";
 import type { CriticalEquipmentsPageData } from "@/types/critical-equipments";
 import {
   ORDER_CLASS_LABELS,
@@ -318,6 +319,7 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
           <CriticalEquipmentKpiCards summary={data.summary} />
 
           <CriticalEquipmentFieldNotice availability={data.fieldAvailability} />
+          <DataQualityPanel quality={data.dataQuality} />
 
           {data.summary.ordersWithoutTechnicalCode > 0 ? (
             <div className="flex items-start gap-2 rounded-lg border border-gold/30 bg-gold/5 px-3 py-2 text-[12px] text-champagne">

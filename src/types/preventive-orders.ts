@@ -186,6 +186,8 @@ export type PreventiveFilterOptions = {
 };
 
 export type PreventivePageData = {
+  /** Painel "Qualidade dos dados" da aba (FASE 6). */
+  dataQuality: DataQualitySummary;
   summary: PreventiveSummary;
   byType: PreventiveTypeBreakdown[];
   byArea: PreventiveAreaBreakdown[];
@@ -206,4 +208,5 @@ export type PreventivePageData = {
   /** Meta de aderência (%) vinda das configurações (fallback 85). */
   adherenceTarget: number;
   source: "database" | "empty";
-};
+};import type { DataQualitySummary } from "@/types/data-quality";
+

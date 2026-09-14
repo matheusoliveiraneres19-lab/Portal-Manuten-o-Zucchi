@@ -1,5 +1,6 @@
 import type { PcFactoryStatusCategory } from "@prisma/client";
 import type { PcFactoryManagementGroup } from "@/utils/pc-factory-normalizer";
+import type { FilterOption } from "@/utils/filter-options";
 import type { PageDataSource } from "@/types/page-data";
 
 export type { PcFactoryStatusCategory };
@@ -336,15 +337,42 @@ export type PcFactoryRecordsResult = {
   totalPages: number;
 };
 
+/**
+ * Opções dos filtros da aba — montadas a partir do RECORTE ATIVO, nunca da base
+ * inteira. Ver src/utils/filter-options.ts para o porquê: com o distinct sobre a
+ * tabela toda, agosto/2026 listava 83 máquinas para 40 com dados, e 43 opções
+ * levavam a uma tela vazia.
+ *
+ * Uma lista vazia aqui significa "esta dimensão não existe na base": o filtro não é
+ * renderizado e o nome dele aparece em `filterAudit.hiddenFilters`.
+ */
 export type PcFactoryFilterOptions = {
-  resources: Array<{ value: string; label: string }>;
-  productionLines: Array<{ value: string; label: string }>;
-  groupPortals: Array<{ value: string; label: string }>;
-  sectors: Array<{ value: string; label: string }>;
-  shifts: Array<{ value: string; label: string }>;
-  /** Valores exatos de "Nome Status Recurso" presentes nos dados. */
-  statusNames: Array<{ value: string; label: string }>;
-  categories: Array<{ value: PcFactoryStatusCategory; label: string }>;
+  resources: FilterOption[];
+  productionLines: FilterOption[];
+  groupPortals: FilterOption[];
+  sectors: FilterOption[];
+  shifts: FilterOption[];
+  /** Valores exatos de "Nome Status Recurso" presentes no recorte. */
+  statusNames: FilterOption[];
+  categories: Array<{ value: PcFactoryStatusCategory; label: string; count?: number }>;
+};
+
+/**
+ * Prestação de contas dos filtros (FASE 4): quantas máquinas a base tem, quantas
+ * sobreviveram ao recorte e quantas opções mortas foram removidas. Vai para a tela,
+ * não só para o log — é o que transforma "sumiu máquina do filtro" em informação.
+ */
+export type PcFactoryFilterAudit = {
+  /** Máquinas distintas em TODA a base importada. */
+  resourcesInDatabase: number;
+  /** Máquinas com registro no período/modo filtrado. */
+  resourcesInPeriod: number;
+  /** Máquinas exibidas na tabela Confiabilidade (só as que tiveram quebra). */
+  resourcesInReliabilityTable: number;
+  /** Opções de máquina removidas por não terem dados no recorte. */
+  resourcesRemovedFromFilter: number;
+  /** Rótulos dos filtros escondidos por não terem nenhuma opção. */
+  hiddenFilters: string[];
 };
 
 export type PcFactoryReferencePeriod = {
@@ -444,6 +472,8 @@ export type PcFactoryPageData = {
   rootCausePareto: PcFactoryRootCauseSlice[];
   records: PcFactoryRecordsResult;
   filterOptions: PcFactoryFilterOptions;
+  /** Prestação de contas dos filtros — ver PcFactoryFilterAudit. */
+  filterAudit: PcFactoryFilterAudit;
   /** Diagnóstico de qualidade da importação refletido nos dados atuais. */
   dataQuality: PcFactoryDataQuality;
   source: PageDataSource;

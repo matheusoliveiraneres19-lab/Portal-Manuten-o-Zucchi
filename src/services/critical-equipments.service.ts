@@ -1,5 +1,8 @@
-import { MaintenanceArea, MaintenanceType, Prisma, ServiceOrderStatus } from "@prisma/client";
+import { ImportType, MaintenanceArea, MaintenanceType, Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { buildDataQualitySummary } from "@/services/shared/data-quality";
+import { hiddenFilterLabels } from "@/utils/filter-options";
+import { emptyDataQualitySummary, type DataQualityNotice, type DataQualitySummary } from "@/types/data-quality";
 import { getServiceOrderFilterOptions } from "@/services/service-orders.service";
 import { excludeLubricationOrderWhere } from "@/utils/service-order-filters";
 import {
@@ -461,7 +464,7 @@ export async function getCriticalEquipmentsPageData(
   try {
     const [rawRows, filterOptions, lookup] = await Promise.all([
       fetchRowsRaw(effective),
-      loadFilterOptions(),
+      loadFilterOptions(effective),
       loadFunctionalLocationLookup()
     ]);
 
@@ -509,7 +512,16 @@ export async function getCriticalEquipmentsPageData(
       ignoredInvalidEquipment
     );
 
+    const fieldAvailability = await loadFieldAvailability();
+
     return {
+      dataQuality: await buildCriticalEquipmentDataQuality(
+        rawRows.length,
+        rows.length,
+        ignoredInvalidEquipment + ignoredByPlanningFilters,
+        fieldAvailability,
+        filterOptions
+      ),
       period,
       summary,
       ranking,
@@ -521,7 +533,7 @@ export async function getCriticalEquipmentsPageData(
       correctivePlanned: buildCorrectivePlanned(rows),
       // Disponibilidade medida na BASE INTEIRA (não no recorte), para o aviso da
       // TAREFA 15 não piscar só porque o filtro atual ficou vazio.
-      fieldAvailability: await loadFieldAvailability(),
+      fieldAvailability,
       filterOptions,
       source: rows.length ? "database" : "empty"
     };
@@ -532,13 +544,66 @@ export async function getCriticalEquipmentsPageData(
 }
 
 /**
+ * QUALIDADE DOS DADOS da aba.
+ *
+ * Os campos ausentes aqui têm origens diferentes e a tela precisa distinguir: Grupo de
+ * Planejamento e Tipo de Atividade faltam na PLANILHA DE ORDENS; Centro de Custo,
+ * Família e Setor faltam porque o cadastro de LOCAIS FUNCIONAIS nunca foi importado.
+ * A segunda não se resolve reimportando ordens, e dizer isso economiza uma rodada.
+ */
+async function buildCriticalEquipmentDataQuality(
+  brutas: number,
+  consideradas: number,
+  ignoradas: number,
+  fieldAvailability: CriticalEquipmentFieldAvailability,
+  filterOptions: CriticalEquipmentFilterOptions
+): Promise<DataQualitySummary> {
+  const missingFields: string[] = [];
+  const notices: DataQualityNotice[] = [];
+
+  if (!fieldAvailability.planningGroup) missingFields.push("Grupo de Planejamento");
+  if (!fieldAvailability.planningActivityType) missingFields.push("Tipo de Atividade");
+  if (!fieldAvailability.functionalLocations) {
+    missingFields.push("Centro de Custo", "Família", "Setor");
+    notices.push({
+      id: "locais-funcionais",
+      message: "Centro de Custo, Família e Setor indisponíveis: a base de locais de instalação ainda não foi importada.",
+      detail:
+        "Esses três campos vêm do cadastro de locais funcionais do SAP, não da planilha de ordens. Enquanto a importação não for feita, as colunas ficam vazias e os filtros correspondentes não são exibidos.",
+      tone: "warning"
+    });
+  }
+
+  return buildDataQualitySummary({
+    importType: ImportType.ORDENS_SERVICO,
+    analyzedRecords: brutas,
+    validRecords: consideradas,
+    ignoredRecords: ignoradas,
+    missingFields,
+    hiddenFilters: hiddenFilterLabels([
+      { label: "Grupo de planejamento", options: filterOptions.planningGroups },
+      { label: "Responsável", options: filterOptions.responsibles },
+      { label: "Família", options: filterOptions.families },
+      { label: "Centro de custo", options: filterOptions.costCenters },
+      { label: "Setor", options: filterOptions.sectors }
+    ]),
+    removedFilterOptions: 0,
+    sourceLabel: "Banco de dados — importação de Ordens de Manutenção (SAP PM)",
+    metrics: [
+      { label: "Equipamentos no filtro", value: String(filterOptions.responsibles.length ? filterOptions.areas.length : 0), hint: "áreas com OS no período" }
+    ],
+    notices
+  });
+}
+
+/**
  * Verifica quais campos do SAP realmente existem NA BASE IMPORTADA (TAREFA 15).
  * Uma única consulta leve por campo (`findFirst` em coluna não-nula), para a UI
  * poder trocar um gráfico zerado por um aviso de reimportação.
  */
 async function loadFieldAvailability(): Promise<CriticalEquipmentFieldAvailability> {
   try {
-    const [group, activity] = await Promise.all([
+    const [group, activity, functionalLocation] = await Promise.all([
       prisma.serviceOrder.findFirst({
         where: { OR: [{ planningGroup: { not: null } }, { planningGroupCode: { not: null } }] },
         select: { id: true }
@@ -546,13 +611,19 @@ async function loadFieldAvailability(): Promise<CriticalEquipmentFieldAvailabili
       prisma.serviceOrder.findFirst({
         where: { planningActivityType: { not: null } },
         select: { id: true }
-      })
+      }),
+      // Basta UM local funcional com centro de custo para as colunas fazerem sentido.
+      prisma.functionalLocation.findFirst({ where: { costCenter: { not: null } }, select: { id: true } })
     ]);
 
-    return { planningGroup: Boolean(group), planningActivityType: Boolean(activity) };
+    return {
+      planningGroup: Boolean(group),
+      planningActivityType: Boolean(activity),
+      functionalLocations: Boolean(functionalLocation)
+    };
   } catch (error) {
     console.error("Falha ao verificar campos de planejamento na base.", error);
-    return { planningGroup: false, planningActivityType: false };
+    return { planningGroup: false, planningActivityType: false, functionalLocations: false };
   }
 }
 
@@ -1324,13 +1395,37 @@ async function loadFunctionalLocationLookup(): Promise<Map<string, FunctionalLoc
   }
 }
 
-async function loadFilterOptions(): Promise<CriticalEquipmentFilterOptions> {
+/**
+ * OPÇÕES DOS FILTROS — a partir do RECORTE (período), não da base inteira.
+ *
+ * Esta aba herdava o problema de Ordens de Serviço: as listas vinham de um `distinct`
+ * sobre as 19.780 ordens, então o período escolhido não mudava nada e sobravam opções
+ * que abriam a tela vazia. Agora o período entra no `where`, igual ao resto da página.
+ *
+ * Famílias, setores e centros de custo dependem do cadastro de LOCAIS FUNCIONAIS
+ * (`FunctionalLocation`). Enquanto essa importação não for feita, as três listas saem
+ * vazias — os filtros somem da tela e o motivo é declarado em `fieldAvailability`,
+ * em vez de virarem três seletores sem opção.
+ */
+async function loadFilterOptions(
+  params: Partial<CriticalEquipmentFilters> = {}
+): Promise<CriticalEquipmentFilterOptions> {
   try {
+    const periodWhere: Prisma.ServiceOrderWhereInput =
+      params.startDate || params.endDate
+        ? {
+            openedAt: {
+              ...(params.startDate ? { gte: toStartOfDay(params.startDate) } : {}),
+              ...(params.endDate ? { lte: toEndOfDay(params.endDate) } : {})
+            }
+          }
+        : {};
+
     const [options, lookup, codes] = await Promise.all([
-      getServiceOrderFilterOptions(),
+      getServiceOrderFilterOptions({ startDate: params.startDate, endDate: params.endDate }),
       loadFunctionalLocationLookup(),
       prisma.serviceOrder.findMany({
-        where: excludeInvalidTestEquipmentWhere(),
+        where: { AND: [excludeInvalidTestEquipmentWhere(), periodWhere] },
         select: { equipmentCode: true, equipmentName: true, technicalObjectRaw: true },
         distinct: ["equipmentCode"]
       })
@@ -1446,7 +1541,8 @@ function emptyPageData(period: { startDate: string; endDate: string }): Critical
       correctivePercent: 0,
       plannedPercent: 0
     },
-    fieldAvailability: { planningGroup: false, planningActivityType: false },
+    dataQuality: emptyDataQualitySummary("Banco de dados — importação de Ordens de Manutenção (SAP PM)"),
+    fieldAvailability: { planningGroup: false, planningActivityType: false, functionalLocations: false },
     filterOptions: { statuses: [], areas: [], planningGroups: [], responsibles: [], families: [], costCenters: [], sectors: [] },
     source: "empty"
   };

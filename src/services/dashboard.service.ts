@@ -1,4 +1,4 @@
-import { AlertStatus, Criticality, Priority, ServiceOrderStatus } from "@prisma/client";
+import { AlertStatus, Criticality, ImportType, Priority, ServiceOrderStatus } from "@prisma/client";
 import {
   AlertTriangle,
   Bell,
@@ -8,6 +8,8 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { buildDataQualitySummary } from "@/services/shared/data-quality";
+import { emptyDataQualitySummary, type DataQualityNotice, type DataQualitySummary } from "@/types/data-quality";
 import { getCriticalEquipmentsByOrders } from "@/services/critical-equipments.service";
 import { getDerivedAlerts } from "@/services/derived-alerts.service";
 import {
@@ -360,8 +362,72 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     topCriticalEquipments,
     pendingPurchases,
     criticalAlerts,
-    pcFactoryCritical
+    pcFactoryCritical,
+    dataQuality: await buildHomeDataQuality(period, openClosed.note)
   };
+}
+
+/**
+ * QUALIDADE DOS DADOS da tela inicial.
+ *
+ * A home mistura quatro bases (ordens, compras, PC-Factory e procedimentos), então o
+ * painel aqui responde pela mais usada — as ordens de manutenção, que alimentam três
+ * dos quatro gráficos — e registra os avisos que valem para a tela como um todo. O
+ * detalhe por módulo fica no painel de cada aba, que mede o próprio recorte.
+ */
+async function buildHomeDataQuality(period: DashboardPeriod, openClosedNote: string | null): Promise<DataQualitySummary> {
+  const [ordensNoPeriodo, ordensSemFechamento] = await Promise.all([
+    prisma.serviceOrder.count({
+      where: { ...excludeInvalidTestEquipmentWhere(), openedAt: { gte: period.startDate, lte: period.endDate } }
+    }),
+    prisma.serviceOrder.count({
+      where: {
+        ...excludeInvalidTestEquipmentWhere(),
+        openedAt: { gte: period.startDate, lte: period.endDate },
+        status: ServiceOrderStatus.FECHADA,
+        closedAt: null
+      }
+    })
+  ]);
+
+  const notices: DataQualityNotice[] = [
+    {
+      id: "compras-pendentes-colunas",
+      message: "Compras pendentes não exibem fornecedor, previsão nem valor.",
+      detail:
+        "Uma requisição só ganha esses três campos quando vira pedido de compra, então eles são vazios em 100% das pendências. A tabela mostra prioridade, material, requisitante e dias em aberto, que existem desde a abertura.",
+      tone: "info"
+    }
+  ];
+
+  if (openClosedNote) {
+    notices.push({
+      id: "os-sem-fechamento",
+      message: openClosedNote,
+      detail: "Afeta apenas a série de fechadas do gráfico OS abertas x fechadas.",
+      tone: "warning"
+    });
+  }
+
+  return buildDataQualitySummary({
+    importType: ImportType.ORDENS_SERVICO,
+    analyzedRecords: ordensNoPeriodo,
+    validRecords: ordensNoPeriodo - ordensSemFechamento,
+    ignoredRecords: ordensSemFechamento,
+    missingFields: [],
+    hiddenFilters: [],
+    removedFilterOptions: 0,
+    sourceLabel:
+      "Banco de dados — importações de Ordens de Manutenção, Compras, PC-Factory e Procedimentos. Cada aba tem o painel do próprio recorte.",
+    metrics: [
+      {
+        label: "OS fechadas sem data",
+        value: ordensSemFechamento.toLocaleString("pt-BR"),
+        hint: "fora da série de fechadas"
+      }
+    ],
+    notices
+  });
 }
 
 /**
@@ -464,6 +530,7 @@ export function getEmptyDashboardData(): DashboardData {
     pendingPurchases: [],
     alerts: [],
     openClosedNote: null,
+    dataQuality: emptyDataQualitySummary("Banco de dados — importações do portal"),
     source: "empty",
     period: null
   };
@@ -632,16 +699,19 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       value: item.totalOrders
     })),
     pendingPurchases: data.pendingPurchases.map((item) => ({
+      priority: item.priority ?? "—",
+      requisition: item.requisitionNumber ?? "—",
       item: item.item,
-      supplier: item.supplier ?? "-",
-      date: formatDate(item.expectedDate),
-      value: item.totalValue === null ? "-" : formatCurrency(item.totalValue)
+      requester: item.requester ?? "—",
+      requestedAt: formatDate(item.requisitionDate),
+      daysOpen: item.daysOpen
     })),
     alerts: data.criticalAlerts.map((item, index) => ({
       text: `${item.equipmentName ?? "Equipamento"} — ${item.description}`,
       time: item.title,
       icon: index === 0 ? Bell : AlertTriangle
     })),
+    dataQuality: data.dataQuality,
     openClosedNote: data.openClosedNote,
     source: "database",
     period: {

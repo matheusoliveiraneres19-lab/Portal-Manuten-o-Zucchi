@@ -1,3 +1,4 @@
+import type { DataQualitySummary } from "@/types/data-quality";
 import type { LucideIcon } from "lucide-react";
 import type { AlertStatus, AlertType, Criticality, Priority, PurchaseStatus } from "@prisma/client";
 import type { PcFactoryMachinesBelowAverageResult } from "@/services/pc-factory.service";
@@ -43,11 +44,29 @@ export type RankingItem = {
   value: number;
 };
 
+/**
+ * Linha da tabela "Compras Pendentes" da home.
+ *
+ * Fornecedor, previsão e valor saíram daqui: uma requisição PENDENTE DE COMPRA ainda
+ * não virou pedido, então por definição não tem fornecedor negociado, prazo nem preço
+ * — nas 305 pendentes da base, os três campos são nulos em 100% das linhas. A tabela
+ * mostrava três colunas de "—" e parecia quebrada. As colunas abaixo existem sempre e
+ * respondem o que a gestão pergunta: quem pediu, o quê, com que prioridade e há quanto
+ * tempo está parado.
+ */
 export type PendingPurchase = {
+  /** N1..N4 do acompanhamento, ou "—" quando a requisição não foi priorizada. */
+  priority: string;
+  /** Nº da requisição. */
+  requisition: string;
+  /** Texto breve do material. */
   item: string;
-  supplier: string;
-  date: string;
-  value: string;
+  /** Quem abriu a requisição. */
+  requester: string;
+  /** Data da solicitação (dd/mm/aaaa). */
+  requestedAt: string;
+  /** Dias corridos desde a solicitação. */
+  daysOpen: number | null;
 };
 
 export type AlertItem = {
@@ -63,6 +82,8 @@ export type DashboardData = {
   criticalEquipment: RankingItem[];
   pendingPurchases: PendingPurchase[];
   alerts: AlertItem[];
+  /** Painel "Qualidade dos dados" da home (FASE 6). */
+  dataQuality: DataQualitySummary;
   /** Aviso técnico do gráfico OS abertas x fechadas (ex.: closedAt não importado). */
   openClosedNote: string | null;
   source: "database" | "empty";
@@ -124,9 +145,12 @@ export type TopCriticalEquipmentData = {
 
 export type PendingPurchaseData = {
   item: string;
-  supplier: string | null;
-  expectedDate: Date | null;
-  totalValue: number | null;
+  requisitionNumber: string | null;
+  requester: string | null;
+  requisitionDate: Date | null;
+  /** Dias corridos entre a solicitação e hoje. null sem data de requisição. */
+  daysOpen: number | null;
+  priority: string | null;
   status: PurchaseStatus;
 };
 
@@ -168,6 +192,8 @@ export type DatabaseDashboardData = {
   topCriticalEquipments: TopCriticalEquipmentData[];
   pendingPurchases: PendingPurchaseData[];
   criticalAlerts: CriticalAlertData[];
+  /** Painel "Qualidade dos dados" da home (FASE 6). */
+  dataQuality: DataQualitySummary;
   /** Máquinas abaixo da média de disponibilidade do PC-Factory (card Máquinas Críticas). */
   pcFactoryCritical: PcFactoryMachinesBelowAverageResult;
 };

@@ -1,6 +1,8 @@
 import { cache } from "react";
-import { Prisma, ServiceOrderStatus } from "@prisma/client";
+import { ImportType, Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { buildDataQualitySummary } from "@/services/shared/data-quality";
+import { emptyDataQualitySummary, type DataQualitySummary } from "@/types/data-quality";
 import { getSettingValue } from "@/services/settings.service";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
 import { excludeInvalidTestEquipmentWhere, getProgrammedOrderType } from "@/utils/service-order-classification";
@@ -573,6 +575,35 @@ function buildAlerts(rows: PreventiveOrderRow[], byArea: PreventiveAreaBreakdown
   };
 }
 
+/**
+ * QUALIDADE DOS DADOS de Preventivas Programadas.
+ *
+ * O aviso central é o da data de vencimento: sem ela o indicador "Atrasadas" não é
+ * derivável, e é por isso que o card sumiu da régua de metas em vez de mostrar "n/d".
+ */
+async function buildPreventiveDataQuality(analisados: number, exibidos: number): Promise<DataQualitySummary> {
+  return buildDataQualitySummary({
+    importType: ImportType.ORDENS_SERVICO,
+    analyzedRecords: analisados,
+    validRecords: exibidos,
+    ignoredRecords: Math.max(0, analisados - exibidos),
+    missingFields: ["Data de vencimento planejada"],
+    hiddenFilters: [],
+    removedFilterOptions: 0,
+    sourceLabel: "Banco de dados — importação de Ordens de Manutenção (SAP PM), recorte PL/PV",
+    metrics: [],
+    notices: [
+      {
+        id: "sem-vencimento",
+        message: "Indicador de atrasadas indisponível: a base atual não possui data de vencimento planejada.",
+        detail:
+          "As ordens importadas trazem abertura e fechamento, mas não a data-limite programada. Sem ela, atraso não é calculável e o card foi retirado em vez de exibir um valor inventado.",
+        tone: "info"
+      }
+    ]
+  });
+}
+
 function buildFilterOptions(allRows: PreventiveOrderRow[]): PreventiveFilterOptions {
   const statusKeys = Array.from(new Set(allRows.map(statusSapEnumOf)));
   const statuses = statusKeys
@@ -600,6 +631,7 @@ export async function getPreventiveOrdersPageData(filters: PreventiveFilters = {
     const byArea = breakdownByArea(rows);
 
     return {
+      dataQuality: await buildPreventiveDataQuality(allInPeriod.length, rows.length),
       summary: summarize(rows),
       byType: breakdownByType(rows),
       byArea,
@@ -641,6 +673,7 @@ function emptyPageData(): PreventivePageData {
     byStatus: [],
     byMachine: [],
     monthlyTrend: [],
+    dataQuality: emptyDataQualitySummary("Banco de dados — importação de Ordens de Manutenção (SAP PM)"),
     alerts: { closedNoExecCount: 0, overdueCount: null, recurrentMachine: null, lowAdherenceAreas: [] },
     backlog: { total: 0, pl: 0, pv: 0, topMachines: [] },
     byResponsible: [],

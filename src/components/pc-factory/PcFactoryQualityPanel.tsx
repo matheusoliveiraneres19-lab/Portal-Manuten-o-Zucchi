@@ -1,17 +1,19 @@
 "use client";
 
-import { AlertTriangle, CalendarRange, CheckCircle2, Database, Factory, Layers, Tag } from "lucide-react";
-import type { PcFactoryDataQuality } from "@/types/pc-factory";
+import { AlertTriangle, CalendarRange, CheckCircle2, Database, EyeOff, Factory, Filter, Layers, ListChecks, Tag } from "lucide-react";
+import type { PcFactoryDataQuality, PcFactoryFilterAudit } from "@/types/pc-factory";
 
 type PcFactoryQualityPanelProps = {
   quality: PcFactoryDataQuality;
+  /** Prestação de contas dos filtros do recorte (FASE 4). */
+  filterAudit: PcFactoryFilterAudit;
 };
 
 /**
  * Painel "Qualidade da importação" (TAREFA 8) — confirma se a planilha foi lida
  * corretamente: total, período, grupos, máquinas, status e registros com problema.
  */
-export function PcFactoryQualityPanel({ quality }: PcFactoryQualityPanelProps) {
+export function PcFactoryQualityPanel({ quality, filterAudit }: PcFactoryQualityPanelProps) {
   const period =
     quality.periodStart && quality.periodEnd
       ? `${formatDate(quality.periodStart)} a ${formatDate(quality.periodEnd)}`
@@ -38,6 +40,56 @@ export function PcFactoryQualityPanel({ quality }: PcFactoryQualityPanelProps) {
           tone={hasIssues ? "danger" : "ok"}
         />
       </div>
+
+      {/*
+        Auditoria dos filtros (FASE 4). O filtro de máquinas passou a listar só o que
+        tem registro no período — antes eram 83 opções para 40 máquinas com dados em
+        agosto/2026. Some opção da lista, então a tela precisa dizer quantas e por quê;
+        sem isso, "a máquina sumiu do filtro" viraria mais um motivo de desconfiança.
+      */}
+      <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Metric
+          icon={<Factory className="h-4 w-4" />}
+          label="Máquinas na base"
+          value={filterAudit.resourcesInDatabase.toLocaleString("pt-BR")}
+        />
+        <Metric
+          icon={<Filter className="h-4 w-4" />}
+          label="Disponíveis no período"
+          value={filterAudit.resourcesInPeriod.toLocaleString("pt-BR")}
+        />
+        <Metric
+          icon={<ListChecks className="h-4 w-4" />}
+          label="Na tabela de confiabilidade"
+          value={filterAudit.resourcesInReliabilityTable.toLocaleString("pt-BR")}
+          small
+        />
+        <Metric
+          icon={<EyeOff className="h-4 w-4" />}
+          label="Removidas do filtro"
+          value={filterAudit.resourcesRemovedFromFilter.toLocaleString("pt-BR")}
+          small
+        />
+      </div>
+
+      {filterAudit.resourcesRemovedFromFilter > 0 || filterAudit.hiddenFilters.length > 0 ? (
+        <p className="mt-2 text-[11px] leading-snug text-zinc-400">
+          {filterAudit.resourcesRemovedFromFilter > 0 ? (
+            <>
+              <strong className="font-semibold text-champagne">
+                {filterAudit.resourcesRemovedFromFilter} máquina(s) fora do filtro
+              </strong>{" "}
+              por não terem nenhum registro no período selecionado.{" "}
+            </>
+          ) : null}
+          {filterAudit.hiddenFilters.length > 0 ? (
+            <>
+              <strong className="font-semibold text-champagne">Filtros ocultados: </strong>
+              {filterAudit.hiddenFilters.join(", ")} — a base importada não traz esses campos preenchidos.
+            </>
+          ) : null}
+        </p>
+      ) : null}
 
       {quality.notReportedHours > 0 || quality.recordsWithoutEndDate > 0 ? (
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">

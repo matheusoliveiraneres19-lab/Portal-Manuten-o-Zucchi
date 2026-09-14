@@ -96,6 +96,17 @@ export type ServiceOrderFilterOptions = {
   planningGroups: string[];
   responsibles: string[];
   equipments: string[];
+  /**
+   * Quantos registros cada opção tem NO RECORTE atual — exibido ao lado do rótulo.
+   * A lista já só contém opções com dados; a contagem mostra o peso de cada uma.
+   */
+  counts: {
+    areas: Record<string, number>;
+    planningGroups: Record<string, number>;
+    responsibles: Record<string, number>;
+    equipments: Record<string, number>;
+    statuses: Record<string, number>;
+  };
 };
 
 export type ServiceOrdersSummary = {

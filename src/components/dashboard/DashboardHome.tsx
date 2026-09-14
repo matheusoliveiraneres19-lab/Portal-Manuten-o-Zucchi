@@ -5,6 +5,7 @@ import { HeroBanner } from "@/components/HeroBanner";
 import { KPICard } from "@/components/KPICard";
 import { RankingList } from "@/components/RankingList";
 import { TableCard } from "@/components/TableCard";
+import { DataQualityPanel } from "@/components/ui/DataQualityPanel";
 import type { DashboardData } from "@/types/dashboard";
 import { formatPeriodRange } from "@/utils/period";
 
@@ -114,6 +115,12 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
           href={href("/dashboard/equipamentos-criticos")}
         />
       </section>
+
+      {/* Discreto e fechado: a resposta de "de onde vem esse número" fica a um clique,
+          sem competir com os indicadores. */}
+      <div className="mt-3">
+        <DataQualityPanel quality={dashboard.dataQuality} />
+      </div>
     </>
   );
 }

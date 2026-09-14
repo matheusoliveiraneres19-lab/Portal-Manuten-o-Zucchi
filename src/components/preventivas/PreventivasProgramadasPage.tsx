@@ -43,6 +43,8 @@ import {
   TopMachinesChart
 } from "@/components/preventivas/PreventivasCharts";
 import { OrderDetailDrawer, RulesModal } from "@/components/preventivas/PreventivasModals";
+import { FieldNotice } from "@/components/ui/FieldNotice";
+import { DataQualityPanel } from "@/components/ui/DataQualityPanel";
 
 type AppliedFilters = {
   startDate: string;
@@ -229,13 +231,38 @@ export function PreventivasProgramadasPage({ data, applied }: PreventivasProgram
             current={intFmt.format(summary.fechadasSemExecucao)}
             level={summary.fechadasSemExecucao === 0 ? "ok" : summary.total > 0 && summary.fechadasSemExecucao / summary.total <= 0.1 ? "warn" : "crit"}
           />
-          <MetaCard
-            title="Atrasadas"
-            target={`Meta ${PREVENTIVE_TARGETS.overdue}`}
-            current={criticalAlerts.overdueCount === null ? "n/d" : intFmt.format(criticalAlerts.overdueCount)}
-            level={criticalAlerts.overdueCount === null ? "warn" : criticalAlerts.overdueCount === 0 ? "ok" : "crit"}
-          />
+          {/*
+            "Atrasadas" só entra na régua de metas quando é calculável. A base do SAP
+            importada não traz data de vencimento planejada, então `overdueCount` é
+            null por construção — e um card de meta marcado "n/d" ao lado de três
+            números reais é pior que card nenhum: sugere falha de carregamento numa
+            faixa que a gestão lê como placar. O motivo fica no aviso abaixo.
+          */}
+          {criticalAlerts.overdueCount !== null ? (
+            <MetaCard
+              title="Atrasadas"
+              target={`Meta ${PREVENTIVE_TARGETS.overdue}`}
+              current={intFmt.format(criticalAlerts.overdueCount)}
+              level={criticalAlerts.overdueCount === 0 ? "ok" : "crit"}
+            />
+          ) : null}
         </div>
+
+        {criticalAlerts.overdueCount === null ? (
+          <FieldNotice
+            className="mt-3"
+            notices={[
+              {
+                id: "preventivas-atrasadas",
+                message: "Indicador de atrasadas indisponível: a base atual não possui data de vencimento planejada.",
+                detail:
+                  "As ordens importadas do SAP trazem abertura e fechamento, mas não a data-limite programada — sem ela, atraso não é calculável. Reimporte as ordens com a coluna de vencimento para habilitar o indicador."
+              }
+            ]}
+          />
+        ) : null}
+
+        <DataQualityPanel className="mt-4" quality={data.dataQuality} />
 
         {/* Filtros */}
         <div className="mt-6 rounded-lg border border-gold/25 bg-black/45 p-5 shadow-[0_14px_36px_rgba(0,0,0,0.3)] backdrop-blur">
@@ -487,7 +514,10 @@ export function PreventivasProgramadasPage({ data, applied }: PreventivasProgram
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
             <AlertCard icon={FileWarning} tone="red" title="Fechadas sem execução" metric={intFmt.format(criticalAlerts.closedNoExecCount)} description="OS fechadas no SAP com trabalho real ≤ 0,1 h." />
-            <AlertCard icon={CalendarClock} tone="gold" title="Atrasadas" metric={criticalAlerts.overdueCount === null ? "n/d" : intFmt.format(criticalAlerts.overdueCount)} description={criticalAlerts.overdueCount === null ? "Sem data de vencimento na base." : "OS abertas vencidas."} />
+            {/* Mesmo motivo do card de meta: sem data de vencimento, o alerta não existe. */}
+            {criticalAlerts.overdueCount !== null ? (
+              <AlertCard icon={CalendarClock} tone="gold" title="Atrasadas" metric={intFmt.format(criticalAlerts.overdueCount)} description="OS abertas vencidas." />
+            ) : null}
             <AlertCard icon={TrendingDown} tone="red" title="Máquina reincidente" metric={intFmt.format(criticalAlerts.recurrentMachines.length)} description={criticalAlerts.recurrentMachines.length ? `Ex.: ${criticalAlerts.recurrentMachines[0].name} (${criticalAlerts.recurrentMachines[0].count})` : "Nenhuma máquina com 3+ não realizadas."} />
             <AlertCard icon={Target} tone={criticalAlerts.belowTargetAreas.length ? "champagne" : "green"} title="Área abaixo da meta" metric={criticalAlerts.belowTargetAreas.length ? String(criticalAlerts.belowTargetAreas.length) : "OK"} description={criticalAlerts.belowTargetAreas.length ? criticalAlerts.belowTargetAreas.map((a) => `${a.area} (${percentFmt(a.aderencia)})`).join(" • ") : "Áreas com aderência ≥ 80%."} />
             <AlertCard icon={UserX} tone="gold" title="Sem responsável" metric={intFmt.format(criticalAlerts.withoutResponsibleCount)} description="OS PL/PV sem responsável informado." />

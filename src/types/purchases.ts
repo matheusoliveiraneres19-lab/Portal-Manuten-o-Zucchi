@@ -1,4 +1,5 @@
 import type { ItemNature, PurchaseOperationalStatus, PurchaseType } from "@prisma/client";
+import type { DataQualitySummary } from "@/types/data-quality";
 import type {
   PurchaseKind,
   PurchaseNature,
@@ -680,9 +681,14 @@ export type PurchaseNatureSlice = {
 };
 
 export type PurchaseFilterOptions = {
-  suppliers: Array<{ value: string; label: string }>;
-  categories: Array<{ value: string; label: string }>;
-  purchasingGroups: Array<{ value: string; label: string }>;
+  /**
+   * Opções montadas a partir do RECORTE da página (período + pendentes/realizadas),
+   * com a contagem do recorte. Lista vazia = dimensão sem dados aqui; a UI esconde o
+   * filtro em vez de oferecer um seletor que leva a tela vazia.
+   */
+  suppliers: Array<{ value: string; label: string; count?: number }>;
+  categories: Array<{ value: string; label: string; count?: number }>;
+  purchasingGroups: Array<{ value: string; label: string; count?: number }>;
   requesters: string[];
   /** Status operacionais presentes no recorte (para o filtro de Status). */
   statuses: PurchaseOperationalStatus[];
@@ -699,6 +705,8 @@ export type PurchasesPeriodWindow = {
 };
 
 export type PendingPurchasesPageData = {
+  /** Painel "Qualidade dos dados" da aba (FASE 6). */
+  dataQuality: DataQualitySummary;
   period: PurchasesPeriodWindow;
   /** KPIs gerenciais da base inteira (não são os cards desta aba). */
   kpis: PurchaseKpis;

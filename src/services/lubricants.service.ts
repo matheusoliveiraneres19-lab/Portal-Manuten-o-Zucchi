@@ -2,6 +2,7 @@ import { cache } from "react";
 import type { PageDataSource } from "@/types/page-data";
 import { AlertStatus, AlertType, LubricantMovementCategory, Prisma, Priority } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { optionsFromGroups } from "@/utils/filter-options";
 import { getTodayDate } from "@/utils/date";
 import { toInputDate } from "@/utils/period";
 import { LUBRICANT_CATEGORY_LABELS } from "@/utils/lubricants-normalizer";
@@ -923,7 +924,8 @@ async function loadLubricantsPageData(params: LubricantQueryParams): Promise<Lub
     getLubricantReplenishmentItems(),
     getAllLubricantCodes(params),
     getLubricantMovements(params),
-    getLubricantFilterOptions()
+    // Os MESMOS params da tela: só lubrificantes com movimento no período.
+    getLubricantFilterOptions(params)
   ]);
 
   return {
@@ -955,12 +957,46 @@ function resolvePeriodWindow(
   return { startDate: toInputDate(start), endDate: toInputDate(end) };
 }
 
-export async function getLubricantFilterOptions(): Promise<LubricantFilterOptions> {
-  const [lubricants, units, range] = await Promise.all([
-    prisma.lubricant.findMany({ select: { code: true, name: true }, orderBy: { code: "asc" } }),
-    prisma.lubricantMovement.findMany({ select: { unit: true }, distinct: ["unit"] }),
+/**
+ * OPÇÕES DOS FILTROS DE LUBRIFICANTES — só o que teve MOVIMENTO no período.
+ *
+ * Hoje os 20 lubrificantes cadastrados têm movimento, então nenhuma opção morre — mas
+ * a regra vale para quando um item for cadastrado e ainda não movimentado, ou quando o
+ * usuário olhar um mês específico. Antes a lista vinha de `prisma.lubricant.findMany`
+ * (o CADASTRO inteiro), que não tem relação nenhuma com o recorte da tela.
+ *
+ * A janela é a do período filtrado; sem período explícito, o ano de referência da aba.
+ */
+export async function getLubricantFilterOptions(
+  params: Partial<LubricantQueryParams> = {}
+): Promise<LubricantFilterOptions> {
+  const reference = await resolveLubricantReference(params);
+  const window = resolvePeriodWindow(params, reference);
+  const movementWhere: Prisma.LubricantMovementWhereInput = {
+    movementDate: {
+      gte: new Date(`${window.startDate}T00:00:00.000Z`),
+      lte: new Date(`${window.endDate}T23:59:59.999Z`)
+    }
+  };
+
+  const [movimentados, units, range] = await Promise.all([
+    prisma.lubricantMovement.groupBy({ by: ["lubricantId"], where: movementWhere, _count: true }),
+    prisma.lubricantMovement.groupBy({ by: ["unit"], where: movementWhere, _count: true }),
+    // Anos disponíveis vêm da base inteira de propósito: é o seletor que MUDA o
+    // período, então restringi-lo ao período atual prenderia o usuário nele.
     prisma.lubricantMovement.aggregate({ _min: { movementDate: true }, _max: { movementDate: true } })
   ]);
+
+  const count = (value: number | { _all: number }) => (typeof value === "number" ? value : value._all);
+  const contagemPorId = new Map(movimentados.map((row) => [row.lubricantId, count(row._count)]));
+
+  const lubricants = contagemPorId.size
+    ? await prisma.lubricant.findMany({
+        where: { id: { in: Array.from(contagemPorId.keys()) } },
+        select: { id: true, code: true, name: true },
+        orderBy: { code: "asc" }
+      })
+    : [];
 
   const minYear = range._min.movementDate?.getUTCFullYear();
   const maxYear = range._max.movementDate?.getUTCFullYear();
@@ -972,8 +1008,12 @@ export async function getLubricantFilterOptions(): Promise<LubricantFilterOption
   }
 
   return {
-    codes: lubricants.map((item) => ({ value: item.code, label: `${item.code} — ${item.name}` })),
-    units: units.map((item) => item.unit).filter(Boolean).sort(),
+    codes: lubricants.map((item) => ({
+      value: item.code,
+      label: `${item.code} — ${item.name}`,
+      count: contagemPorId.get(item.id)
+    })),
+    units: optionsFromGroups(units, "unit").map((option) => option.value),
     years,
     movementCategories: [...CATEGORY_ORDER]
   };

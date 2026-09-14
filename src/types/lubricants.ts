@@ -176,7 +176,8 @@ export type LubricantMonthlyFlowPoint = {
 };
 
 export type LubricantFilterOptions = {
-  codes: Array<{ value: string; label: string }>;
+  /** Só os lubrificantes com movimento no período, com a contagem do recorte. */
+  codes: Array<{ value: string; label: string; count?: number }>;
   units: string[];
   years: number[];
   movementCategories: LubricantMovementCategory[];

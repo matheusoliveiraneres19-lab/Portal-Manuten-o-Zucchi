@@ -34,6 +34,16 @@ export function CriticalEquipmentFieldNotice({ availability }: CriticalEquipment
     });
   }
 
+  if (!availability.functionalLocations) {
+    notices.push({
+      id: "functional-locations",
+      message:
+        "Centro de Custo, Família e Setor indisponíveis: a base de locais de instalação ainda não foi importada.",
+      fallback:
+        "Esses três campos vêm do cadastro de locais funcionais do SAP, não da planilha de ordens. Enquanto a importação não for feita, as colunas ficam vazias e os filtros correspondentes não são exibidos — nenhum ajuste de período os traz de volta."
+    });
+  }
+
   if (!notices.length) {
     return null;
   }

@@ -53,7 +53,8 @@ const AREA_LABELS: Record<string, string> = {
   OPERACIONAL: "Operacional"
 };
 
-const AREA_OPTIONS = Object.entries(AREA_LABELS).map(([value, label]) => ({ value, label }));
+// AREA_OPTIONS foi removido: a lista de áreas agora sai do recorte (ver
+// getServiceOrderFilterOptions). AREA_LABELS continua, só para rotular o valor.
 
 function emptyFilters(): AppliedServiceOrderFilters {
   return {
@@ -87,14 +88,45 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedSignature]);
 
+  // Todas as listas abaixo vêm do RECORTE (período), com a contagem do próprio
+  // recorte — ver getServiceOrderFilterOptions. Status e Área deixaram de usar as
+  // constantes do arquivo: elas listavam os 6 status e as 5 áreas sempre, mesmo num
+  // período em que metade não tinha nenhuma ordem, e era isso que levava a tela vazia.
+  const counts = data.filterOptions.counts;
+
   const planningGroupOptions = useMemo(
-    () => data.filterOptions.planningGroups.map((value) => ({ value, label: value })),
-    [data.filterOptions.planningGroups]
+    () =>
+      data.filterOptions.planningGroups.map((value) => ({
+        value,
+        label: value,
+        count: counts.planningGroups[value]
+      })),
+    [data.filterOptions.planningGroups, counts.planningGroups]
   );
 
   const responsibleOptions = useMemo(
-    () => data.filterOptions.responsibles.map((value) => ({ value, label: value })),
-    [data.filterOptions.responsibles]
+    () =>
+      data.filterOptions.responsibles.map((value) => ({
+        value,
+        label: value,
+        count: counts.responsibles[value]
+      })),
+    [data.filterOptions.responsibles, counts.responsibles]
+  );
+
+  const statusOptions = useMemo(
+    () => data.filterOptions.statuses.filter((status) => STATUS_OPTIONS.includes(status)),
+    [data.filterOptions.statuses]
+  );
+
+  const areaOptions = useMemo(
+    () =>
+      data.filterOptions.areas.map((value) => ({
+        value,
+        label: AREA_LABELS[value] ?? value,
+        count: counts.areas[value]
+      })),
+    [data.filterOptions.areas, counts.areas]
   );
 
   const groupedOrders = useMemo(() => groupOrdersByResponsible(data.orders), [data.orders]);
@@ -225,8 +257,8 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
 
       <ServiceOrderFilters
         draft={draft}
-        statusOptions={STATUS_OPTIONS}
-        areaOptions={AREA_OPTIONS}
+        statusOptions={statusOptions}
+        areaOptions={areaOptions}
         planningGroupOptions={planningGroupOptions}
         responsibleOptions={responsibleOptions}
         isPending={isPending}

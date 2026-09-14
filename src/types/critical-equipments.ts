@@ -1,3 +1,4 @@
+import type { DataQualitySummary } from "@/types/data-quality";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
 import type {
   OrderClassFilter,
@@ -139,6 +140,15 @@ export type CriticalEquipmentFieldAvailability = {
   planningGroup: boolean;
   /** `planningActivityType` preenchido em ao menos uma OS do período. */
   planningActivityType: boolean;
+  /**
+   * Cadastro de LOCAIS FUNCIONAIS importado (tabela `FunctionalLocation`).
+   *
+   * Família, Setor e Centro de Custo saem exclusivamente dele. Sem esse cadastro as
+   * três colunas ficam vazias e os três filtros ficam sem opção — e a causa não é o
+   * período nem a planilha de ordens, é uma importação que nunca foi rodada. Sem esta
+   * flag a tela não teria como dizer isso.
+   */
+  functionalLocations: boolean;
 };
 
 export type CriticalEquipmentSummary = {
@@ -294,6 +304,8 @@ export type CriticalEquipmentFilterOptions = {
 };
 
 export type CriticalEquipmentsPageData = {
+  /** Painel "Qualidade dos dados" da aba (FASE 6). */
+  dataQuality: DataQualitySummary;
   period: { startDate: string; endDate: string };
   summary: CriticalEquipmentSummary;
   ranking: CriticalEquipmentItem[];

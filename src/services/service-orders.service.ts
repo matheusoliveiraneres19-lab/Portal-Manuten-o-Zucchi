@@ -1,8 +1,8 @@
-import { unstable_cache } from "next/cache";
 import { ImportType, MaintenanceArea, Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
 import { excludeInvalidTestEquipmentWhere } from "@/utils/service-order-classification";
+import { optionsFromGroups } from "@/utils/filter-options";
 import type {
   ServiceOrderFilterOptions,
   ServiceOrderListItem,
@@ -55,65 +55,91 @@ export async function getServiceOrders(params: ServiceOrdersQueryParams = {}): P
  * por 120s para evitar reconsultar a cada navegação. Invalide com
  * revalidateTag("service-orders") após uma importação, se necessário.
  */
-const loadServiceOrderFilterOptions = unstable_cache(
-  async (): Promise<ServiceOrderFilterOptions> => {
-    const [statuses, areas, planningGroups, responsibles, equipments] = await Promise.all([
-      prisma.serviceOrder.findMany({
-        distinct: ["status"],
-        select: { status: true },
-        orderBy: { status: "asc" }
-      }),
-      prisma.serviceOrder.findMany({
-        distinct: ["area"],
-        where: { area: { not: null } },
-        select: { area: true },
-        orderBy: { area: "asc" }
-      }),
-      prisma.serviceOrder.findMany({
-        distinct: ["planningGroup"],
-        where: { planningGroup: { not: null } },
-        select: { planningGroup: true },
-        orderBy: { planningGroup: "asc" }
-      }),
-      prisma.serviceOrder.findMany({
-        distinct: ["responsibleName"],
-        where: { responsibleName: { not: null } },
-        select: { responsibleName: true, responsibleId: true },
-        orderBy: { responsibleName: "asc" }
-      }),
-      prisma.serviceOrder.findMany({
-        distinct: ["equipmentCode"],
-        where: { OR: [{ equipmentCode: { not: null } }, { equipmentName: { not: null } }] },
-        select: { equipmentCode: true, equipmentName: true },
-        orderBy: { equipmentName: "asc" }
-      })
-    ]);
+/**
+ * Recorte que define as OPÇÕES de filtro: só o período.
+ *
+ * Os multi-seleção ficam de fora de propósito — se entrassem, escolher um
+ * responsável apagaria os outros da lista e não haveria como trocar sem limpar o
+ * filtro antes. O período, sim, tem de valer: é ele que separa "equipamento sem OS
+ * neste mês" de "equipamento que não existe".
+ */
+function filterScopeParams(params: ServiceOrdersQueryParams): ServiceOrdersQueryParams {
+  return { startDate: params.startDate, endDate: params.endDate };
+}
 
-    return {
-      statuses: statuses.map((item) => item.status as ServiceOrderStatusLabel),
-      areas: areas.map((item) => item.area).filter(Boolean) as string[],
-      planningGroups: planningGroups.map((item) => item.planningGroup).filter(Boolean) as string[],
-      responsibles: normalizeResponsibleOptions(
-        responsibles.map((item) =>
-          item.responsibleName
-            ? item.responsibleId
-              ? `${item.responsibleName} (${item.responsibleId})`
-              : item.responsibleName
-            : "SEM RESPONSÁVEL"
-        )
+/**
+ * OPÇÕES DOS FILTROS DE OS — a partir do RECORTE, não da tabela inteira.
+ *
+ * Antes: cinco `distinct` sobre as 19.780 ordens, cacheados por 120 s. Isso listava
+ * 689 equipamentos independentemente do período escolhido, e logo após uma importação
+ * o filtro e a tabela discordavam por até dois minutos. As duas coisas alimentavam a
+ * mesma reclamação: escolher uma opção e cair numa tela vazia.
+ *
+ * Agora as listas saem de `groupBy` sobre o MESMO where da página (menos os próprios
+ * multi-seleção — ver `filterScopeParams`) e trazem a contagem do recorte. O cache
+ * saiu junto: ele era por chave fixa e não tem como distinguir períodos diferentes,
+ * então continuaria servindo a lista errada para metade das navegações.
+ */
+async function loadServiceOrderFilterOptions(
+  params: ServiceOrdersQueryParams = {}
+): Promise<ServiceOrderFilterOptions> {
+  const where = buildServiceOrderWhere(filterScopeParams(params));
+
+  const [statuses, areas, planningGroups, responsibles, equipments] = await Promise.all([
+    prisma.serviceOrder.groupBy({ by: ["status"], where, _count: true }),
+    prisma.serviceOrder.groupBy({ by: ["area"], where, _count: true }),
+    prisma.serviceOrder.groupBy({ by: ["planningGroup"], where, _count: true }),
+    prisma.serviceOrder.groupBy({ by: ["responsibleName", "responsibleId"], where, _count: true }),
+    prisma.serviceOrder.groupBy({ by: ["equipmentCode", "equipmentName"], where, _count: true })
+  ]);
+
+  const count = (value: number | { _all: number }) => (typeof value === "number" ? value : value._all);
+
+  // Responsável e equipamento são rotulados (nome + id / nome + código), então a
+  // contagem é somada por RÓTULO — dois códigos com o mesmo rótulo viram uma opção só.
+  const porResponsavel = new Map<string, number>();
+  for (const row of responsibles) {
+    const label = row.responsibleName
+      ? row.responsibleId
+        ? `${row.responsibleName} (${row.responsibleId})`
+        : row.responsibleName
+      : "SEM RESPONSÁVEL";
+    porResponsavel.set(label, (porResponsavel.get(label) ?? 0) + count(row._count));
+  }
+
+  const porEquipamento = new Map<string, number>();
+  for (const row of equipments) {
+    const label = formatTechnicalObject(row.equipmentName, row.equipmentCode);
+    if (label === "-") continue;
+    porEquipamento.set(label, (porEquipamento.get(label) ?? 0) + count(row._count));
+  }
+
+  return {
+    statuses: statuses
+      .filter((row) => count(row._count) > 0)
+      .map((row) => row.status as ServiceOrderStatusLabel)
+      .sort(),
+    areas: optionsFromGroups(areas, "area").map((option) => option.value),
+    planningGroups: optionsFromGroups(planningGroups, "planningGroup").map((option) => option.value),
+    responsibles: normalizeResponsibleOptions(Array.from(porResponsavel.keys())),
+    equipments: Array.from(porEquipamento.keys()).sort((a, b) => a.localeCompare(b, "pt-BR")),
+    counts: {
+      areas: Object.fromEntries(optionsFromGroups(areas, "area").map((o) => [o.value, o.count ?? 0])),
+      planningGroups: Object.fromEntries(
+        optionsFromGroups(planningGroups, "planningGroup").map((o) => [o.value, o.count ?? 0])
       ),
-      equipments: equipments
-        .map((item) => formatTechnicalObject(item.equipmentName, item.equipmentCode))
-        .filter((item) => item !== "-")
-    };
-  },
-  ["service-order-filter-options"],
-  { revalidate: 120, tags: ["service-orders"] }
-);
+      responsibles: Object.fromEntries(porResponsavel),
+      equipments: Object.fromEntries(porEquipamento),
+      statuses: Object.fromEntries(statuses.map((row) => [row.status as string, count(row._count)]))
+    }
+  };
+}
 
-export async function getServiceOrderFilterOptions(): Promise<ServiceOrderFilterOptions> {
+export async function getServiceOrderFilterOptions(
+  params: ServiceOrdersQueryParams = {}
+): Promise<ServiceOrderFilterOptions> {
   try {
-    return await loadServiceOrderFilterOptions();
+    return await loadServiceOrderFilterOptions(params);
   } catch (error) {
     console.error("Falha ao carregar opções de filtros de OS. Exibindo listas vazias.", error);
     return getEmptyFilterOptions();
@@ -163,7 +189,8 @@ export async function getServiceOrdersSummary(): Promise<ServiceOrdersSummary> {
 export async function getServiceOrdersPageData(params: ServiceOrdersQueryParams = {}): Promise<ServiceOrdersPageData> {
   const [orders, filterOptions, summary, lastImportAt] = await Promise.all([
     getServiceOrders(params),
-    getServiceOrderFilterOptions(),
+    // Os MESMOS params da tela: as opções saem do recorte, não da tabela inteira.
+    getServiceOrderFilterOptions(params),
     getServiceOrdersSummary(),
     getLastServiceOrderImportAt()
   ]);
@@ -368,7 +395,14 @@ function getEmptyServiceOrders(params: ServiceOrdersQueryParams): ServiceOrdersR
 }
 
 function getEmptyFilterOptions(): ServiceOrderFilterOptions {
-  return { statuses: [], areas: [], planningGroups: [], responsibles: [], equipments: [] };
+  return {
+    statuses: [],
+    areas: [],
+    planningGroups: [],
+    responsibles: [],
+    equipments: [],
+    counts: { areas: {}, planningGroups: {}, responsibles: {}, equipments: {}, statuses: {} }
+  };
 }
 
 function getEmptySummary(): ServiceOrdersSummary {

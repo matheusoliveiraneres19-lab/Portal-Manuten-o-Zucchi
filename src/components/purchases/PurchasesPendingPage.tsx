@@ -11,6 +11,8 @@ import { PurchaseFilters } from "@/components/purchases/PurchaseFilters";
 import { PurchaseActiveChips } from "@/components/purchases/PurchaseActiveChips";
 import { PurchaseTable } from "@/components/purchases/PurchaseTable";
 import { ModuleEmptyState } from "@/components/ui/ModuleEmptyState";
+import { DataQualityPanel } from "@/components/ui/DataQualityPanel";
+// As opções já chegam do service com a contagem do recorte (ver PurchaseFilterOptions).
 import { PurchaseImportModal } from "@/components/purchases/PurchaseImportModal";
 import {
   EMPTY_PURCHASE_FILTERS,
@@ -256,6 +258,8 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
           />
 
           <PurchaseTable data={data.purchases} variant="pending" onPageChange={(page) => navigate(appliedFilters, page)} />
+
+          <DataQualityPanel quality={data.dataQuality} />
         </>
       )}
 

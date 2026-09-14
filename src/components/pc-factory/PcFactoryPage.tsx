@@ -14,6 +14,7 @@ import { PcFactoryReliabilityTable } from "@/components/pc-factory/PcFactoryReli
 import { PcFactoryDetailsDrawer } from "@/components/pc-factory/PcFactoryDetailsDrawer";
 import { PcFactoryImportModal } from "@/components/pc-factory/PcFactoryImportModal";
 import { PcFactoryQualityPanel } from "@/components/pc-factory/PcFactoryQualityPanel";
+import { UnavailableIndicator } from "@/components/ui/FieldNotice";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import { PC_FACTORY_CATEGORY_LABELS } from "@/utils/pc-factory-normalizer";
 import { PC_FACTORY_DEFAULT_MODE } from "@/types/pc-factory";
@@ -282,7 +283,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
         <>
           <PcFactoryKpiCards kpis={data.kpis} />
 
-          <PcFactoryQualityPanel quality={data.dataQuality} />
+          <PcFactoryQualityPanel quality={data.dataQuality} filterAudit={data.filterAudit} />
 
           <p className="text-[11px] text-zinc-500">
             <span className="font-semibold text-gold">Dica:</span> clique em uma máquina nos gráficos ou na tabela para ver
@@ -300,7 +301,19 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
               rows={data.criticalResources}
               onSelect={openDetails}
             />
-            <PcFactoryCompositionChart className="xl:col-span-6" rows={data.productionLines} />
+            {/* Composição por linha/área depende de `productionLine`, que está 100% nula
+                nos 71.638 registros importados. Em vez de um gráfico vazio (que passa
+                impressão de erro), a tela explica que o campo não veio na base. */}
+            {data.productionLines.length > 0 ? (
+              <PcFactoryCompositionChart className="xl:col-span-6" rows={data.productionLines} />
+            ) : (
+              <UnavailableIndicator
+                className="xl:col-span-6"
+                title="Composição por linha / área"
+                message="Indicador indisponível: a base importada não possui o campo Linha / Área."
+                detail="Reimporte a planilha do PC-Factory com a coluna de linha/área preenchida para habilitar esta análise. Os demais indicadores da aba não dependem dela."
+              />
+            )}
 
             <PcFactoryTrendChart
               className="xl:col-span-12"
