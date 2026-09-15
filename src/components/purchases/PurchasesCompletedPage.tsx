@@ -24,7 +24,7 @@ import {
   PurchaseClassificationSection
 } from "@/components/purchases/PurchaseClassificationSection";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
-import { formatCurrency } from "@/utils/formatters";
+import { formatCompactCurrency, formatCurrency } from "@/utils/formatters";
 import type { CompletedPurchasesPageData } from "@/types/purchases";
 import { CHART_SERIES } from "@/constants/theme";
 
@@ -108,8 +108,10 @@ export function PurchasesCompletedPage({ data, appliedFilters }: PurchasesComple
     summary.hasNetValueColumn
       ? {
           title: "Valor comprado",
-          value: formatCurrency(summary.purchasedNetValue),
-          description: "Soma da coluna Total líquido",
+          // Abreviado no card (cabe na coluna), exato no tooltip (é onde se confere).
+          value: formatCompactCurrency(summary.purchasedNetValue),
+          valueTitle: `${formatCurrency(summary.purchasedNetValue)} — soma da coluna Valor líquido (Total líquido)`,
+          description: "Soma da coluna Valor líquido",
           icon: Wallet,
           tone: "gold" as const
         }

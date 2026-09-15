@@ -6,6 +6,7 @@ import { KPICard } from "@/components/KPICard";
 import { RankingList } from "@/components/RankingList";
 import { TableCard } from "@/components/TableCard";
 import { DataQualityPanel } from "@/components/ui/DataQualityPanel";
+import { PreventiveAdherenceHighlightCard } from "@/components/dashboard/PreventiveAdherenceHighlightCard";
 import type { DashboardData } from "@/types/dashboard";
 import { formatPeriodRange } from "@/utils/period";
 
@@ -36,6 +37,18 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
               </strong>
             </span>
           </div>
+        </div>
+      ) : null}
+
+      {/* Aderência Preventiva ANTES dos KPIs (FASE 9): é o indicador que a gestão
+          cobra e estava escondido atrás de um clique na aba Preventivas. Some quando
+          não há PL/PV no período — nunca mostra aderência inventada. */}
+      {dashboard.preventiveAdherence ? (
+        <div className="mt-4">
+          <PreventiveAdherenceHighlightCard
+            highlight={dashboard.preventiveAdherence}
+            href={href("/dashboard/preventivas-programadas")}
+          />
         </div>
       ) : null}
 

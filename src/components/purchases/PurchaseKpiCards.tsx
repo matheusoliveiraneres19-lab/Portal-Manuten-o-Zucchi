@@ -7,7 +7,15 @@ export type PurchaseKpiTone = "blue" | "gold" | "red" | "green";
 
 export type PurchaseKpiCard = {
   title: string;
+  /** Texto exibido. Pode ser abreviado — ver `valueTitle`. */
   value: string;
+  /**
+   * Tooltip do valor. Existe para o card poder mostrar a forma ABREVIADA
+   * ("R$ 10,36 mi", que cabe na coluna estreita) sem esconder o número exato: quem
+   * precisa conferir passa o mouse. Sem isto, o valor por extenso vinha cortado pelo
+   * `truncate` e o indicador mais importante da aba ficava ilegível.
+   */
+  valueTitle?: string;
   description: string;
   icon: LucideIcon;
   tone: PurchaseKpiTone;
@@ -48,7 +56,10 @@ export function PurchaseKpiCards({ cards, className }: { cards: PurchaseKpiCard[
             </div>
             <div className="min-w-0">
               <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-zinc-800">{card.title}</h3>
-              <div className="mt-0.5 truncate text-2xl font-light tracking-normal text-zinc-950" title={card.value}>
+              <div
+                className="mt-0.5 truncate text-2xl font-light tracking-normal text-zinc-950"
+                title={card.valueTitle ?? card.value}
+              >
                 {card.value}
               </div>
               <p className="mt-0.5 truncate text-[11px] text-zinc-500" title={card.description}>

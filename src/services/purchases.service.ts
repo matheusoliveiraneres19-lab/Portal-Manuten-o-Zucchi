@@ -52,6 +52,7 @@ import type {
   PurchaseClassificationNode,
   PurchaseClassificationOptions,
   PurchaseClassificationSlice,
+  PurchaseColumnAvailability,
   PurchaseFilterOptions,
   PurchaseGroupCount,
   PurchaseKindFilter,
@@ -685,6 +686,7 @@ function toRow(record: RowRecord, today: Date, rule: PurchaseRuleMode = "regraPo
     ignoreReason: isV31 ? null : record.ignoredReason,
     purchaseKind: purchaseKindFromType(record.purchaseType),
     delayDays: record.delayDays,
+    daysOpen: record.requisitionDate ? daysBetween(record.requisitionDate, today) : null,
     hasPurchaseOrder: record.hasPurchaseOrder,
     isReceiptConfirmed: record.isReceiptConfirmed,
     deletionCode: record.deletionCode,
@@ -705,6 +707,64 @@ function toRow(record: RowRecord, today: Date, rule: PurchaseRuleMode = "regraPo
     priorityRaw: record.requisitionLevel ?? record.trackingNumber,
     itemNature: record.itemNature,
     requester: record.requester
+  };
+}
+
+/** Dias corridos entre duas datas (>= 0). */
+function daysBetween(from: Date, to: Date): number {
+  return Math.max(0, Math.floor((to.getTime() - from.getTime()) / 86_400_000));
+}
+
+/**
+ * Mede quais colunas têm dado no recorte filtrado (FASE 7).
+ *
+ * Uma consulta de contagem por coluna sobre o MESMO where da tabela. É barato perto de
+ * varrer as linhas, e exato: não depende da página que o usuário está vendo.
+ *
+ * Quantidade e valor contam como "tem dado" só quando existe alguma linha com valor
+ * DIFERENTE DE ZERO — coluna inteira de zeros informa tanto quanto coluna de traços.
+ */
+async function measureColumnAvailability(
+  where: Prisma.PurchaseRecordWhereInput
+): Promise<PurchaseColumnAvailability> {
+  const algum = async (condicao: Prisma.PurchaseRecordWhereInput) =>
+    (await prisma.purchaseRecord.count({ where: mergeWhere(where, condicao), take: 1 })) > 0;
+
+  const [
+    supplier,
+    expectedDelivery,
+    purchaseOrder,
+    quantity,
+    pendingQuantity,
+    value,
+    requisitionLevel,
+    purchasingGroup,
+    goodsGroup,
+    requester
+  ] = await Promise.all([
+    algum({ OR: [{ supplierName: { not: null } }, { supplierCode: { not: null } }] }),
+    algum({ expectedDeliveryDate: { not: null } }),
+    algum({ OR: [{ purchaseOrderNumber: { not: null } }, { purchaseOrderDate: { not: null } }] }),
+    algum({ quantity: { not: 0 } }),
+    algum({ pendingQuantity: { not: 0 } }),
+    algum({ OR: [{ netTotal: { not: 0 } }, { grossTotal: { not: 0 } }] }),
+    algum({ OR: [{ requisitionLevel: { not: null } }, { trackingNumber: { not: null } }] }),
+    algum({ purchasingGroup: { not: null } }),
+    algum({ OR: [{ goodsGroupCode: { not: null } }, { goodsGroupDescription: { not: null } }] }),
+    algum({ requester: { not: null } })
+  ]);
+
+  return {
+    supplier,
+    expectedDelivery,
+    purchaseOrder,
+    quantity,
+    pendingQuantity,
+    value,
+    requisitionLevel,
+    purchasingGroup,
+    goodsGroup,
+    requester
   };
 }
 
@@ -1467,6 +1527,18 @@ function emptyPendingPurchasesPageData(
 ): PendingPurchasesPageData {
   return {
     dataQuality: emptyDataQualitySummary("Banco de dados — importação de Compras"),
+    columnAvailability: {
+      supplier: false,
+      expectedDelivery: false,
+      purchaseOrder: false,
+      quantity: false,
+      pendingQuantity: false,
+      value: false,
+      requisitionLevel: false,
+      purchasingGroup: false,
+      goodsGroup: false,
+      requester: false
+    },
     period: resolvePeriodWindow(params),
     kpis: emptyKpis(),
     v31Audit: emptyPurchaseV31Audit(),
@@ -1562,8 +1634,17 @@ async function loadPendingPurchasesPageData(params: PurchaseQueryParams): Promis
     });
   }
 
+  const columnAvailability = await measureColumnAvailability(await pendingWhere(params, today));
+
   return {
-    dataQuality: await buildPendingDataQuality(pendingRowsUnfiltered.length, pendingRows.length, filterOptions, classificationAvailable),
+    dataQuality: await buildPendingDataQuality(
+      pendingRowsUnfiltered.length,
+      pendingRows.length,
+      filterOptions,
+      classificationAvailable,
+      columnAvailability
+    ),
+    columnAvailability,
     period,
     kpis,
     v31Audit,
@@ -1599,8 +1680,23 @@ async function buildPendingDataQuality(
   analisados: number,
   exibidos: number,
   filterOptions: PurchaseFilterOptions,
-  classificationAvailable: boolean
+  classificationAvailable: boolean,
+  columns: PurchaseColumnAvailability
 ): Promise<DataQualitySummary> {
+  const COLUNAS: Array<[keyof PurchaseColumnAvailability, string]> = [
+    ["supplier", "Fornecedor"],
+    ["expectedDelivery", "Previsão de entrega"],
+    ["purchaseOrder", "Pedido de compra"],
+    ["quantity", "Quantidade"],
+    ["pendingQuantity", "Quantidade pendente"],
+    ["value", "Valor"],
+    ["requisitionLevel", "Nível da requisição"],
+    ["purchasingGroup", "Grupo de compras"],
+    ["goodsGroup", "Grupo de mercadoria"],
+    ["requester", "Requisitante"]
+  ];
+  const colunasOcultas = COLUNAS.filter(([chave]) => !columns[chave]).map(([, rotulo]) => rotulo);
+
   const missingFields: string[] = ["Centro de Custo"];
   const notices: DataQualityNotice[] = [
     {
@@ -1628,6 +1724,34 @@ async function buildPendingDataQuality(
         "Não confundir com a PRIORIDADE N1..N4 do acompanhamento, que está preenchida e alimenta os cards no topo da aba. A classificação é uma taxonomia separada e ainda não vem na planilha.",
       tone: "info"
     });
+  }
+
+  if (colunasOcultas.length) {
+    // Faltar fornecedor/previsão/valor é ESPERADO (requisição sem pedido). Faltar
+    // requisitante, data, grupo e quantidade não é: esses campos existem na requisição
+    // desde a abertura. Quando somem junto, a causa não é a natureza do registro — é a
+    // última importação ter trazido só parte das colunas, e o aviso precisa dizer isso
+    // com todas as letras, senão o usuário conclui que o portal perdeu os dados.
+    const ESPERADAS_VAZIAS = new Set(["Fornecedor", "Previsão de entrega", "Pedido de compra"]);
+    const inesperadas = colunasOcultas.filter((coluna) => !ESPERADAS_VAZIAS.has(coluna));
+
+    if (inesperadas.length >= 4) {
+      notices.push({
+        id: "importacao-incompleta",
+        message: `A última importação de compras não trouxe ${inesperadas.length} colunas da requisição: ${inesperadas.join(", ")}.`,
+        detail:
+          "A aba está exibindo as requisições pendentes com prioridade e material, mas sem requisitante, data, grupo de mercadoria ou quantidade, porque esses campos vieram vazios no arquivo mais recente. Reimporte a planilha completa de compras (a que traz essas colunas) para restaurar a tabela — os registros não foram perdidos, só não foram atualizados com esses campos.",
+        tone: "danger"
+      });
+    } else {
+      notices.push({
+        id: "colunas-ocultas",
+        message: `${colunasOcultas.length} coluna(s) da tabela sem dado no recorte: ${colunasOcultas.join(", ")}.`,
+        detail:
+          "Foram retiradas da tabela em vez de exibidas vazias. Voltam sozinhas assim que a próxima importação trouxer valores.",
+        tone: "info"
+      });
+    }
   }
 
   return buildDataQualitySummary({

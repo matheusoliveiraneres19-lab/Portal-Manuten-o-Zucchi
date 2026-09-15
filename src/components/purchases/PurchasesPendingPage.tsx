@@ -257,7 +257,12 @@ export function PurchasesPendingPage({ data, appliedFilters }: PurchasesPendingP
             copy={PENDING_CLASSIFICATION_COPY}
           />
 
-          <PurchaseTable data={data.purchases} variant="pending" onPageChange={(page) => navigate(appliedFilters, page)} />
+          <PurchaseTable
+            data={data.purchases}
+            variant="pending"
+            columns={data.columnAvailability}
+            onPageChange={(page) => navigate(appliedFilters, page)}
+          />
 
           <DataQualityPanel quality={data.dataQuality} />
         </>

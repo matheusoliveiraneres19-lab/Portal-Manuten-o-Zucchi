@@ -69,6 +69,28 @@ export type PendingPurchase = {
   daysOpen: number | null;
 };
 
+/**
+ * Destaque de Aderência Preventiva na home (FASE 9).
+ *
+ * Os números vêm PRONTOS de `getPreventiveOrdersPageData`, o mesmo service da aba
+ * Preventivas Programadas — a home não recalcula nada. Se recalculasse, as duas telas
+ * divergiriam no primeiro ajuste de regra, e o indicador que a gestão usa para cobrar
+ * o time passaria a depender de por onde se entra no portal.
+ */
+export type PreventiveAdherenceHighlight = {
+  /** Aderência do período (%), ou null quando não há PL/PV no recorte. */
+  adherence: number | null;
+  /** Meta vigente (configurações do portal, padrão 85%). */
+  target: number;
+  /** Faixa em relação à meta — decide a cor do destaque. */
+  level: "ok" | "warn" | "crit" | "unknown";
+  /** OS fechadas no SAP com trabalho real ≤ 0,1 h. */
+  closedWithoutExecution: number;
+  /** Total de PL/PV no período (denominador da aderência). */
+  total: number;
+  realizadas: number;
+};
+
 export type AlertItem = {
   text: string;
   time: string;
@@ -82,6 +104,8 @@ export type DashboardData = {
   criticalEquipment: RankingItem[];
   pendingPurchases: PendingPurchase[];
   alerts: AlertItem[];
+  /** Destaque de Aderência Preventiva (FASE 9). null quando a base não tem PL/PV. */
+  preventiveAdherence: PreventiveAdherenceHighlight | null;
   /** Painel "Qualidade dos dados" da home (FASE 6). */
   dataQuality: DataQualitySummary;
   /** Aviso técnico do gráfico OS abertas x fechadas (ex.: closedAt não importado). */
@@ -192,6 +216,8 @@ export type DatabaseDashboardData = {
   topCriticalEquipments: TopCriticalEquipmentData[];
   pendingPurchases: PendingPurchaseData[];
   criticalAlerts: CriticalAlertData[];
+  /** Aderência preventiva do período, do service da aba Preventivas. */
+  preventiveAdherence: PreventiveAdherenceHighlight | null;
   /** Painel "Qualidade dos dados" da home (FASE 6). */
   dataQuality: DataQualitySummary;
   /** Máquinas abaixo da média de disponibilidade do PC-Factory (card Máquinas Críticas). */

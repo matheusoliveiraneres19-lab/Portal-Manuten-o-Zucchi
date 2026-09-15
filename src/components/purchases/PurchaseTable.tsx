@@ -4,12 +4,32 @@ import { ChevronLeft, ChevronRight, PackageSearch } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { PurchaseStatusBadge } from "@/components/purchases/PurchaseStatusBadge";
 import { PurchasePriorityBadge } from "@/components/purchases/PurchasePriorityBadge";
-import type { PaginatedPurchases, PurchaseRow } from "@/types/purchases";
+import type { PaginatedPurchases, PurchaseColumnAvailability, PurchaseRow } from "@/types/purchases";
 
 type PurchaseTableProps = {
   data: PaginatedPurchases;
   variant: "pending" | "completed";
   onPageChange: (page: number) => void;
+  /**
+   * Colunas com dado no recorte (FASE 7). Ausente = mostra tudo, como antes.
+   * Ver PurchaseColumnAvailability: em Compras Pendentes várias colunas são
+   * estruturalmente vazias e viravam faixas de "—" e "0" na tela.
+   */
+  columns?: PurchaseColumnAvailability;
+};
+
+/** Todas visíveis — usado quando a página não informa disponibilidade. */
+const ALL_COLUMNS: PurchaseColumnAvailability = {
+  supplier: true,
+  expectedDelivery: true,
+  purchaseOrder: true,
+  quantity: true,
+  pendingQuantity: true,
+  value: true,
+  requisitionLevel: true,
+  purchasingGroup: true,
+  goodsGroup: true,
+  requester: true
 };
 
 /** Rótulo do "Tipo" do item (por natureza). */
@@ -26,9 +46,12 @@ function kindLabel(row: PurchaseRow): string {
   }
 }
 
-export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProps) {
+export function PurchaseTable({ data, variant, onPageChange, columns }: PurchaseTableProps) {
   const start = (data.page - 1) * data.pageSize;
   const isPending = variant === "pending";
+  // Só Pendentes esconde coluna: em Realizadas as colunas de pedido/recebimento são
+  // o assunto da aba e precisam aparecer mesmo quando um recorte vem sem valor.
+  const col = isPending ? (columns ?? ALL_COLUMNS) : ALL_COLUMNS;
 
   return (
     <section className="panel rounded-lg p-4">
@@ -50,7 +73,11 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
       ) : (
         <>
           <div className="overflow-x-auto">
-            <table className={`w-full border-collapse text-left text-xs ${isPending ? "min-w-[1700px]" : "min-w-[1120px]"}`}>
+            <table
+              className={`w-full border-collapse text-left text-xs ${
+                isPending ? (col.supplier ? "min-w-[1700px]" : "min-w-[1100px]") : "min-w-[1120px]"
+              }`}
+            >
               <thead>
                 <tr className="border-b border-zinc-200 text-[10px] uppercase tracking-wide text-zinc-500">
                   {/* Prioridade abre a tabela em Compras Pendentes (TAREFA 9): é
@@ -61,10 +88,12 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
                   {isPending ? (
                     <>
                       <th className="px-2 py-2 font-bold">Data requisição</th>
-                      {/* "Data do Pedido" fica por AUDITORIA: pela regra v3.1 toda
-                          linha desta aba está sem pedido, então a coluna deve
-                          aparecer vazia em 100% dos registros. */}
-                      <th className="px-2 py-2 font-bold">Data do pedido</th>
+                      {/* Idade da pendência: sem pedido não há previsão de entrega,
+                          então é isto que ordena a fila para a gestão. */}
+                      <th className="px-2 py-2 text-right font-bold">Dias em aberto</th>
+                      {/* "Data do pedido" só aparece se ALGUMA linha do recorte tiver
+                          pedido — pela regra v3.1 normalmente nenhuma tem. */}
+                      {col.purchaseOrder && <th className="px-2 py-2 font-bold">Data do pedido</th>}
                     </>
                   ) : (
                     <>
@@ -72,7 +101,7 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
                       <th className="px-2 py-2 font-bold">Data pedido</th>
                     </>
                   )}
-                  <th className="px-2 py-2 font-bold">Previsão</th>
+                  {col.expectedDelivery && <th className="px-2 py-2 font-bold">Previsão</th>}
                   {!isPending && (
                     <>
                       <th className="px-2 py-2 font-bold">Recebimento</th>
@@ -81,13 +110,15 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
                   )}
                   <th className="px-2 py-2 font-bold">Material</th>
                   <th className="px-2 py-2 font-bold">Descrição</th>
-                  <th className="px-2 py-2 text-right font-bold">Qtd</th>
-                  {isPending && <th className="px-2 py-2 text-right font-bold">Qtd pend.</th>}
-                  {isPending && <th className="px-2 py-2 font-bold">Fornecedor</th>}
-                  <th className="px-2 py-2 font-bold">{isPending ? "Descrição fornecedor" : "Fornecedor"}</th>
-                  <th className="px-2 py-2 font-bold">Requisitante</th>
-                  <th className="px-2 py-2 font-bold">Grupo Comp</th>
-                  <th className="px-2 py-2 font-bold">Descr grupo Merc</th>
+                  {col.quantity && <th className="px-2 py-2 text-right font-bold">Qtd</th>}
+                  {isPending && col.pendingQuantity && <th className="px-2 py-2 text-right font-bold">Qtd pend.</th>}
+                  {isPending && col.supplier && <th className="px-2 py-2 font-bold">Fornecedor</th>}
+                  {col.supplier && (
+                    <th className="px-2 py-2 font-bold">{isPending ? "Descrição fornecedor" : "Fornecedor"}</th>
+                  )}
+                  {col.requester && <th className="px-2 py-2 font-bold">Requisitante</th>}
+                  {col.purchasingGroup && <th className="px-2 py-2 font-bold">Grupo Comp</th>}
+                  {col.goodsGroup && <th className="px-2 py-2 font-bold">Descr grupo Merc</th>}
                   {/* Classificação N1..N4 — só na aba Compras Pendentes. */}
                   {isPending && (
                     <>
@@ -97,7 +128,7 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
                       <th className="px-2 py-2 font-bold">N4</th>
                       {/* Coluna SECUNDÁRIA (TAREFA 9): o valor cru da planilha,
                           para conferir de onde saiu a prioridade exibida. */}
-                      <th className="px-2 py-2 font-bold">Nível requisição</th>
+                      {col.requisitionLevel && <th className="px-2 py-2 font-bold">Nível requisição</th>}
                     </>
                   )}
                   {/* "Tipo" só em Realizadas: na regra v3.1 toda pendência é
@@ -113,7 +144,7 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
               </thead>
               <tbody>
                 {data.data.map((row) => (
-                  <Row key={row.id} row={row} isPending={isPending} />
+                  <Row key={row.id} row={row} isPending={isPending} col={col} />
                 ))}
               </tbody>
             </table>
@@ -148,7 +179,7 @@ export function PurchaseTable({ data, variant, onPageChange }: PurchaseTableProp
   );
 }
 
-function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
+function Row({ row, isPending, col }: { row: PurchaseRow; isPending: boolean; col: PurchaseColumnAvailability }) {
   const showDelay = !isPending && row.operationalStatus === "ENTREGUE";
   return (
     <tr className="border-b border-zinc-100 text-zinc-700 transition hover:bg-gold/5">
@@ -164,7 +195,10 @@ function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
       {isPending ? (
         <>
           <td className="px-2 py-2">{formatIso(row.requisitionDate)}</td>
-          <td className="px-2 py-2">{formatIso(row.purchaseOrderDate)}</td>
+          <td className="px-2 py-2 text-right tabular-nums">
+            {row.daysOpen === null ? "—" : <DaysOpen days={row.daysOpen} />}
+          </td>
+          {col.purchaseOrder && <td className="px-2 py-2">{formatIso(row.purchaseOrderDate)}</td>}
         </>
       ) : (
         <>
@@ -172,7 +206,7 @@ function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
           <td className="px-2 py-2">{formatIso(row.purchaseOrderDate)}</td>
         </>
       )}
-      <td className="px-2 py-2">{formatIso(row.expectedDeliveryDate)}</td>
+      {col.expectedDelivery && <td className="px-2 py-2">{formatIso(row.expectedDeliveryDate)}</td>}
       {!isPending && (
         <>
           <td className="px-2 py-2">{formatIso(row.receiptDate)}</td>
@@ -185,32 +219,40 @@ function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
       <td className="px-2 py-2 max-w-[220px] truncate" title={row.itemDescription}>
         {row.itemDescription}
       </td>
-      <td className="px-2 py-2 text-right tabular-nums">
-        {row.quantity !== null ? `${row.quantity.toLocaleString("pt-BR")}${row.unit ? ` ${row.unit}` : ""}` : "—"}
-      </td>
-      {isPending && (
+      {col.quantity && (
+        <td className="px-2 py-2 text-right tabular-nums">
+          {row.quantity !== null ? `${row.quantity.toLocaleString("pt-BR")}${row.unit ? ` ${row.unit}` : ""}` : "—"}
+        </td>
+      )}
+      {isPending && col.pendingQuantity && (
         <td className="px-2 py-2 text-right tabular-nums">
           {row.pendingQuantity !== null ? row.pendingQuantity.toLocaleString("pt-BR") : "—"}
         </td>
       )}
-      {isPending && <td className="px-2 py-2">{row.supplierCode ?? "—"}</td>}
-      <td className="px-2 py-2 max-w-[160px] truncate" title={row.supplierName ?? undefined}>
-        {row.supplierName ?? "—"}
-      </td>
-      <td className="px-2 py-2 max-w-[120px] truncate" title={row.requester ?? undefined}>
-        {row.requester ?? "—"}
-      </td>
-      <td className="px-2 py-2">{row.purchasingGroup ?? "—"}</td>
-      <td className="px-2 py-2 max-w-[140px] truncate" title={row.goodsGroupDescription ?? undefined}>
-        {row.goodsGroupDescription ?? row.goodsGroupCode ?? "—"}
-      </td>
+      {isPending && col.supplier && <td className="px-2 py-2">{row.supplierCode ?? "—"}</td>}
+      {col.supplier && (
+        <td className="px-2 py-2 max-w-[160px] truncate" title={row.supplierName ?? undefined}>
+          {row.supplierName ?? "—"}
+        </td>
+      )}
+      {col.requester && (
+        <td className="px-2 py-2 max-w-[120px] truncate" title={row.requester ?? undefined}>
+          {row.requester ?? "—"}
+        </td>
+      )}
+      {col.purchasingGroup && <td className="px-2 py-2">{row.purchasingGroup ?? "—"}</td>}
+      {col.goodsGroup && (
+        <td className="px-2 py-2 max-w-[140px] truncate" title={row.goodsGroupDescription ?? undefined}>
+          {row.goodsGroupDescription ?? row.goodsGroupCode ?? "—"}
+        </td>
+      )}
       {isPending && (
         <>
           <ClassificationCell value={row.classificationN1} />
           <ClassificationCell value={row.classificationN2} />
           <ClassificationCell value={row.classificationN3} />
           <ClassificationCell value={row.classificationN4} />
-          <td className="px-2 py-2 text-zinc-500">{row.priorityRaw ?? "—"}</td>
+          {col.requisitionLevel && <td className="px-2 py-2 text-zinc-500">{row.priorityRaw ?? "—"}</td>}
         </>
       )}
       {!isPending && (
@@ -227,6 +269,21 @@ function Row({ row, isPending }: { row: PurchaseRow; isPending: boolean }) {
 }
 
 /** Célula de um nível de classificação (N1..N4), com truncagem e tooltip. */
+/**
+ * Idade da pendência. A cor não é enfeite: numa fila sem previsão de entrega, o tempo
+ * parado é o único sinal de urgência, e 200 dias precisam saltar de uma tabela de 50
+ * linhas. Faixas alinhadas ao uso do setor (1 mês / 3 meses).
+ */
+function DaysOpen({ days }: { days: number }) {
+  const tone =
+    days >= 90 ? "text-rose-600 font-bold" : days >= 30 ? "text-orange-600 font-semibold" : "text-zinc-700";
+  return (
+    <span className={tone} title={`${days.toLocaleString("pt-BR")} dia(s) desde a requisição`}>
+      {days.toLocaleString("pt-BR")}
+    </span>
+  );
+}
+
 function ClassificationCell({ value }: { value: string | null }) {
   return (
     <td className="px-2 py-2 max-w-[130px] truncate" title={value ?? undefined}>

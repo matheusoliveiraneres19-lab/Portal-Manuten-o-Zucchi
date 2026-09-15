@@ -9,6 +9,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { buildDataQualitySummary } from "@/services/shared/data-quality";
+import { getPreventiveOrdersPageData } from "@/services/preventive-orders.service";
 import { emptyDataQualitySummary, type DataQualityNotice, type DataQualitySummary } from "@/types/data-quality";
 import { getCriticalEquipmentsByOrders } from "@/services/critical-equipments.service";
 import { getDerivedAlerts } from "@/services/derived-alerts.service";
@@ -26,6 +27,7 @@ import type {
   DatabaseDashboardData,
   DashboardKPI,
   DashboardPeriod,
+  PreventiveAdherenceHighlight,
   DashboardPeriodInput,
   HomeKpisData,
   KPIComparison,
@@ -328,6 +330,7 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     topCriticalEquipments,
     pendingPurchases,
     criticalAlerts,
+    preventiveAdherence,
     pcFactoryCritical
   ] = await Promise.all([
     getHomeKpis(),
@@ -336,6 +339,8 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     getTopCriticalEquipments(period),
     getPendingPurchases(),
     getDashboardCriticalAlerts(period),
+    // MESMO service da aba Preventivas Programadas — a home não recalcula aderência.
+    getPreventiveAdherenceHighlight(pcFactoryParams),
     // Máquinas abaixo da média de disponibilidade do PC-Factory (card Máquinas
     // Críticas). Fonte ÚNICA do card: média, contagem e ranking saem daqui.
     getPcFactoryMachinesBelowAverage(pcFactoryParams)
@@ -362,9 +367,46 @@ export async function getDatabaseDashboardData(periodInput?: DashboardPeriodInpu
     topCriticalEquipments,
     pendingPurchases,
     criticalAlerts,
+    preventiveAdherence,
     pcFactoryCritical,
     dataQuality: await buildHomeDataQuality(period, openClosed.note)
   };
+}
+
+/**
+ * Aderência Preventiva para o destaque da home (FASE 9).
+ *
+ * Delega inteiramente para `getPreventiveOrdersPageData`, o service da aba — inclusive
+ * a meta, que vem das configurações do portal. Aqui só se escolhe a FAIXA (ok/warn/crit)
+ * a partir da meta, que é decisão de apresentação, não de cálculo.
+ *
+ * Falha de banco devolve null e o destaque simplesmente não aparece: a home nunca
+ * mostra aderência inventada.
+ */
+async function getPreventiveAdherenceHighlight(
+  period: { startDate: string; endDate: string }
+): Promise<PreventiveAdherenceHighlight | null> {
+  try {
+    const data = await getPreventiveOrdersPageData({ startDate: period.startDate, endDate: period.endDate });
+    if (data.source !== "database" || data.summary.total === 0) return null;
+
+    const adherence = data.summary.aderencia;
+    const target = data.adherenceTarget;
+    const level: PreventiveAdherenceHighlight["level"] =
+      adherence === null ? "unknown" : adherence >= target ? "ok" : adherence >= target * 0.8 ? "warn" : "crit";
+
+    return {
+      adherence,
+      target,
+      level,
+      closedWithoutExecution: data.summary.fechadasSemExecucao,
+      total: data.summary.total,
+      realizadas: data.summary.realizadas
+    };
+  } catch (error) {
+    console.error("Falha ao carregar aderência preventiva para a home.", error);
+    return null;
+  }
 }
 
 /**
@@ -530,6 +572,7 @@ export function getEmptyDashboardData(): DashboardData {
     pendingPurchases: [],
     alerts: [],
     openClosedNote: null,
+    preventiveAdherence: null,
     dataQuality: emptyDataQualitySummary("Banco de dados — importações do portal"),
     source: "empty",
     period: null
@@ -711,6 +754,7 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       time: item.title,
       icon: index === 0 ? Bell : AlertTriangle
     })),
+    preventiveAdherence: data.preventiveAdherence,
     dataQuality: data.dataQuality,
     openClosedNote: data.openClosedNote,
     source: "database",

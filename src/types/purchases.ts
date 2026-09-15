@@ -367,6 +367,12 @@ export type PurchaseRow = {
   purchaseKind: PurchaseKind;
   /** Dias em atraso (em aberto) ou de atraso no recebimento. */
   delayDays: number | null;
+  /**
+   * Dias corridos desde a requisição até hoje. É a idade da pendência — a única
+   * medida de urgência que existe antes de a requisição virar pedido, já que sem
+   * pedido não há previsão de entrega para comparar. null sem data de requisição.
+   */
+  daysOpen: number | null;
   hasPurchaseOrder: boolean;
   /** Recbconcl = "X". */
   isReceiptConfirmed: boolean;
@@ -391,6 +397,31 @@ export type PurchaseRow = {
   priorityRaw: string | null;
   itemNature: ItemNature;
   requester: string | null;
+};
+
+/**
+ * Quais colunas da tabela têm dado NO RECORTE FILTRADO.
+ *
+ * Em Compras Pendentes várias colunas são estruturalmente vazias: uma requisição sem
+ * pedido não tem fornecedor, previsão nem número de pedido, e no retrato atual
+ * quantidade pendente e valor vêm zerados em 100% das linhas. Renderizá-las produz uma
+ * tabela com faixas inteiras de "—" e "0" — exatamente o que a gestão leu como portal
+ * quebrado. A tabela esconde o que está vazio, e o painel de qualidade explica.
+ *
+ * Medido sobre o conjunto filtrado inteiro, não sobre a página: uma coluna vazia na
+ * página 1 pode ter dado na página 3.
+ */
+export type PurchaseColumnAvailability = {
+  supplier: boolean;
+  expectedDelivery: boolean;
+  purchaseOrder: boolean;
+  quantity: boolean;
+  pendingQuantity: boolean;
+  value: boolean;
+  requisitionLevel: boolean;
+  purchasingGroup: boolean;
+  goodsGroup: boolean;
+  requester: boolean;
 };
 
 export type PaginatedPurchases = {
@@ -707,6 +738,8 @@ export type PurchasesPeriodWindow = {
 export type PendingPurchasesPageData = {
   /** Painel "Qualidade dos dados" da aba (FASE 6). */
   dataQuality: DataQualitySummary;
+  /** Colunas com dado no recorte — as vazias não são renderizadas (FASE 7). */
+  columnAvailability: PurchaseColumnAvailability;
   period: PurchasesPeriodWindow;
   /** KPIs gerenciais da base inteira (não são os cards desta aba). */
   kpis: PurchaseKpis;

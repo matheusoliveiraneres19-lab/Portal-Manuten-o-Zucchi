@@ -1568,15 +1568,31 @@ function resolveRootKey(
 }
 
 /** Setor/galpão = 2º–3º segmentos do TAG (ex.: ZC-SR-G07-... -> "SR-G07"). */
+/**
+ * Setor/galpão derivado do TAG do local de instalação: os segmentos 2 e 3 do padrão
+ * corporativo (ZC-IG-G03-... → "IG-G03"; ZC-AD → "AD").
+ *
+ * O TAG precisa começar pelo prefixo da planta. Sem essa guarda, qualquer código solto
+ * caía na mesma fatia e virava "setor": SATELITE-0045 produzia "0045", COROA-001
+ * produzia "001", BOMBA-MEC72-04 produzia "MEC72-04". O filtro de Setor listava esses
+ * fragmentos ao lado dos setores reais — número de série apresentado como galpão.
+ *
+ * Esses códigos são componentes avulsos sem local de instalação cadastrado; setor vazio
+ * é a leitura correta deles, e o filtro simplesmente não os oferece.
+ */
+const PLANT_TAG_PREFIX = "ZC";
+
 function extractSector(rootTag: string, dataQualityIssue: boolean): string {
   if (dataQualityIssue || !rootTag) {
     return "";
   }
   const segments = rootTag.split("-");
-  if (segments.length < 2) {
+  if (segments.length < 2 || segments[0] !== PLANT_TAG_PREFIX) {
     return "";
   }
-  return segments.slice(1, Math.min(3, segments.length)).join("-");
+  const sector = segments.slice(1, Math.min(3, segments.length)).join("-");
+  // Um setor sempre tem letra (IG, AD, G03...). Só dígitos é número de série.
+  return /[A-Z]/.test(sector) ? sector : "";
 }
 
 /** Família de um componente: 1º segmento alfabético após o número da raiz. */
