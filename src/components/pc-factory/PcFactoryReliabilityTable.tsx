@@ -2,6 +2,7 @@
 
 import { AlertTriangle } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
+import { normalizeMachineName } from "@/utils/technical-object-normalizer";
 import type { PcFactoryReliabilityRow } from "@/types/pc-factory";
 
 type PcFactoryReliabilityTableProps = {
@@ -64,21 +65,39 @@ export function PcFactoryReliabilityTable({ rows, className = "", onSelect }: Pc
                 <th className="py-2 pl-3 text-right" title={HEADER_HINTS.availability}>Disponib.</th>
               </tr>
             </thead>
+            {/* Linha clicável precisa ser alcançável pelo teclado: era só um onClick
+                em <tr>, então quem navega por Tab nunca chegava ao detalhe da
+                máquina. Enter e Espaço abrem, e o foco fica visível. */}
             <tbody>
               {data.map((row) => (
                 <tr
                   key={row.machineName}
                   onClick={() => onSelect?.(row.machineName)}
-                  className={`border-b border-zinc-100 text-zinc-800 transition last:border-0 ${
-                    onSelect ? "cursor-pointer hover:bg-gold/10" : ""
+                  onKeyDown={(event) => {
+                    if (!onSelect) return;
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelect(row.machineName);
+                    }
+                  }}
+                  tabIndex={onSelect ? 0 : undefined}
+                  role={onSelect ? "button" : undefined}
+                  aria-label={onSelect ? `Ver detalhes de ${row.machineName}` : undefined}
+                  className={`border-b border-zinc-100 text-zinc-800 transition duration-200 ease-premium last:border-0 ${
+                    onSelect
+                      ? "cursor-pointer hover:bg-gold/10 focus-visible:bg-gold/10 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-gold"
+                      : ""
                   }`}
                 >
+                  {/* Nome normalizado só para LEITURA (FASE 3). O agrupamento e o
+                      clique continuam usando `row.machineName` cru — a normalização
+                      arruma grafia, não identidade de ativo. */}
                   <td className="max-w-[220px] truncate py-2 pr-3 font-semibold" title={row.dataQualityIssue ?? row.machineName}>
                     <span className="inline-flex items-center gap-1.5">
                       {row.dataQualityIssue ? (
                         <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-gold" aria-label={row.dataQualityIssue} />
                       ) : null}
-                      <span className="truncate">{row.machineName}</span>
+                      <span className="truncate">{normalizeMachineName(row.machineName) || row.machineName}</span>
                     </span>
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{row.failureEvents.toLocaleString("pt-BR")}</td>
@@ -115,7 +134,13 @@ function formatPercent(value: number | null): string {
   return `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 }
 
-/** Verde ≥ 90%, âmbar 70-90%, vermelho < 70% (metas usuais de disponibilidade). */
+/**
+ * Verde ≥ 90%, âmbar 70-90%, vermelho < 70% (metas usuais de disponibilidade).
+ *
+ * O vermelho e o âmbar ganharam borda e peso: num fundo claro, só o preenchimento a
+ * 15% deixava a faixa crítica com contraste parecido com o da faixa boa — que é
+ * justamente o oposto do que a tabela precisa comunicar de relance.
+ */
 /**
  * Composição das Paradas da máquina, para a célula não ser um número sem origem.
  * Corretiva e Planejada aparecem separadas justamente porque só a corretiva entra
@@ -124,7 +149,7 @@ function formatPercent(value: number | null): string {
 function downtimeBreakdown(row: PcFactoryReliabilityRow): string {
   const h = (value: number) => `${value.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} h`;
   return [
-    `Composição das Paradas — ${row.machineName}`,
+    `Composição das Paradas — ${normalizeMachineName(row.machineName) || row.machineName}`,
     `Reparo corretivo (Mec. + Elét. + Autom. + Terceiros): ${h(row.repairHours)}`,
     `Manutenção Planejada: ${h(row.plannedMaintenanceHours)}`,
     `Aguardando Manutenção: ${h(row.waitingMaintenanceHours)}`,
@@ -140,7 +165,7 @@ function downtimeBreakdown(row: PcFactoryReliabilityRow): string {
 function availabilityBreakdown(row: PcFactoryReliabilityRow): string {
   const h = (value: number) => `${value.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h`;
   return [
-    `Disponibilidade — ${row.machineName}`,
+    `Disponibilidade — ${normalizeMachineName(row.machineName) || row.machineName}`,
     `LOADTIME: ${h(row.loadTimeHours)}  (carga ${h(row.plannedHours)} − setup ${h(row.plannedStopHours)})`,
     `Manutenção: ${h(row.maintenanceHours)}`,
     `Aguardando: ${h(row.waitingMaintenanceHours)}`,
@@ -151,8 +176,8 @@ function availabilityBreakdown(row: PcFactoryReliabilityRow): string {
 }
 
 function availabilityClass(value: number | null): string {
-  if (value === null) return "bg-zinc-200 text-zinc-600";
-  if (value >= 90) return "bg-success/15 text-success-strong";
-  if (value >= 70) return "bg-gold/20 text-gold-deep";
-  return "bg-danger/15 text-danger";
+  if (value === null) return "border border-zinc-300 bg-zinc-100 text-zinc-600";
+  if (value >= 90) return "border border-success/30 bg-success/15 text-success-strong";
+  if (value >= 70) return "border border-gold/45 bg-gold/25 text-gold-deep";
+  return "border border-danger/50 bg-danger/20 font-extrabold text-danger";
 }

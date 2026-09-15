@@ -61,6 +61,151 @@ function pickCodeToken(chunk: string): string {
  * seguida do código); depois procura um token hifenizado no texto. Retorna ""
  * quando nada casa.
  */
+/* ------------------------------------------------------------------ */
+/* Nome de máquina/recurso — exibição e agrupamento (FASE 3)          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Siglas e nomes próprios que precisam sobreviver à normalização de caixa.
+ * "BM" viraria "Bm", "Skystone" viraria "SKYSTONE" — os dois erros descaracterizam
+ * o nome que o time usa no chão de fábrica.
+ */
+const MACHINE_NAME_TOKENS: Record<string, string> = {
+  bm: "BM",
+  g03: "G03",
+  g04: "G04",
+  g05: "G05",
+  g07: "G07",
+  g08: "G08",
+  g09: "G09",
+  gasp: "Gasp",
+  gaspari: "Gaspari",
+  skystone: "Skystone",
+  simec: "Simec",
+  breton: "Breton",
+  keda: "Keda",
+  bidese: "Bidese",
+  pcm: "PCM",
+  eta: "ETA"
+};
+
+/**
+ * Erros de grafia conhecidos da base, corrigidos SÓ na exibição.
+ *
+ * "Multfio" (sem o i) existe em 5 dos 83 recursos do PC-Factory e é digitação, não
+ * outra máquina. Corrigir aqui evita que a mesma família apareça escrita de dois
+ * jeitos na mesma lista — mas não altera o valor gravado nem a chave de agrupamento.
+ */
+// Sem \b no fim: o nome legado vem colado ao número ("MULTFIO3"), e não existe
+// fronteira de palavra entre letra e dígito.
+const MACHINE_NAME_FIXES: Array<[RegExp, string]> = [[/\bmultfio/gi, "Multifio"]];
+
+/**
+ * NOME DE MÁQUINA NORMALIZADO PARA EXIBIÇÃO.
+ *
+ * Corrige o que é ruído de digitação e só isso: espaços duplicados, espaçamento do
+ * hífen ("Multfio 07 -Skystone" → "Multifio 07 - Skystone"), caixa de nomes legados
+ * em CAIXA ALTA ("TEAR03" → "Tear03") e a grafia "Multfio". Siglas e nomes próprios
+ * (BM, Gasp, Skystone, Simec, G07...) são preservados.
+ *
+ * NÃO funde máquinas: "MULTFIO3" e "Multifio 03 - BM" continuam sendo dois recursos
+ * distintos depois disto. Fundir exigiria uma chave técnica confiável, e o
+ * `resourceCode` do PC-Factory está 100% nulo na base atual — casar por nome seria
+ * adivinhação, e adivinhar identidade de ativo é pior que exibir dois nomes.
+ *
+ * Uso: rótulo de filtro, título de gráfico, célula de tabela. Para agrupar, use
+ * `getMachineCanonicalKey`.
+ */
+export function normalizeMachineName(value: unknown): string {
+  if (typeof value !== "string") return "";
+
+  let name = value.replace(/\s+/g, " ").trim();
+  if (!name) return "";
+
+  for (const [pattern, replacement] of MACHINE_NAME_FIXES) {
+    name = name.replace(pattern, replacement);
+  }
+
+  // Hífen separador ganha espaço dos dois lados; hífen dentro de código não.
+  name = name.replace(/\s*-\s*/g, (match, offset: number) => {
+    const antes = name[offset - 1];
+    const depois = name[offset + match.length];
+    const colado = /[A-Za-z0-9]/.test(antes ?? "") && /[A-Za-z0-9]/.test(depois ?? "");
+    // "LR03-G08" (sem espaço na origem) fica como está; "Multifio 04 - BM" idem.
+    return colado && !/\s/.test(match) ? "-" : " - ";
+  });
+
+  return name
+    .split(" ")
+    .map((token) => {
+      const chave = token.toLowerCase();
+      if (MACHINE_NAME_TOKENS[chave]) return MACHINE_NAME_TOKENS[chave];
+      // Só normaliza a caixa de tokens inteiramente maiúsculos e alfabéticos:
+      // "TEAR03" → "Tear03"; "LR03-G08" e "PZ-13S" ficam como estão (têm hífen/número).
+      if (/^[A-ZÁÂÃÀÉÊÍÓÔÕÚÇ]{3,}\d*$/.test(token)) {
+        return token.charAt(0) + token.slice(1).toLowerCase();
+      }
+      return token;
+    })
+    .join(" ");
+}
+
+/** Um registro que identifica uma máquina: código técnico e/ou nome. */
+export type MachineIdentifiable = {
+  resourceCode?: string | null;
+  resourceName?: string | null;
+  equipmentCode?: string | null;
+  equipmentName?: string | null;
+};
+
+/**
+ * CHAVE TÉCNICA da máquina, para agrupar.
+ *
+ * Prioridade: código do recurso/equipamento quando existir (é a identidade real do
+ * ativo no SAP/PC-Factory); só na ausência dele cai para o nome normalizado.
+ *
+ * A distinção importa: o nome muda de grafia entre importações, o código não. Onde
+ * houver código, agrupar por nome é que produz as duplicidades que a gestão viu.
+ */
+export function getMachineCanonicalKey(record: MachineIdentifiable): string {
+  const code = normalizeTechnicalObjectCode(record.resourceCode ?? record.equipmentCode ?? "");
+  if (code) return code;
+
+  return normalizeMachineName(record.resourceName ?? record.equipmentName ?? "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Nome para MOSTRAR: normalizado, com o valor bruto como último recurso. */
+export function getMachineDisplayName(record: MachineIdentifiable): string {
+  const raw = record.resourceName ?? record.equipmentName ?? "";
+  return normalizeMachineName(raw) || raw.trim() || "Não informado";
+}
+
+/**
+ * Rotula uma lista de máquinas sem criar rótulos ambíguos.
+ *
+ * Se dois nomes distintos normalizarem para o MESMO rótulo, os dois voltam ao valor
+ * bruto — duas linhas idênticas num filtro são piores que duas grafias diferentes,
+ * porque o usuário não tem como saber qual escolher.
+ */
+export function labelMachineNames(rawNames: string[]): Map<string, string> {
+  const porRotulo = new Map<string, string[]>();
+  for (const raw of rawNames) {
+    const rotulo = getMachineDisplayName({ resourceName: raw });
+    porRotulo.set(rotulo, [...(porRotulo.get(rotulo) ?? []), raw]);
+  }
+
+  const resultado = new Map<string, string>();
+  for (const [rotulo, brutos] of Array.from(porRotulo.entries())) {
+    for (const bruto of brutos) {
+      resultado.set(bruto, brutos.length > 1 ? bruto : rotulo);
+    }
+  }
+  return resultado;
+}
+
 export function extractTechnicalObjectCode(value: string | null | undefined): string {
   if (!value) {
     return "";

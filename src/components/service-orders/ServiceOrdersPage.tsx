@@ -30,6 +30,8 @@ import { formatPeriodRange } from "@/utils/period";
 import { MultiSelectFilter } from "@/components/ui/MultiSelectFilter";
 import { DateRangeFilter } from "@/components/service-orders/filters/DateRangeFilter";
 import { ActiveFilterChips, type ActiveFilterChip } from "@/components/service-orders/filters/ActiveFilterChips";
+import { ServiceOrderCharts, ServiceOrderKpis } from "@/components/service-orders/ServiceOrderDashboardPanels";
+import { DataQualityPanel } from "@/components/ui/DataQualityPanel";
 
 type ServiceOrdersPageProps = {
   data: ServiceOrdersPageData;
@@ -268,6 +270,19 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
       />
 
       <ActiveFilterChips chips={chips} onClearAll={clearFilters} />
+
+      {/* Dashboard gerencial (FASE 10) — entre os filtros e a tabela. Os números saem
+          do MESMO recorte da tabela abaixo, então cards, gráficos e lista não podem
+          discordar. Some quando o recorte não tem nenhuma ordem, para a tela vazia não
+          exibir sete cards zerados. */}
+      {data.dashboard.total > 0 ? (
+        <>
+          <ServiceOrderKpis dashboard={data.dashboard} />
+          <ServiceOrderCharts dashboard={data.dashboard} />
+        </>
+      ) : null}
+
+      <DataQualityPanel quality={data.dataQuality} />
 
       <ServiceOrdersTable
         groups={groupedOrders}

@@ -84,13 +84,25 @@ export function CriticalEquipmentTable({ items, onSelect }: CriticalEquipmentTab
               <th className="px-3 py-2.5" aria-label="Detalhes" />
             </tr>
           </thead>
+          {/* Mesma correção da tabela do PC-Factory: <tr> com onClick não era
+              alcançável por teclado, então o detalhe do equipamento ficava fora de
+              alcance para quem navega por Tab. */}
           <tbody>
             {items.map((item) => (
               <tr
                 key={`${item.id}-${item.position}`}
                 onClick={() => onSelect(item.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelect(item.id);
+                  }
+                }}
+                tabIndex={0}
+                role="button"
                 title="Ver detalhes do equipamento"
-                className="cursor-pointer border-b border-zinc-100 transition hover:bg-gold/[0.06]"
+                aria-label={`Ver detalhes de ${item.equipmentName}`}
+                className="cursor-pointer border-b border-zinc-100 transition duration-200 ease-premium hover:bg-gold/[0.06] focus-visible:bg-gold/10 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-gold"
               >
                 <td className="px-3 py-2.5 font-bold text-zinc-500">{String(item.position).padStart(2, "0")}</td>
                 <td className="max-w-[220px] px-3 py-2.5">

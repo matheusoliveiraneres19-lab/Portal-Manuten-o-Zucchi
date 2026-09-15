@@ -1,3 +1,4 @@
+import type { DataQualitySummary } from "@/types/data-quality";
 export type ServiceOrderStatusLabel =
   | "ABERTA"
   | "LIBERADA"
@@ -34,6 +35,10 @@ export type ServiceOrdersPageData = {
   totalPages: number;
   filterOptions: ServiceOrderFilterOptions;
   summary: ServiceOrdersSummary;
+  /** Cards e gráficos gerenciais do recorte filtrado (FASE 10). */
+  dashboard: ServiceOrderDashboard;
+  /** Painel "Qualidade dos dados" da aba. */
+  dataQuality: DataQualitySummary;
   source: ServiceOrdersSource;
   /** Data (ISO) da última importação de Ordens de Serviço, se houver. */
   lastImportAt: string | null;
@@ -107,6 +112,73 @@ export type ServiceOrderFilterOptions = {
     equipments: Record<string, number>;
     statuses: Record<string, number>;
   };
+};
+
+/** Uma fatia nomeada com contagem (gráficos de barras/rosca da aba). */
+export type ServiceOrderSlice = {
+  name: string;
+  value: number;
+};
+
+/** Um ponto da série mensal de abertas x fechadas. */
+export type ServiceOrderMonthlyPoint = {
+  /** Rótulo curto do mês (ex.: "ago/26"). */
+  name: string;
+  abertas: number;
+  fechadas: number;
+};
+
+/**
+ * Campos do SAP que o dashboard precisa e que podem não vir na planilha.
+ * Quando false, o indicador correspondente NÃO é renderizado — vira aviso.
+ */
+export type ServiceOrderFieldAvailability = {
+  /** `planningActivityType` preenchido em ao menos uma OS do recorte. */
+  planningActivityType: boolean;
+  /** `planningGroup` preenchido em ao menos uma OS do recorte. */
+  planningGroup: boolean;
+  /**
+   * Data de vencimento planejada. SEMPRE false: o model `ServiceOrder` não tem o
+   * campo. Existe para o card "OS em atraso" poder declarar por que não aparece,
+   * em vez de exibir "n/d" — mesma decisão tomada em Preventivas Programadas.
+   */
+  dueDate: boolean;
+};
+
+/**
+ * DASHBOARD GERENCIAL da aba Ordens de Serviço (FASE 10).
+ *
+ * Calculado sobre o MESMO recorte filtrado da tabela — uma única varredura, para os
+ * cards e a tabela não poderem discordar. Antes o resumo da aba contava a base
+ * inteira enquanto a tabela mostrava o filtro, e os dois números não batiam.
+ */
+export type ServiceOrderDashboard = {
+  /** Total de OS no recorte — é o mesmo `total` da tabela. */
+  total: number;
+  abertas: number;
+  fechadas: number;
+  /** Soma de `workedHours` no recorte. */
+  workedHours: number;
+  /**
+   * Tempo médio de execução (dias corridos entre abertura e fechamento), só sobre
+   * as OS fechadas que têm as DUAS datas. null quando nenhuma tem.
+   */
+  averageExecutionDays: number | null;
+  /** Quantas OS fechadas entraram na média acima (transparência do denominador). */
+  executionSampleSize: number;
+  topEquipment: ServiceOrderSlice | null;
+  topResponsible: ServiceOrderSlice | null;
+
+  openClosedByMonth: ServiceOrderMonthlyPoint[];
+  byStatus: ServiceOrderSlice[];
+  byPlanningGroup: ServiceOrderSlice[];
+  byActivityType: ServiceOrderSlice[];
+  /** Corretivas x planejadas pela regra oficial do portal (PL-/PV- no título). */
+  correctiveVsPlanned: ServiceOrderSlice[];
+  topEquipments: ServiceOrderSlice[];
+  topResponsibles: ServiceOrderSlice[];
+
+  fieldAvailability: ServiceOrderFieldAvailability;
 };
 
 export type ServiceOrdersSummary = {

@@ -1,10 +1,14 @@
 import { ImportType, MaintenanceArea, Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
-import { excludeInvalidTestEquipmentWhere } from "@/utils/service-order-classification";
-import { optionsFromGroups } from "@/utils/filter-options";
+import { excludeInvalidTestEquipmentWhere, isProgrammedPreventiveOrder } from "@/utils/service-order-classification";
+import { hiddenFilterLabels, optionsFromGroups } from "@/utils/filter-options";
+import { buildDataQualitySummary } from "@/services/shared/data-quality";
+import type { DataQualityNotice, DataQualitySummary } from "@/types/data-quality";
 import type {
+  ServiceOrderDashboard,
   ServiceOrderFilterOptions,
+  ServiceOrderSlice,
   ServiceOrderListItem,
   ServiceOrdersPageData,
   ServiceOrdersQueryParams,
@@ -146,9 +150,15 @@ export async function getServiceOrderFilterOptions(
   }
 }
 
-export async function getServiceOrdersSummary(): Promise<ServiceOrdersSummary> {
-  // Base compartilhada: exclui registros de teste sem equipamento de todas as contagens.
-  const base = excludeInvalidTestEquipmentWhere();
+/**
+ * Resumo por status do RECORTE FILTRADO.
+ *
+ * Recebia `()` e contava a base inteira, enquanto a tabela logo abaixo mostrava o
+ * filtro: com um período aplicado, os cards falavam de 19.780 ordens e a tabela de
+ * algumas centenas. Agora usa o MESMO where da tabela.
+ */
+export async function getServiceOrdersSummary(params: ServiceOrdersQueryParams = {}): Promise<ServiceOrdersSummary> {
+  const base = buildServiceOrderWhere(params);
   try {
     const [
       total,
@@ -191,9 +201,11 @@ export async function getServiceOrdersPageData(params: ServiceOrdersQueryParams 
     getServiceOrders(params),
     // Os MESMOS params da tela: as opções saem do recorte, não da tabela inteira.
     getServiceOrderFilterOptions(params),
-    getServiceOrdersSummary(),
+    getServiceOrdersSummary(params),
     getLastServiceOrderImportAt()
   ]);
+
+  const dashboard = await getServiceOrderDashboard(params);
 
   return {
     orders: orders.data,
@@ -203,9 +215,277 @@ export async function getServiceOrdersPageData(params: ServiceOrdersQueryParams 
     totalPages: orders.totalPages,
     filterOptions,
     summary,
+    dashboard,
+    dataQuality: await buildServiceOrderDataQuality(dashboard, filterOptions),
     source: orders.source,
     lastImportAt
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Dashboard gerencial (FASE 10)                                      */
+/* ------------------------------------------------------------------ */
+
+/** Quantos itens entram nos rankings de equipamento/responsável. */
+const RANKING_SIZE = 10;
+
+/** Status que contam como "em aberto" na aba. */
+const OPEN_STATUSES: ServiceOrderStatus[] = [
+  ServiceOrderStatus.ABERTA,
+  ServiceOrderStatus.LIBERADA,
+  ServiceOrderStatus.EM_ANDAMENTO,
+  ServiceOrderStatus.AGUARDANDO_MATERIAL
+];
+
+const STATUS_LABEL: Record<ServiceOrderStatus, string> = {
+  ABERTA: "Aberta",
+  LIBERADA: "Liberada",
+  EM_ANDAMENTO: "Em andamento",
+  AGUARDANDO_MATERIAL: "Aguardando material",
+  FECHADA: "Fechada",
+  CANCELADA: "Cancelada"
+};
+
+/**
+ * CARDS E GRÁFICOS da aba Ordens de Serviço, sobre o recorte filtrado.
+ *
+ * UMA varredura alimenta tudo. É isso que garante o critério da fase — "todos os
+ * números devem bater com a tabela filtrada": cards, gráficos e tabela saem do mesmo
+ * `where` e da mesma lista, não de contagens paralelas que divergem no primeiro
+ * ajuste de regra.
+ *
+ * Nada é derivado de campo inexistente. "OS em atraso" não existe aqui porque o model
+ * não tem data de vencimento planejada, e "Tipo de atividade" sai vazio enquanto a
+ * planilha não trouxer a coluna — os dois viram aviso na tela, não número inventado.
+ * Corretiva x planejada usa `isProgrammedPreventiveOrder`, a MESMA regra validada da
+ * home, de Preventivas e de Equipamentos Críticos.
+ */
+export async function getServiceOrderDashboard(
+  params: ServiceOrdersQueryParams = {}
+): Promise<ServiceOrderDashboard> {
+  try {
+    const orders = await prisma.serviceOrder.findMany({
+      where: buildServiceOrderWhere(params),
+      select: {
+        status: true,
+        title: true,
+        openedAt: true,
+        closedAt: true,
+        workedHours: true,
+        equipmentName: true,
+        equipmentCode: true,
+        responsibleName: true,
+        responsibleId: true,
+        planningGroup: true,
+        planningActivityType: true
+      }
+    });
+
+    let abertas = 0;
+    let fechadas = 0;
+    let workedHours = 0;
+    let execucaoDias = 0;
+    let execucaoAmostra = 0;
+    let corretivas = 0;
+    let planejadas = 0;
+    let temGrupo = false;
+    let temTipoAtividade = false;
+
+    const porStatus = new Map<ServiceOrderStatus, number>();
+    const porMes = new Map<string, { abertas: number; fechadas: number }>();
+    const porGrupo = new Map<string, number>();
+    const porTipoAtividade = new Map<string, number>();
+    const porEquipamento = new Map<string, number>();
+    const porResponsavel = new Map<string, number>();
+
+    const bucket = (chave: string) => {
+      const atual = porMes.get(chave);
+      if (atual) return atual;
+      const novo = { abertas: 0, fechadas: 0 };
+      porMes.set(chave, novo);
+      return novo;
+    };
+
+    for (const order of orders) {
+      porStatus.set(order.status, (porStatus.get(order.status) ?? 0) + 1);
+      if (OPEN_STATUSES.includes(order.status)) abertas += 1;
+      if (order.status === ServiceOrderStatus.FECHADA) fechadas += 1;
+
+      workedHours += order.workedHours ?? 0;
+
+      // Abertas pelo mês de ABERTURA, fechadas pelo mês de FECHAMENTO — é assim que a
+      // home já publica a série, e as duas telas precisam contar a mesma coisa.
+      if (order.openedAt) bucket(monthKey(order.openedAt)).abertas += 1;
+      if (order.closedAt) bucket(monthKey(order.closedAt)).fechadas += 1;
+
+      if (order.openedAt && order.closedAt && order.closedAt >= order.openedAt) {
+        execucaoDias += (order.closedAt.getTime() - order.openedAt.getTime()) / 86_400_000;
+        execucaoAmostra += 1;
+      }
+
+      if (isProgrammedPreventiveOrder(order)) planejadas += 1;
+      else corretivas += 1;
+
+      const grupo = order.planningGroup?.trim();
+      if (grupo) {
+        temGrupo = true;
+        porGrupo.set(grupo, (porGrupo.get(grupo) ?? 0) + 1);
+      }
+
+      const tipo = order.planningActivityType?.trim();
+      if (tipo) {
+        temTipoAtividade = true;
+        porTipoAtividade.set(tipo, (porTipoAtividade.get(tipo) ?? 0) + 1);
+      }
+
+      const equipamento = formatTechnicalObject(order.equipmentName, order.equipmentCode);
+      if (equipamento !== "-") porEquipamento.set(equipamento, (porEquipamento.get(equipamento) ?? 0) + 1);
+
+      const responsavel = order.responsibleName?.trim() || "SEM RESPONSÁVEL";
+      porResponsavel.set(responsavel, (porResponsavel.get(responsavel) ?? 0) + 1);
+    }
+
+    const topEquipments = topSlices(porEquipamento, RANKING_SIZE);
+    const topResponsibles = topSlices(porResponsavel, RANKING_SIZE);
+
+    return {
+      total: orders.length,
+      abertas,
+      fechadas,
+      workedHours: Math.round(workedHours * 10) / 10,
+      averageExecutionDays: execucaoAmostra > 0 ? Math.round((execucaoDias / execucaoAmostra) * 10) / 10 : null,
+      executionSampleSize: execucaoAmostra,
+      topEquipment: topEquipments[0] ?? null,
+      topResponsible: topResponsibles[0] ?? null,
+
+      openClosedByMonth: Array.from(porMes.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([chave, valores]) => ({ name: monthLabel(chave), ...valores })),
+      byStatus: Array.from(porStatus.entries())
+        .map(([status, value]) => ({ name: STATUS_LABEL[status] ?? status, value }))
+        .sort((a, b) => b.value - a.value),
+      byPlanningGroup: topSlices(porGrupo, RANKING_SIZE),
+      byActivityType: topSlices(porTipoAtividade, RANKING_SIZE),
+      correctiveVsPlanned: [
+        { name: "Corretivas", value: corretivas },
+        { name: "Planejadas (PL/PV)", value: planejadas }
+      ],
+      topEquipments,
+      topResponsibles,
+
+      fieldAvailability: {
+        planningActivityType: temTipoAtividade,
+        planningGroup: temGrupo,
+        // O model ServiceOrder não tem data de vencimento planejada. Constante por
+        // enquanto, mas declarada como campo para o dia em que a coluna existir.
+        dueDate: false
+      }
+    };
+  } catch (error) {
+    console.error("Falha ao montar o dashboard de Ordens de Serviço.", error);
+    return getEmptyDashboard();
+  }
+}
+
+/** Chave YYYY-MM (UTC) para agrupar por mês. */
+function monthKey(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** "2026-08" → "ago/26". */
+function monthLabel(key: string): string {
+  const [ano, mes] = key.split("-").map(Number);
+  const rotulo = new Date(Date.UTC(ano, mes - 1, 1))
+    .toLocaleDateString("pt-BR", { month: "short", timeZone: "UTC" })
+    .replace(".", "");
+  return `${rotulo}/${String(ano).slice(2)}`;
+}
+
+/** Maiores contagens de um mapa, já no formato dos gráficos. */
+function topSlices(counts: Map<string, number>, limit: number): ServiceOrderSlice[] {
+  return Array.from(counts.entries())
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, limit);
+}
+
+function getEmptyDashboard(): ServiceOrderDashboard {
+  return {
+    total: 0,
+    abertas: 0,
+    fechadas: 0,
+    workedHours: 0,
+    averageExecutionDays: null,
+    executionSampleSize: 0,
+    topEquipment: null,
+    topResponsible: null,
+    openClosedByMonth: [],
+    byStatus: [],
+    byPlanningGroup: [],
+    byActivityType: [],
+    correctiveVsPlanned: [],
+    topEquipments: [],
+    topResponsibles: [],
+    fieldAvailability: { planningActivityType: false, planningGroup: false, dueDate: false }
+  };
+}
+
+/** Painel "Qualidade dos dados" da aba. */
+async function buildServiceOrderDataQuality(
+  dashboard: ServiceOrderDashboard,
+  filterOptions: ServiceOrderFilterOptions
+): Promise<DataQualitySummary> {
+  const missingFields: string[] = [];
+  const notices: DataQualityNotice[] = [];
+
+  if (!dashboard.fieldAvailability.planningActivityType) {
+    missingFields.push("Tipo de Atividade");
+    notices.push({
+      id: "tipo-atividade",
+      message: "Indicador \"OS por tipo de atividade\" indisponível: a base importada não possui esse campo.",
+      detail:
+        "Reimporte a planilha de Ordens com a coluna de tipo de atividade para habilitar o gráfico. Nenhum valor é derivado no lugar dela.",
+      tone: "info"
+    });
+  }
+
+  if (!dashboard.fieldAvailability.dueDate) {
+    missingFields.push("Data de vencimento planejada");
+    notices.push({
+      id: "sem-vencimento",
+      message: "Card \"OS em atraso\" indisponível: a base atual não possui data de vencimento planejada.",
+      detail:
+        "As ordens trazem abertura e fechamento, mas não a data-limite programada — sem ela, atraso não é calculável. O card foi retirado em vez de exibir \"n/d\".",
+      tone: "info"
+    });
+  }
+
+  return buildDataQualitySummary({
+    importType: ImportType.ORDENS_SERVICO,
+    analyzedRecords: dashboard.total,
+    validRecords: dashboard.total,
+    ignoredRecords: 0,
+    missingFields,
+    hiddenFilters: hiddenFilterLabels([
+      { label: "Centro / área de trabalho", options: filterOptions.areas },
+      { label: "Grupo de planejamento", options: filterOptions.planningGroups },
+      { label: "Responsável", options: filterOptions.responsibles },
+      { label: "Status da ordem", options: filterOptions.statuses }
+    ]),
+    removedFilterOptions: 0,
+    sourceLabel: "Banco de dados — importação de Ordens de Manutenção (SAP PM), sem registros de teste",
+    metrics: [
+      {
+        label: "Tempo médio de execução",
+        value:
+          dashboard.averageExecutionDays === null
+            ? "—"
+            : `${dashboard.averageExecutionDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dias`,
+        hint: `sobre ${dashboard.executionSampleSize.toLocaleString("pt-BR")} OS fechadas com as duas datas`
+      }
+    ],
+    notices
+  });
 }
 
 async function getLastServiceOrderImportAt(): Promise<string | null> {

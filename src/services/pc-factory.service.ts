@@ -4,6 +4,7 @@ import { PcFactoryStatusCategory, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { overlapHours, splitPcFactoryRecordByMonth } from "@/utils/pc-factory-segments";
 import { hiddenFilterLabels, optionsFromGroups } from "@/utils/filter-options";
+import { labelMachineNames } from "@/utils/technical-object-normalizer";
 import { PC_FACTORY_COLORS, PC_FACTORY_MANAGEMENT_GROUP_COLORS } from "@/constants/pc-factory-colors";
 import {
   PC_FACTORY_CATEGORY_COLORS,
@@ -1634,8 +1635,18 @@ export async function getPcFactoryFilterOptions(params: PcFactoryQueryParams = {
 
   const contagemPorCategoria = new Map(categories.map((row) => [row.statusCategory, readGroupCount(row._count)]));
 
+  // O VALOR continua sendo o nome cru — é a chave de agrupamento validada do módulo
+  // (resourceCode está 100% nulo, então não há chave técnica alternativa). Só o
+  // RÓTULO é normalizado: "Multfio 07 -Skystone" vira "Multifio 07 - Skystone" na
+  // lista, sem alterar nenhum cálculo. Nomes que colidiriam após normalizar voltam ao
+  // bruto (ver labelMachineNames) — duas linhas idênticas num filtro seriam piores.
+  const rotulos = labelMachineNames(resources.map((row) => row.resourceName));
+
   return {
-    resources: optionsFromGroups(resources, "resourceName"),
+    resources: optionsFromGroups(resources, "resourceName").map((option) => ({
+      ...option,
+      label: rotulos.get(option.value) ?? option.label
+    })),
     productionLines: optionsFromGroups(lines, "productionLine"),
     groupPortals: optionsFromGroups(groups, "groupPortal"),
     sectors: optionsFromGroups(sectors, "sector"),

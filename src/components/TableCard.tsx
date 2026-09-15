@@ -111,9 +111,9 @@ export function TableCard({
 function PriorityBadge({ priority }: { priority: string }) {
   const style =
     priority === "N1"
-      ? "border-danger/40 bg-danger/10 text-danger"
+      ? "border-danger/60 bg-danger/20 font-extrabold text-danger"
       : priority === "N2"
-        ? "border-gold/40 bg-gold/15 text-gold-deep"
+        ? "border-gold/50 bg-gold/25 text-gold-deep"
         : priority === "N3" || priority === "N4"
           ? "border-black/10 bg-black/[0.04] text-neutralized-strong"
           : "border-transparent bg-transparent text-neutralized";
