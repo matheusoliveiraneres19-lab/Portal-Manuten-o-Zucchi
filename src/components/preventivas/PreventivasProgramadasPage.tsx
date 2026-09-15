@@ -45,6 +45,7 @@ import {
 import { OrderDetailDrawer, RulesModal } from "@/components/preventivas/PreventivasModals";
 import { FieldNotice } from "@/components/ui/FieldNotice";
 import { DataQualityPanel } from "@/components/ui/DataQualityPanel";
+import { MetricAuditPanel } from "@/components/ui/MetricAuditPanel";
 
 type AppliedFilters = {
   startDate: string;
@@ -261,6 +262,44 @@ export function PreventivasProgramadasPage({ data, applied }: PreventivasProgram
             ]}
           />
         ) : null}
+
+        {/*
+          AUDITORIA DA ADERÊNCIA (FASE 4). Mesmo padrão que resolveu a desconfiança no
+          PC-Factory: a conta aberta, com a base considerada e a regra que separa
+          realizada de não realizada. Não recalcula nada — lê os números que o service
+          já usou para produzir o indicador exibido acima.
+        */}
+        <MetricAuditPanel
+          className="mt-4"
+          title="Auditoria da Aderência Preventiva"
+          description="Os números exatos que entram no indicador, para conferir a apuração sem sair da tela."
+          lines={[
+            { label: "Total PL/PV consideradas", value: intFmt.format(summary.total), hint: "base do cálculo" },
+            { label: "Realizadas", value: intFmt.format(summary.realizadas) },
+            { label: "Não realizadas", value: intFmt.format(summary.naoRealizadas) },
+            {
+              label: "— das quais fechadas sem execução",
+              value: intFmt.format(summary.fechadasSemExecucao),
+              hint: "fechadas no SAP, sem trabalho real"
+            },
+            { label: "Horas apontadas no recorte", value: `${summary.horasApontadas.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} h` },
+            {
+              label: "= Aderência",
+              value: summary.aderencia === null ? "—" : `${summary.aderencia.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`,
+              strong: true
+            }
+          ]}
+          formula={{
+            expression: "Aderência Preventiva = OS realizadas ÷ base considerada × 100",
+            target: `Meta ≥ ${data.adherenceTarget}%`,
+            rules: [
+              "Trabalho real > 0,1 h → REALIZADA",
+              "Trabalho real ≤ 0,1 h → NÃO REALIZADA (inclusive quando a OS está fechada no SAP)",
+              "Base considerada = todas as OS PL/PV do recorte filtrado, sem exclusão automática",
+              "É a mesma conta que alimenta o destaque da tela inicial — as duas telas leem o mesmo service"
+            ]
+          }}
+        />
 
         <DataQualityPanel className="mt-4" quality={data.dataQuality} />
 

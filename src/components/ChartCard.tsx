@@ -206,6 +206,11 @@ export function ChartCard({
                 ))}
               </Pie>
               <Tooltip content={<ShareTooltip total={donutTotal} />} />
+              {/*
+                Legenda com VALOR e PERCENTUAL. Só o rótulo ("Corretiva", "Preventiva")
+                obrigava a passar o mouse para saber o peso de cada fatia — e a leitura
+                que interessa nesse gráfico é justamente a proporção.
+              */}
               <Legend
                 layout="vertical"
                 align="right"
@@ -213,6 +218,17 @@ export function ChartCard({
                 iconType="circle"
                 iconSize={8}
                 wrapperStyle={{ fontSize: 12 }}
+                formatter={(value, entry) => {
+                  const amount = Number((entry?.payload as { value?: number } | undefined)?.value ?? 0);
+                  const share = donutTotal > 0 ? (amount / donutTotal) * 100 : 0;
+                  return (
+                    <span className="text-neutralized-strong">
+                      {value}{" "}
+                      <strong className="font-semibold text-ink">{numberPtBr.format(amount)}</strong>{" "}
+                      <span className="text-[11px]">({share.toFixed(1).replace(".", ",")}%)</span>
+                    </span>
+                  );
+                }}
               />
               <text x="42%" y="46%" textAnchor="middle" dominantBaseline="middle" className="fill-neutralized-strong text-[11px]">
                 Total

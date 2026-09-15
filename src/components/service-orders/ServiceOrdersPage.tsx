@@ -32,6 +32,7 @@ import { DateRangeFilter } from "@/components/service-orders/filters/DateRangeFi
 import { ActiveFilterChips, type ActiveFilterChip } from "@/components/service-orders/filters/ActiveFilterChips";
 import { ServiceOrderCharts, ServiceOrderKpis } from "@/components/service-orders/ServiceOrderDashboardPanels";
 import { DataQualityPanel } from "@/components/ui/DataQualityPanel";
+import { MetricAuditPanel } from "@/components/ui/MetricAuditPanel";
 
 type ServiceOrdersPageProps = {
   data: ServiceOrdersPageData;
@@ -281,6 +282,44 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
           <ServiceOrderCharts dashboard={data.dashboard} />
         </>
       ) : null}
+
+      {/* FASE 5: qual campo/status produz cada número. Discreto, fechado por padrão. */}
+      <MetricAuditPanel
+        title="Entenda os indicadores"
+        description="Qual campo do SAP determina cada métrica desta aba. Todos são apurados sobre o recorte filtrado — os mesmos registros da tabela abaixo."
+        lines={[]}
+        definitions={[
+          {
+            term: "OS abertas",
+            detail:
+              "Status da ordem em ABERTA, LIBERADA, EM ANDAMENTO ou AGUARDANDO MATERIAL. Campo: status. Ordens canceladas não entram."
+          },
+          {
+            term: "OS fechadas",
+            detail: "Status da ordem igual a FECHADA. Campo: status."
+          },
+          {
+            term: "Horas apontadas",
+            detail:
+              "Soma de trabalho real (workedHours) das ordens do recorte. É a mesma base usada na aba Equipe de Manutenção — não há apontamento manual em nenhuma das duas."
+          },
+          {
+            term: "Corretivas x planejadas",
+            detail:
+              "PLANEJADA = ordem de plano programado, identificada pelo prefixo PL- ou PV- no título (isProgrammedPreventiveOrder). CORRETIVA = todas as demais ordens válidas do recorte. É a mesma regra da tela inicial, de Preventivas e de Equipamentos Críticos — não existe classificação própria desta aba."
+          },
+          {
+            term: "Tempo médio de execução",
+            detail:
+              "Média de dias corridos entre abertura e fechamento, apenas nas ordens FECHADAS que têm as duas datas. O denominador aparece no card e no painel de qualidade."
+          },
+          {
+            term: "Registros excluídos",
+            detail:
+              "Ordens de teste sem equipamento informado ficam fora de todas as contagens desta aba (regra oficial do portal)."
+          }
+        ]}
+      />
 
       <DataQualityPanel quality={data.dataQuality} />
 

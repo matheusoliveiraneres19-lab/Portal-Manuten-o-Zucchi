@@ -7,6 +7,7 @@ import { RankingList } from "@/components/RankingList";
 import { KpiGrid, type KpiCardData } from "@/components/ui/KpiGrid";
 import { UnavailableIndicator } from "@/components/ui/FieldNotice";
 import { CHART_SERIES, TOOLTIP } from "@/constants/theme";
+import { partialBaseNote } from "@/utils/partial-base";
 import type { ServiceOrderDashboard, ServiceOrderSlice } from "@/types/service-orders";
 
 /**
@@ -185,8 +186,26 @@ function MonthlyCard({ points, className = "" }: { points: ServiceOrderDashboard
       ) : (
         <div className="flex-1 space-y-1.5 overflow-y-auto pr-1">
           {points.map((point) => (
-            <div key={point.name} className="flex items-center gap-2 text-[11px]">
-              <span className="w-14 shrink-0 tabular-nums text-zinc-500">{point.name}</span>
+            <div
+              key={point.name}
+              className={`flex items-center gap-2 text-[11px] ${point.partialBase ? "opacity-70" : ""}`}
+              title={
+                point.partialBase
+                  ? `${point.name}: volume muito abaixo da mediana do histórico — período de implantação da base. Os registros são reais, mas a comparação com os demais meses não é direta.`
+                  : undefined
+              }
+            >
+              <span className="flex w-14 shrink-0 items-center gap-1 tabular-nums text-zinc-500">
+                {point.name}
+                {point.partialBase ? (
+                  <span
+                    aria-label="Período com base parcial"
+                    className="rounded-sm border border-amber-500/50 bg-amber-500/15 px-1 text-[8px] font-bold uppercase text-amber-700"
+                  >
+                    parcial
+                  </span>
+                ) : null}
+              </span>
               <div className="flex flex-1 flex-col gap-0.5">
                 <Bar value={point.abertas} max={max} color={CHART_SERIES.corretiva} label="abertas" />
                 <Bar value={point.fechadas} max={max} color={CHART_SERIES.preventiva} label="fechadas" />
@@ -198,6 +217,13 @@ function MonthlyCard({ points, className = "" }: { points: ServiceOrderDashboard
           ))}
         </div>
       )}
+
+      {points.some((point) => point.partialBase) ? (
+        <p className="mt-3 border-t border-zinc-200 pt-2 text-[10px] leading-snug text-zinc-500">
+          <strong className="font-semibold text-amber-700">Período com base parcial / implantação:</strong>{" "}
+          {partialBaseNote(points.filter((point) => point.partialBase).map((point) => point.name))}
+        </p>
+      ) : null}
     </article>
   );
 }

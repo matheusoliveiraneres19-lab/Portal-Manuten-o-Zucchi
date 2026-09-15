@@ -91,10 +91,21 @@ export type PreventiveAdherenceHighlight = {
   realizadas: number;
 };
 
+/** Gravidade do alerta da home — decide cor, ordem e o contador do banner. */
+export type AlertSeverity = "CRITICO" | "ATENCAO" | "INFORMATIVO";
+
 export type AlertItem = {
   text: string;
   time: string;
   icon: LucideIcon;
+  /**
+   * Gravidade e destino. O alerta deixou de ser texto solto: ele é a porta de
+   * entrada para a aba que o originou, e a gravidade decide se ele sobe para o
+   * banner do topo. Ver buildHomeAlerts.
+   */
+  severity: AlertSeverity;
+  /** Rota da aba de origem, já com o período da home preservado. */
+  href: string;
 };
 
 export type DashboardData = {

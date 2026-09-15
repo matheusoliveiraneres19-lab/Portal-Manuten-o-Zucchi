@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
 import { excludeInvalidTestEquipmentWhere, isProgrammedPreventiveOrder } from "@/utils/service-order-classification";
 import { hiddenFilterLabels, optionsFromGroups } from "@/utils/filter-options";
+import { formatTechnicalObject } from "@/utils/technical-object-normalizer";
+import { detectPartialBaseMonths } from "@/utils/partial-base";
 import { buildDataQualitySummary } from "@/services/shared/data-quality";
 import type { DataQualityNotice, DataQualitySummary } from "@/types/data-quality";
 import type {
@@ -358,9 +360,16 @@ export async function getServiceOrderDashboard(
       topEquipment: topEquipments[0] ?? null,
       topResponsible: topResponsibles[0] ?? null,
 
-      openClosedByMonth: Array.from(porMes.entries())
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([chave, valores]) => ({ name: monthLabel(chave), ...valores })),
+      openClosedByMonth: (() => {
+        // A marcação usa as ABERTURAS do mês, que é o volume que mede a cobertura da
+        // base; fechamentos podem cair em outro mês por natureza do processo.
+        const parciais = detectPartialBaseMonths(
+          new Map(Array.from(porMes.entries()).map(([chave, valores]) => [chave, valores.abertas]))
+        );
+        return Array.from(porMes.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([chave, valores]) => ({ name: monthLabel(chave), ...valores, partialBase: parciais.has(chave) }));
+      })(),
       byStatus: Array.from(porStatus.entries())
         .map(([status, value]) => ({ name: STATUS_LABEL[status] ?? status, value }))
         .sort((a, b) => b.value - a.value),
@@ -737,13 +746,6 @@ function normalizeArea(value: string): MaintenanceArea | null {
   return map[normalized] ?? null;
 }
 
-function formatTechnicalObject(name: string | null, code: string | null) {
-  if (name && code) {
-    return `${name} (${code})`;
-  }
-
-  return name ?? code ?? "-";
-}
 
 function formatPlanningGroup(name: string | null, code: string | null) {
   if (name && code) {

@@ -126,6 +126,12 @@ export type ServiceOrderMonthlyPoint = {
   name: string;
   abertas: number;
   fechadas: number;
+  /**
+   * Mês com volume muito abaixo da mediana do histórico — período de implantação da
+   * base, não queda de manutenção. Marcado, nunca removido: esconder o mês apagaria
+   * registros reais; exibi-lo sem ressalva induz a ler uma queda que não houve.
+   */
+  partialBase: boolean;
 };
 
 /**

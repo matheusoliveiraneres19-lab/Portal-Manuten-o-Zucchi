@@ -55,15 +55,22 @@ function pickCodeToken(chunk: string): string {
   return normalizeTechnicalObjectCode(preferred);
 }
 
-/**
- * Extrai o código técnico (local de instalação) de um texto livre.
- * Prioriza conteúdo entre parênteses (o último parêntese vence, ex.: descrição
- * seguida do código); depois procura um token hifenizado no texto. Retorna ""
- * quando nada casa.
- */
 /* ------------------------------------------------------------------ */
 /* Nome de máquina/recurso — exibição e agrupamento (FASE 3)          */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Rótulo do objeto técnico: "NOME (CÓDIGO)", ou o que existir.
+ *
+ * Morava dentro de service-orders.service. Subiu para cá quando a aba Equipe de
+ * Manutenção passou a agrupar esforço por equipamento: as duas telas precisam
+ * escrever o mesmo equipamento do mesmo jeito, senão o mesmo ativo aparece com dois
+ * rótulos e parece dois.
+ */
+export function formatTechnicalObject(name: string | null, code: string | null): string {
+  if (name && code) return `${name} (${code})`;
+  return name ?? code ?? "-";
+}
 
 /**
  * Siglas e nomes próprios que precisam sobreviver à normalização de caixa.
@@ -206,6 +213,12 @@ export function labelMachineNames(rawNames: string[]): Map<string, string> {
   return resultado;
 }
 
+/**
+ * Extrai o código técnico (local de instalação) de um texto livre.
+ * Prioriza conteúdo entre parênteses (o último parêntese vence, ex.: descrição
+ * seguida do código); depois procura um token hifenizado no texto. Retorna ""
+ * quando nada casa.
+ */
 export function extractTechnicalObjectCode(value: string | null | undefined): string {
   if (!value) {
     return "";

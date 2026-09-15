@@ -7,6 +7,7 @@ import { RankingList } from "@/components/RankingList";
 import { TableCard } from "@/components/TableCard";
 import { DataQualityPanel } from "@/components/ui/DataQualityPanel";
 import { PreventiveAdherenceHighlightCard } from "@/components/dashboard/PreventiveAdherenceHighlightCard";
+import { CriticalAlertsBanner } from "@/components/dashboard/CriticalAlertsBanner";
 import type { DashboardData } from "@/types/dashboard";
 import { formatPeriodRange } from "@/utils/period";
 
@@ -39,6 +40,10 @@ export function DashboardHome({ dashboard }: DashboardHomeProps) {
           </div>
         </div>
       ) : null}
+
+      {/* Alertas críticos acima de tudo: se existe algo crítico, é a primeira coisa
+          que a tela precisa dizer. Some quando não há nenhum. */}
+      <CriticalAlertsBanner alerts={dashboard.alerts} />
 
       {/* Aderência Preventiva ANTES dos KPIs (FASE 9): é o indicador que a gestão
           cobra e estava escondido atrás de um clique na aba Preventivas. Some quando

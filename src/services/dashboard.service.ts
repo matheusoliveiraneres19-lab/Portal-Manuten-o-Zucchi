@@ -1,9 +1,12 @@
-import { AlertStatus, Criticality, ImportType, Priority, ServiceOrderStatus } from "@prisma/client";
+import { AlertStatus, AlertType, Criticality, ImportType, Priority, ServiceOrderStatus } from "@prisma/client";
 import {
+  Activity,
   AlertTriangle,
   Bell,
   ClipboardList,
   FileText,
+  FileWarning,
+  Gauge,
   ShoppingCart
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -26,6 +29,7 @@ import type {
   DashboardData,
   DatabaseDashboardData,
   DashboardKPI,
+  AlertItem,
   DashboardPeriod,
   PreventiveAdherenceHighlight,
   DashboardPeriodInput,
@@ -473,6 +477,91 @@ async function buildHomeDataQuality(period: DashboardPeriod, openClosedNote: str
 }
 
 /**
+ * ALERTAS DA HOME — gravidade, texto e destino.
+ *
+ * Duas fontes, ambas de indicadores que já existem; nenhum alerta é inventado:
+ *
+ *  1. `getDerivedAlerts` — quebra recorrente, OS atrasada, compra e lubrificante
+ *     abaixo do mínimo. Já existiam, mas chegavam à tela sem gravidade e sem link.
+ *  2. Indicadores desta mesma carga — aderência preventiva abaixo da meta, OS
+ *     fechadas sem execução e máquinas do PC-Factory abaixo da média. Não custam
+ *     consulta nenhuma: os números já estão em `data`.
+ *
+ * Cada alerta leva a rota da aba que o originou, com o período preservado — é o que
+ * transforma "existe um problema" em "veja o problema".
+ */
+function buildHomeAlerts(data: DatabaseDashboardData): AlertItem[] {
+  const periodQuery = `?startDate=${toInputDate(data.period.startDate)}&endDate=${toInputDate(data.period.endDate)}`;
+  const int = (value: number) => value.toLocaleString("pt-BR");
+  const alerts: AlertItem[] = [];
+
+  // Aderência preventiva abaixo da meta — o indicador que a gestão cobra.
+  const adherence = data.preventiveAdherence;
+  if (adherence && adherence.adherence !== null && adherence.adherence < adherence.target) {
+    alerts.push({
+      text: `Aderência preventiva em ${adherence.adherence.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%, abaixo da meta de ${adherence.target}%.`,
+      time: "Aderência preventiva",
+      icon: Gauge,
+      severity: adherence.level === "crit" ? "CRITICO" : "ATENCAO",
+      href: `/dashboard/preventivas-programadas${periodQuery}`
+    });
+  }
+
+  // OS fechadas sem execução real — causa direta da aderência baixa.
+  if (adherence && adherence.closedWithoutExecution > 0) {
+    alerts.push({
+      text: `${int(adherence.closedWithoutExecution)} OS preventivas fechadas sem execução real (trabalho apontado ≤ 0,1 h).`,
+      time: "OS sem execução",
+      icon: FileWarning,
+      severity: "CRITICO",
+      href: `/dashboard/preventivas-programadas${periodQuery}`
+    });
+  }
+
+  // Máquinas abaixo da média de disponibilidade do PC-Factory.
+  const pcf = data.pcFactoryCritical;
+  if (pcf.count > 0 && pcf.averageAvailability !== null) {
+    const pior = pcf.machinesBelowAverage[0];
+    alerts.push({
+      text: `${int(pcf.count)} de ${int(pcf.totalMachines)} máquinas abaixo da média de disponibilidade (${pcf.averageAvailability.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)${pior ? `; pior: ${pior.machineName} com ${pior.availability.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%` : ""}.`,
+      time: "Disponibilidade",
+      icon: Activity,
+      severity: pior && pior.availability < 50 ? "CRITICO" : "ATENCAO",
+      href: `/dashboard/pc-factory${periodQuery}`
+    });
+  }
+
+  // Alertas derivados que já existiam.
+  for (const alert of data.criticalAlerts) {
+    alerts.push({
+      text: `${alert.equipmentName ?? "Equipamento"} — ${alert.description}`,
+      time: alert.title,
+      icon: alert.severity === Priority.CRITICA ? Bell : AlertTriangle,
+      severity:
+        alert.severity === Priority.CRITICA ? "CRITICO" : alert.severity === Priority.ALTA ? "ATENCAO" : "INFORMATIVO",
+      href: `${routeForAlertType(alert.type)}${periodQuery}`
+    });
+  }
+
+  const ordem: Record<AlertItem["severity"], number> = { CRITICO: 0, ATENCAO: 1, INFORMATIVO: 2 };
+  return alerts.sort((a, b) => ordem[a.severity] - ordem[b.severity]);
+}
+
+/** Aba de origem de cada tipo de alerta derivado. */
+function routeForAlertType(type: AlertType): string {
+  switch (type) {
+    case AlertType.LUBRIFICANTE_BAIXO:
+      return "/dashboard/lubrificantes";
+    case AlertType.COMPRA_ATRASADA:
+      return "/dashboard/compras-pendentes";
+    case AlertType.QUEBRA_RECORRENTE:
+      return "/dashboard/equipamentos-criticos";
+    default:
+      return "/dashboard/ordens-servico";
+  }
+}
+
+/**
  * Extrai o período (startDate/endDate) dos search params da URL — o store global
  * de período do portal. Retorna undefined quando ausente, para usar o padrão.
  */
@@ -749,11 +838,7 @@ function mapDatabaseDashboardToVisualData(data: DatabaseDashboardData): Dashboar
       requestedAt: formatDate(item.requisitionDate),
       daysOpen: item.daysOpen
     })),
-    alerts: data.criticalAlerts.map((item, index) => ({
-      text: `${item.equipmentName ?? "Equipamento"} — ${item.description}`,
-      time: item.title,
-      icon: index === 0 ? Bell : AlertTriangle
-    })),
+    alerts: buildHomeAlerts(data),
     preventiveAdherence: data.preventiveAdherence,
     dataQuality: data.dataQuality,
     openClosedNote: data.openClosedNote,

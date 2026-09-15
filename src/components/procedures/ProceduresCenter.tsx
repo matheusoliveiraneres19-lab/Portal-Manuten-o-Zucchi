@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { TrainingPanel } from "@/components/procedures/TrainingPanel";
+import type { TrainingOverview } from "@/services/training.service";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -46,6 +48,8 @@ type CardActions = {
 } | null;
 
 type ProceduresCenterProps = {
+  /** Visão de treinamento da equipe (auditoria do progresso de leitura). */
+  training: TrainingOverview;
   data: ProceduresCenterData;
   canManage: boolean;
 };
@@ -73,7 +77,7 @@ function detailHref(slug: string): string {
   return `/dashboard/procedimentos/${encodeURIComponent(slug)}`;
 }
 
-export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
+export function ProceduresCenter({ data, canManage, training }: ProceduresCenterProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [formOpen, setFormOpen] = useState(false);
@@ -214,6 +218,7 @@ export function ProceduresCenter({ data, canManage }: ProceduresCenterProps) {
       ) : (
         <>
           <Indicators indicators={data.indicators} />
+          <TrainingPanel overview={training} />
           <Categories categories={data.categories} onPick={(name) => setQuery(name)} />
           {data.favorites.length > 0 ? <Favorites procedures={data.favorites} actions={actions} /> : null}
           <OnboardingTrailBlock procedures={data.onboarding} progress={data.onboardingProgress} readIds={data.readIds} />
@@ -294,7 +299,9 @@ function Indicators({ indicators }: { indicators: ProceduresIndicators }) {
     { icon: <Library className="h-4 w-4" />, label: "Publicados", value: String(indicators.totalPublished) },
     { icon: <TrendingUp className="h-4 w-4" />, label: "Mais acessado", value: indicators.mostAccessedTitle ?? "—", small: true },
     { icon: <Clock className="h-4 w-4" />, label: "Pendentes de leitura", value: String(indicators.pendingReadCount) },
-    { icon: <Route className="h-4 w-4" />, label: "Progresso funcionário novo", value: `${indicators.onboardingPercent}%` },
+    // "Progresso funcionário novo" saiu daqui: mostrava 0% tanto para "ninguém leu"
+    // quanto para "não há trilha definida", e o usuário não tinha como distinguir.
+    // A seção Treinamento da equipe (TrainingPanel) separa os dois casos.
     { icon: <FileStack className="h-4 w-4" />, label: "Com anexos", value: String(indicators.withAttachmentsCount) },
     { icon: <RefreshCw className="h-4 w-4" />, label: "Atualizados (30d)", value: String(indicators.recentlyUpdatedCount) }
   ];
