@@ -841,7 +841,16 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
 
   for (const [machineName, list] of Array.from(groupRecordsByMachine(records).entries())) {
     const metrics = buildMachineAvailabilityMetrics(list);
-    if (metrics.failureEvents <= 0) continue; // sem quebras → fora do dashboard de confiabilidade
+
+    // Entra toda máquina com tempo medido no recorte. Antes o corte era
+    // `failureEvents <= 0`, e isso escondia as máquinas SEM quebra — justamente as
+    // que estão bem: em agosto/2026 eram 11 de 32, e a tabela virava uma lista só de
+    // problemas, sem como ver a frota inteira. Quebras zero é resultado, não ausência
+    // de dado: a linha mostra 0 quebras, MTBF/MTTR/MTTA em "—" (indefinidos, nunca
+    // zero inventado) e a disponibilidade real.
+    //
+    // Máquina sem NENHUMA hora medida continua fora: não há o que exibir nela.
+    if (metrics.totalHours <= 0) continue;
 
     const sample = list.find((item) => item.resourceCode) ?? list[0];
 
