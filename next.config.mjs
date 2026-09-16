@@ -57,6 +57,16 @@ const nextConfig = {
   poweredByHeader: false,
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
+  },
+  /**
+   * O módulo "Equipe de Manutenção" foi removido do portal. A rota antiga continua
+   * existindo como redirecionamento porque havia favoritos apontando para ela — sem
+   * isto, quem tivesse a página salva cairia num 404 sem saber o que aconteceu.
+   *
+   * 308 (permanente): o destino não volta a mudar.
+   */
+  async redirects() {
+    return [{ source: "/dashboard/equipe-horas", destination: "/dashboard", permanent: true }];
   }
 };
 

@@ -301,7 +301,7 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
           {
             term: "Horas apontadas",
             detail:
-              "Soma de trabalho real (workedHours) das ordens do recorte. É a mesma base usada na aba Equipe de Manutenção — não há apontamento manual em nenhuma das duas."
+              "Soma de trabalho real (workedHours) das ordens do recorte. Não há apontamento manual de horas no portal: este é o único lugar de onde as horas saem."
           },
           {
             term: "Corretivas x planejadas",

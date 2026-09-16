@@ -39,7 +39,6 @@ export async function POST(request: NextRequest) {
     // Nova base de OS ⇒ recalcular as telas que derivam de ServiceOrder (horas da
     // equipe, dashboard e ordens de serviço). Sem isto, a aba Equipe e Horas podia
     // continuar exibindo o payload em cache (horas antigas) após a importação.
-    revalidatePath("/dashboard/equipe-horas");
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/ordens-servico");
     revalidatePath("/dashboard/equipamentos-criticos");
