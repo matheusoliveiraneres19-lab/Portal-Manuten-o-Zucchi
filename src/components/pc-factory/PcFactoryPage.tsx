@@ -18,6 +18,7 @@ import { UnavailableIndicator } from "@/components/ui/FieldNotice";
 import { usePortalDataRefresh } from "@/hooks/usePortalDataRefresh";
 import { PC_FACTORY_CATEGORY_LABELS } from "@/utils/pc-factory-normalizer";
 import { PC_FACTORY_DEFAULT_MODE } from "@/types/pc-factory";
+import { BTN_GOLD_ON_LIGHT, BTN_NEUTRAL_ON_LIGHT, DISABLED_ON_LIGHT, FOCUS_RING } from "@/constants/interactive";
 import type {
   PcFactoryCalculationMode,
   PcFactoryPageData,
@@ -183,7 +184,15 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
   const isEmpty = data.source !== "database";
 
   return (
-    <section className={`space-y-4 text-champagne transition ${isPending || isRefreshing ? "opacity-70" : ""}`}>
+    // A página é CLARA: o texto padrão precisa ser escuro. `text-champagne` só vale
+    // dentro dos blocos escuros (hero, drawer), que já o declaram por conta própria.
+    // A opacidade de "carregando" saiu do container: aplicada no pai ela apagava
+    // texto, ícone, borda e fundo de tudo — e era o que deixava a barra ilegível
+    // durante a navegação. Em vez dela, só o cursor indica o estado.
+    <section
+      className={`space-y-4 text-ink transition ${isPending || isRefreshing ? "cursor-progress" : ""}`}
+      aria-busy={isPending || isRefreshing}
+    >
       {/* Hero */}
       <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-5 shadow-premium sm:p-6">
         <div className="login-marble-bg absolute inset-0 opacity-80" />
@@ -223,8 +232,13 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
         <ActionButton onClick={clearFilters}>Limpar filtros</ActionButton>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gold/15 bg-black/25 px-3 py-2">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-gold">Modo de cálculo</span>
+      {/*
+        Esta barra fica sobre a PÁGINA CLARA. Antes usava `bg-black/25` (que sobre o
+        bege vira um cinza médio) com `text-gold` e `text-zinc-400` — claro sobre
+        claro, ~1,9:1. Agora é superfície branca com borda dourada e texto escuro.
+      */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gold/35 bg-white/75 px-3 py-2 shadow-sm">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-gold-deep">Modo de cálculo</span>
         <div className="flex gap-1">
           <ModeButton
             active={appliedFilters.mode === "G0134_OFICIAL"}
@@ -239,7 +253,7 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
             label="Intervalo real"
           />
         </div>
-        <p className="text-[11px] leading-snug text-zinc-400">
+        <p className="text-[11px] leading-snug text-neutralized-strong">
           {appliedFilters.mode === "G0134_OFICIAL"
             ? "Replica o relatório nativo do PC-Factory: o registro conta inteiro no período em que começou."
             : "Distribui eventos longos entre os meses reais — pode divergir do G0134 de propósito."}
@@ -257,16 +271,21 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
 
       {activeChips.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Filtros ativos:</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-neutralized-strong">Filtros ativos:</span>
           {activeChips.map((chip) => (
-            <span key={chip.key} className="inline-flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-[11px] font-semibold text-champagne">
+            <span key={chip.key} className="inline-flex items-center gap-1.5 rounded-full border border-gold/45 bg-gold/15 px-3 py-1 text-[11px] font-semibold text-gold-deep">
               {chip.label}
-              <button type="button" onClick={() => navigate(removeChip(chip, appliedFilters))} aria-label={`Remover ${chip.label}`}>
-                <X className="h-3 w-3 text-gold transition hover:text-white" />
+              <button
+                type="button"
+                onClick={() => navigate(removeChip(chip, appliedFilters))}
+                aria-label={`Remover ${chip.label}`}
+                className={`rounded-full ${FOCUS_RING}`}
+              >
+                <X className="h-3 w-3 text-gold-deep transition hover:text-danger-strong" />
               </button>
             </span>
           ))}
-          <span className="text-[11px] text-zinc-500">· {data.records.total.toLocaleString("pt-BR")} registros</span>
+          <span className="text-[11px] text-neutralized-strong">· {data.records.total.toLocaleString("pt-BR")} registros</span>
         </div>
       ) : null}
 
@@ -285,8 +304,8 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
 
           <PcFactoryQualityPanel quality={data.dataQuality} filterAudit={data.filterAudit} />
 
-          <p className="text-[11px] text-zinc-500">
-            <span className="font-semibold text-gold">Dica:</span> clique em uma máquina nos gráficos ou na tabela para ver
+          <p className="text-[11px] text-neutralized-strong">
+            <span className="font-semibold text-gold-deep">Dica:</span> clique em uma máquina nos gráficos ou na tabela para ver
             disponibilidade, MTTR, manutenção mecânica/elétrica/aguardando e recomendações.
           </p>
 
@@ -334,13 +353,15 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
 
 function ActionButton({ children, onClick, primary = false }: { children: React.ReactNode; onClick: () => void; primary?: boolean }) {
   return (
+    // Botões sobre a página CLARA: `text-gold` e `text-zinc-300` davam ~2:1 e ~1,7:1.
+    // Passam a usar os tons escuros da mesma família (ver constants/interactive).
     <button
       type="button"
       onClick={onClick}
       className={
         primary
-          ? "inline-flex h-10 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-4 text-sm font-bold text-gold transition hover:bg-gold/25"
-          : "inline-flex h-10 items-center gap-2 rounded-lg border border-gold/20 px-4 text-sm font-semibold text-zinc-300 transition hover:border-gold/40 hover:text-white"
+          ? BTN_GOLD_ON_LIGHT
+          : BTN_NEUTRAL_ON_LIGHT
       }
     >
       {children}
@@ -454,8 +475,12 @@ function ModeButton({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={active}
-      className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition disabled:opacity-50 ${
-        active ? "bg-gold text-black" : "border border-gold/25 text-zinc-300 hover:border-gold/50"
+      className={`rounded-md border px-2.5 py-1 text-[11px] font-bold transition duration-200 ease-premium ${FOCUS_RING} ${DISABLED_ON_LIGHT} ${
+        active
+          ? // ATIVO: dourado sólido com texto quase preto — o estado precisa saltar.
+            "border-gold bg-gold text-ink shadow-sm"
+          : // DISPONÍVEL: borda dourada e texto dourado escuro sobre claro (~5,9:1).
+            "border-gold/45 bg-white/60 text-gold-deep hover:border-gold hover:bg-gold/15"
       }`}
     >
       {label}

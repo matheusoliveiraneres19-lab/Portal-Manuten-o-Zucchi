@@ -63,7 +63,10 @@ export default async function ProcedureDetailPage({ params }: DetailPageProps) {
   ) : null;
 
   return (
-    <article className="mx-auto max-w-4xl space-y-5 text-surface">
+    // `text-surface` (#F8F3E7) é token de superfície ESCURA e estava sobre a página
+    // clara. O corpo do artigo passa a grafite; os blocos escuros internos (hero,
+    // cards) continuam declarando as próprias cores claras.
+    <article className="mx-auto max-w-4xl space-y-5 text-ink">
       <ProcedureDetailActions detail={detail} canManage={canManage} isFavorite={detail.isFavorite} readConfirmedAt={detail.readConfirmedAt} />
 
       {/* Cabeçalho */}

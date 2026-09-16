@@ -25,11 +25,13 @@ export function TrainingPanel({ overview }: { overview: TrainingOverview }) {
   return (
     <section className="space-y-3">
       <header>
-        <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.2em] text-gold">
+        {/* Esta seção fica sobre a página CLARA: dourado vivo e zinc-400 davam
+            ~2:1. Dourado escuro e grafite quente resolvem sem mudar a identidade. */}
+        <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-[0.2em] text-gold-deep">
           <GraduationCap className="h-4 w-4" />
           Treinamento da equipe
         </h2>
-        <p className="mt-0.5 text-[11px] text-zinc-400">
+        <p className="mt-0.5 text-[11px] text-neutralized-strong">
           Conclusão dos procedimentos obrigatórios, a partir das confirmações de leitura registradas no portal.
         </p>
       </header>
@@ -48,14 +50,14 @@ export function TrainingPanel({ overview }: { overview: TrainingOverview }) {
       ) : null}
 
       {ninguemLeu ? (
-        <div className="flex items-start gap-3 rounded-lg border border-danger/45 bg-danger/10 px-4 py-3">
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-danger" />
+        <div className="flex items-start gap-3 rounded-lg border border-danger/55 bg-danger/10 px-4 py-3">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-danger-strong" />
           <div className="min-w-0">
-            <p className="text-sm font-bold text-rose-100">Treinamento pendente — 0% de conclusão</p>
-            <p className="mt-0.5 text-[12px] leading-relaxed text-rose-200/90">
+            <p className="text-sm font-bold text-danger-strong">Treinamento pendente — 0% de conclusão</p>
+            <p className="mt-0.5 text-[12px] leading-relaxed text-ink">
               Existem {int(overview.mandatoryProcedures)} procedimentos obrigatórios e{" "}
-              <strong className="font-semibold">nenhuma confirmação de leitura</strong> registrada entre os{" "}
-              {int(overview.eligibleUsers)} usuários do portal. O número é real, não é falha de cálculo.
+              <strong className="font-bold text-danger-strong">nenhuma confirmação de leitura</strong> registrada entre
+              os {int(overview.eligibleUsers)} usuários do portal. O número é real, não é falha de cálculo.
             </p>
           </div>
         </div>

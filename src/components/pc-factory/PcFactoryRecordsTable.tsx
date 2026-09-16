@@ -246,7 +246,7 @@ function PageButton({ children, onClick, disabled }: { children: React.ReactNode
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="grid h-8 w-8 place-items-center rounded-md border border-zinc-300 text-zinc-600 transition hover:border-gold hover:text-gold disabled:cursor-not-allowed disabled:opacity-40"
+      className="grid h-8 w-8 place-items-center rounded-md border border-zinc-300 text-zinc-600 transition hover:border-gold hover:text-gold disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-black/[0.04] disabled:text-neutralized disabled:hover:border-black/10"
     >
       {children}
     </button>

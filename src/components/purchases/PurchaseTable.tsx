@@ -159,7 +159,7 @@ export function PurchaseTable({ data, variant, onPageChange, columns }: Purchase
                 type="button"
                 disabled={data.page <= 1}
                 onClick={() => onPageChange(data.page - 1)}
-                className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-300 px-2 font-semibold text-zinc-700 transition hover:border-gold/50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-300 px-2 font-semibold text-zinc-700 transition hover:border-gold/50 disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-black/[0.04] disabled:text-neutralized disabled:hover:border-black/10"
               >
                 <ChevronLeft className="h-4 w-4" /> Anterior
               </button>
@@ -167,7 +167,7 @@ export function PurchaseTable({ data, variant, onPageChange, columns }: Purchase
                 type="button"
                 disabled={data.page >= data.totalPages}
                 onClick={() => onPageChange(data.page + 1)}
-                className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-300 px-2 font-semibold text-zinc-700 transition hover:border-gold/50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-300 px-2 font-semibold text-zinc-700 transition hover:border-gold/50 disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-black/[0.04] disabled:text-neutralized disabled:hover:border-black/10"
               >
                 Próxima <ChevronRight className="h-4 w-4" />
               </button>

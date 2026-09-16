@@ -92,7 +92,8 @@ export function DataQualityPanel({ quality, className = "", title = "Qualidade d
           </p>
         ) : null}
 
-        <FieldNotice notices={quality.notices} />
+        {/* Painel escuro (bg-ink/60): o aviso usa a paleta de superfície escura. */}
+        <FieldNotice notices={quality.notices} surface="dark" />
 
         <p className="border-t border-gold/10 pt-2 text-[10px] text-zinc-500">Fonte: {quality.sourceLabel}</p>
       </div>

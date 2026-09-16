@@ -252,6 +252,7 @@ export function PreventivasProgramadasPage({ data, applied }: PreventivasProgram
         {criticalAlerts.overdueCount === null ? (
           <FieldNotice
             className="mt-3"
+            surface="dark"
             notices={[
               {
                 id: "preventivas-atrasadas",

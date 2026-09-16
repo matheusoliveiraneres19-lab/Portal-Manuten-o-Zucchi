@@ -98,20 +98,37 @@ function TrendTooltip({ active, payload, selectedMachine }: TooltipProps<number,
   if (!point) return null;
 
   return (
-    <div className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-[11px] leading-relaxed shadow-md">
+    // Tooltip sobre fundo BRANCO: os rótulos usavam zinc-500 (~4,0:1 em texto de
+    // 11px) e o valor herdava a cor do container. Rótulo em grafite quente forte e
+    // valor em preto — o número é o que se lê primeiro.
+    <div className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-[11px] font-medium leading-relaxed text-ink shadow-lg">
       {selectedMachine ? (
-        <p className="font-semibold text-gold-deep">
-          <span className="text-zinc-500">Máquina:</span> {selectedMachine}
+        <p className="font-bold text-gold-deep">
+          <span className="font-semibold text-neutralized-strong">Máquina:</span> {selectedMachine}
         </p>
       ) : null}
       <p>
-        <span className="text-zinc-500">Mês:</span> {monthTooltipLabel(point.period)}
+        <span className="text-neutralized-strong">Mês:</span> <strong className="font-bold">{monthTooltipLabel(point.period)}</strong>
       </p>
       <p>
-        <span className="text-zinc-500">Horas de manutenção:</span> {formatHours(point.maintenanceHours)}
+        <span className="text-neutralized-strong">Horas de manutenção:</span>{" "}
+        <strong className="font-bold text-danger-strong">{formatHours(point.maintenanceHours)}</strong>
       </p>
       <p>
-        <span className="text-zinc-500">Disponibilidade estimada:</span> {formatPercent(point.availabilityPercent)}
+        <span className="text-neutralized-strong">Disponibilidade estimada:</span>{" "}
+        <strong
+          className={`font-bold ${
+            point.availabilityPercent === null
+              ? "text-neutralized-strong"
+              : point.availabilityPercent >= 90
+                ? "text-success-strong"
+                : point.availabilityPercent >= 70
+                  ? "text-warning-strong"
+                  : "text-danger-strong"
+          }`}
+        >
+          {formatPercent(point.availabilityPercent)}
+        </strong>
       </p>
     </div>
   );

@@ -288,7 +288,7 @@ export function PcFactoryReliabilityTable({ rows, className = "", onSelect }: Pc
                   type="button"
                   disabled={currentPage <= 1}
                   onClick={() => setPage(currentPage - 1)}
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-300 px-2 font-semibold text-zinc-700 transition hover:border-gold/50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-300 px-2 font-semibold text-zinc-700 transition hover:border-gold/50 disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-black/[0.04] disabled:text-neutralized disabled:hover:border-black/10"
                 >
                   <ChevronLeft className="h-4 w-4" /> Anterior
                 </button>
@@ -299,7 +299,7 @@ export function PcFactoryReliabilityTable({ rows, className = "", onSelect }: Pc
                   type="button"
                   disabled={currentPage >= totalPages}
                   onClick={() => setPage(currentPage + 1)}
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-300 px-2 font-semibold text-zinc-700 transition hover:border-gold/50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-300 px-2 font-semibold text-zinc-700 transition hover:border-gold/50 disabled:cursor-not-allowed disabled:border-black/10 disabled:bg-black/[0.04] disabled:text-neutralized disabled:hover:border-black/10"
                 >
                   Próxima <ChevronRight className="h-4 w-4" />
                 </button>

@@ -3,6 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  BTN_DANGER_ON_LIGHT,
+  BTN_GOLD_ON_LIGHT,
+  BTN_NEUTRAL_ON_LIGHT,
+  BTN_SUCCESS_ON_LIGHT
+} from "@/constants/interactive";
 import { toast } from "sonner";
 import { Archive, ArrowLeft, Check, CheckCircle2, Loader2, Pencil, Printer, Star } from "lucide-react";
 import { ProcedureForm } from "@/components/procedures/ProcedureForm";
@@ -26,11 +32,22 @@ function formatDate(iso: string): string {
   return Number.isNaN(date.getTime()) ? "" : formatDatePtBr(date);
 }
 
-/* Botões neutros (Voltar/Imprimir) e dourados (Editar) com alto contraste. */
-const NEUTRAL_BTN =
-  "inline-flex h-9 items-center gap-2 rounded-lg border border-gold/30 px-3 text-[13px] font-semibold text-parchment transition hover:border-gold/55 hover:text-white";
-const GOLD_BTN =
-  "inline-flex h-9 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-3 text-[13px] font-bold text-gold-soft transition hover:bg-gold/25";
+/*
+ * A barra de ações fica sobre a PÁGINA CLARA, acima do hero escuro do procedimento.
+ * Ela usava tokens de superfície ESCURA (`text-parchment`, `text-gold-soft`,
+ * `text-success-soft`) — claro sobre claro, entre 1,6:1 e 2,2:1, praticamente
+ * invisível. Cada ação passa a usar a variante escura da sua própria cor, o que
+ * também separa melhor os quatro papéis:
+ *
+ *   neutra (Voltar, Imprimir)   grafite quente + borda neutra
+ *   positiva (Li e estou ciente) verde escuro sobre verde claro
+ *   administrativa (Editar)      dourado escuro sobre dourado claro
+ *   perigosa (Arquivar)          vermelho escuro sobre vermelho claro
+ */
+const NEUTRAL_BTN = `${BTN_NEUTRAL_ON_LIGHT} h-9 px-3 text-[13px]`;
+const GOLD_BTN = `${BTN_GOLD_ON_LIGHT} h-9 px-3 text-[13px]`;
+const SUCCESS_BTN = `${BTN_SUCCESS_ON_LIGHT} h-9 px-3 text-[13px]`;
+const DANGER_BTN = `${BTN_DANGER_ON_LIGHT} h-9 px-3 text-[13px]`;
 
 export function ProcedureDetailActions({ detail, canManage, isFavorite, readConfirmedAt }: ProcedureDetailActionsProps) {
   const router = useRouter();
@@ -114,11 +131,11 @@ export function ProcedureDetailActions({ detail, canManage, isFavorite, readConf
         type="button"
         onClick={toggleFavorite}
         disabled={favLoading}
-        className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[13px] font-bold transition disabled:opacity-60 ${
+        className={
           favorite
-            ? "border-gold/60 bg-gold/15 text-gold-soft"
-            : "border-gold/30 text-parchment hover:border-gold/55 hover:text-white"
-        }`}
+            ? `${GOLD_BTN} border-gold bg-gold/25`
+            : NEUTRAL_BTN
+        }
       >
         {favLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className={`h-4 w-4 ${favorite ? "fill-gold" : ""}`} />}
         {favorite ? "Favoritado" : "Favoritar"}
@@ -126,7 +143,7 @@ export function ProcedureDetailActions({ detail, canManage, isFavorite, readConf
 
       {/* Li e estou ciente — qualquer usuário */}
       {readAt ? (
-        <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-success/50 bg-success/15 px-3 text-[13px] font-bold text-success-soft">
+        <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-success/50 bg-success/15 px-3 text-[13px] font-bold text-success-strong">
           <CheckCircle2 className="h-4 w-4" /> Lido em {formatDate(readAt)}
         </span>
       ) : (
@@ -134,7 +151,7 @@ export function ProcedureDetailActions({ detail, canManage, isFavorite, readConf
           type="button"
           onClick={confirmRead}
           disabled={readLoading}
-          className="inline-flex h-9 items-center gap-2 rounded-lg border border-success/50 bg-success/15 px-3 text-[13px] font-bold text-success-soft transition hover:bg-success/25 disabled:opacity-60"
+          className={SUCCESS_BTN}
         >
           {readLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
           Li e estou ciente
@@ -155,7 +172,7 @@ export function ProcedureDetailActions({ detail, canManage, isFavorite, readConf
               type="button"
               onClick={archive}
               disabled={archiving}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-danger/40 px-3 text-[13px] font-bold text-danger transition hover:bg-danger/10 disabled:opacity-60"
+              className={DANGER_BTN}
             >
               <Archive className="h-4 w-4" /> Arquivar
             </button>
