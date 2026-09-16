@@ -66,7 +66,13 @@ const nextConfig = {
    * 308 (permanente): o destino não volta a mudar.
    */
   async redirects() {
-    return [{ source: "/dashboard/equipe-horas", destination: "/dashboard", permanent: true }];
+    return [
+      { source: "/dashboard/equipe-horas", destination: "/dashboard", permanent: true },
+      // A ficha do colaborador (/dashboard/equipe/<id>) saiu junto com o módulo.
+      // Quem tiver a URL salva cai no início em vez de num 404 sem explicação.
+      { source: "/dashboard/equipe", destination: "/dashboard", permanent: true },
+      { source: "/dashboard/equipe/:path*", destination: "/dashboard", permanent: true }
+    ];
   }
 };
 

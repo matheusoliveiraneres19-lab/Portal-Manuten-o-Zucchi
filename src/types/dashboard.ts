@@ -199,19 +199,6 @@ export type CriticalAlertData = {
   createdAt: Date;
 };
 
-export type HoursByCollaboratorData = {
-  userName: string;
-  hours: number;
-  /** Quantidade de Ordens de Serviço atribuídas ao colaborador no período. */
-  orders: number;
-  /**
-   * Matrícula do responsável (SAP `responsibleId`), quando a fonte das horas são
-   * as Ordens de Serviço. Chave preferencial de casamento com o colaborador
-   * (mais confiável que o nome). `null` quando a fonte é TimeEntry.
-   */
-  responsibleId?: string | null;
-};
-
 export type PurchasesByMonthData = {
   month: number;
   value: number;
