@@ -63,6 +63,12 @@ type PcFactoryAudit = {
   totalRows: number;
   validRows: number;
   ignoredRows: number;
+  /**
+   * Linhas de recursos LEGADOS bloqueados. Contam como ignoradas por QUALIDADE,
+   * não como erro: a importação conclui normalmente e estas linhas simplesmente
+   * não entram na base analítica.
+   */
+  ignoredLegacyRows: number;
   machines: number;
   statuses: number;
   dateMin: string | null;
@@ -369,6 +375,9 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
             <Summary label="Linhas lidas" value={audit?.totalRows ?? summary.appliedRows} />
             <Summary label="Linhas válidas" value={audit?.validRows ?? summary.appliedRows} />
             <Summary label="Linhas ignoradas" value={audit?.ignoredRows ?? 0} tone={(audit?.ignoredRows ?? 0) > 0 ? "danger" : "default"} />
+            {(audit?.ignoredLegacyRows ?? 0) > 0 ? (
+              <Summary label="Ignoradas por recurso legado" value={audit?.ignoredLegacyRows ?? 0} tone="gold" />
+            ) : null}
             <Summary label="Máquinas" value={audit?.machines ?? 0} />
             <Summary label="Status distintos" value={audit?.statuses ?? 0} />
             <Summary label="Duração total" value={audit?.totalDurationHours ?? 0} suffix=" h" tone="gold" />
@@ -602,6 +611,7 @@ async function importDirect(file: File): Promise<ImportSummary> {
     replacedRows?: number;
     totalRows?: number;
     ignoredRows?: number;
+    ignoredReasons?: { legacyResource?: number };
     resourcesDetected?: number;
     statusDetected?: string[];
     totalHours?: number;
@@ -634,6 +644,7 @@ async function importDirect(file: File): Promise<ImportSummary> {
       totalRows: legacy.totalRows ?? 0,
       validRows: legacy.importedRows ?? 0,
       ignoredRows: legacy.ignoredRows ?? 0,
+      ignoredLegacyRows: legacy.ignoredReasons?.legacyResource ?? 0,
       machines: legacy.resourcesDetected ?? 0,
       statuses: legacy.statusDetected?.length ?? 0,
       dateMin: legacy.periodDetected?.start ?? null,

@@ -615,6 +615,13 @@ export type PcFactoryIgnoredReasons = {
   noDuration: number;
   emptyRow: number;
   duplicate: number;
+  /**
+   * Linha de recurso LEGADO bloqueado (ver config/pc-factory-excluded-resources).
+   * Não é erro de importação: é regra de qualidade, e a importação conclui normal.
+   * Sem isto, o próximo arquivo do PC-Factory recriaria os registros que a gestão
+   * mandou excluir.
+   */
+  legacyResource: number;
   other: number;
 };
 

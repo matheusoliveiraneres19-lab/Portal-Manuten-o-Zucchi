@@ -25,6 +25,7 @@
     "test:purchases-analysis": "tsx scripts/test-purchase-priority-analysis.ts",
     "storage:setup-imports": "tsx scripts/setup-import-storage.ts",
     "debug:pc-factory": "tsx scripts/debug-pcfactory-xlsx.ts",
+    "cleanup:pc-factory-legacy": "tsx scripts/remove-invalid-pcfactory-resources.ts",
     "validate:pc-factory": "tsx scripts/validate-pcfactory-availability.ts",
     "validate:pc-factory-machines": "tsx scripts/validate-pcfactory-machine-availability.ts",
     "auth:hash-passwords": "tsx scripts/hash-passwords.ts",

@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import ExcelJS from "exceljs";
 import { ImportStatus, ImportType, PcFactorySource, PcFactoryStatusCategory, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { isBlockedLegacyPcFactoryResource } from "@/config/pc-factory-excluded-resources";
 import { converterNumeroBrasileiro, limparTexto, normalizarNomeColuna } from "@/utils/importacao";
 import {
   buildPcFactoryTechnicalKey,
@@ -835,7 +836,7 @@ export async function buildPcFactoryRecords(
     updatedRows: 0,
     replacedRows: 0,
     ignoredRows: 0,
-    ignoredReasons: { noResource: 0, noStatus: 0, noDuration: 0, emptyRow: 0, duplicate: 0, other: 0 },
+    ignoredReasons: { noResource: 0, noStatus: 0, noDuration: 0, emptyRow: 0, duplicate: 0, legacyResource: 0, other: 0 },
     errorRows: 0,
     totalHours: 0,
     maintenanceHours: 0,
@@ -906,6 +907,16 @@ export async function buildPcFactoryRecords(
         continue;
       }
       const parsed = outcome.row;
+
+      // Recurso legado bloqueado: a linha sai ANTES de qualquer soma, para não
+      // contaminar horas, contagens nem a lista de recursos detectados. Conta como
+      // ignorada por QUALIDADE — a importação segue e conclui com sucesso.
+      if (isBlockedLegacyPcFactoryResource(parsed.resourceName)) {
+        result.ignoredRows += 1;
+        result.ignoredReasons.legacyResource += 1;
+        continue;
+      }
+
       // Soma de eventos pela coluna "Ocorrência" (auditoria; não persistida por linha).
       result.totalOccurrences += parsed.occurrence;
 
