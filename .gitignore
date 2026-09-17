@@ -68,3 +68,6 @@ yarn-error.log*
 
 # Netlify (residual - o deploy oficial do portal e na Vercel)
 /.netlify/
+
+# Relatorios gerados pelo teste de aderencia (npm run test:adherence)
+/scripts/out/

@@ -59,6 +59,30 @@ const nextConfig = {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
   /**
+   * `pdfkit` (relatório de aderência em PDF) NÃO pode ser empacotado pelo webpack.
+   *
+   * Ele lê as métricas das fontes padrão do PDF em runtime, com
+   * `readFileSync(__dirname + "/data/Helvetica.afm")`. Empacotado, `__dirname`
+   * deixa de apontar para node_modules e a geração quebra em produção com
+   * "ENOENT .../data/Helvetica.afm" — erro que não aparece em `next dev`, onde os
+   * módulos de servidor não são empacotados. Mantido como pacote externo, o
+   * require continua resolvendo o caminho real dentro de node_modules.
+   */
+  experimental: {
+    serverComponentsExternalPackages: ["pdfkit"],
+    /**
+     * O rastreamento de arquivos do Next não enxerga caminhos montados por
+     * concatenação, então os .afm e a logo do relatório precisam ser incluídos
+     * explicitamente no bundle da função — sem isto o PDF só falha na Vercel.
+     */
+    outputFileTracingIncludes: {
+      "/api/service-orders/adherence-report": [
+        "./node_modules/pdfkit/js/data/**",
+        "./public/images/brand/zucchi-logo-oficial.png"
+      ]
+    }
+  },
+  /**
    * O módulo "Equipe de Manutenção" foi removido do portal. A rota antiga continua
    * existindo como redirecionamento porque havia favoritos apontando para ela — sem
    * isto, quem tivesse a página salva cairia num 404 sem saber o que aconteceu.

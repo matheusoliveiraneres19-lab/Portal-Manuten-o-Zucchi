@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Database,
   Download,
+  FileBarChart,
   FileSpreadsheet,
   FilterX,
   Loader2,
@@ -31,6 +32,7 @@ import { MultiSelectFilter } from "@/components/ui/MultiSelectFilter";
 import { DateRangeFilter } from "@/components/service-orders/filters/DateRangeFilter";
 import { ActiveFilterChips, type ActiveFilterChip } from "@/components/service-orders/filters/ActiveFilterChips";
 import { ServiceOrderCharts, ServiceOrderKpis } from "@/components/service-orders/ServiceOrderDashboardPanels";
+import { AdherenceReportModal } from "@/components/service-orders/AdherenceReportModal";
 import { DataQualityPanel } from "@/components/ui/DataQualityPanel";
 import { MetricAuditPanel } from "@/components/ui/MetricAuditPanel";
 
@@ -82,6 +84,7 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
   const [draft, setDraft] = useState<AppliedServiceOrderFilters>(appliedFilters);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showImportPanel, setShowImportPanel] = useState(false);
+  const [showAdherenceModal, setShowAdherenceModal] = useState(false);
 
   const appliedSignature = JSON.stringify(appliedFilters);
 
@@ -249,6 +252,13 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
         }}
         onExport={() => exportOrdersToCsv(data.orders)}
         onClear={clearFilters}
+        onAdherenceReport={() => setShowAdherenceModal(true)}
+      />
+
+      <AdherenceReportModal
+        open={showAdherenceModal}
+        onClose={() => setShowAdherenceModal(false)}
+        appliedFilters={appliedFilters}
       />
 
       {showImportPanel ? (
@@ -479,6 +489,7 @@ type ServiceOrderActionsProps = {
   onRefresh: () => void;
   onExport: () => void;
   onClear: () => void;
+  onAdherenceReport: () => void;
 };
 
 function ServiceOrderActions({
@@ -490,7 +501,8 @@ function ServiceOrderActions({
   onToggleImport,
   onRefresh,
   onExport,
-  onClear
+  onClear,
+  onAdherenceReport
 }: ServiceOrderActionsProps) {
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-gold/15 bg-ink p-3 shadow-premium sm:flex-row sm:items-center sm:justify-between">
@@ -503,6 +515,12 @@ function ServiceOrderActions({
           onClick={onExport}
           disabled={!canExport}
           title={canExport ? "Exportar a página atual em CSV" : "Sem registros para exportar"}
+        />
+        <ActionButton
+          icon={FileBarChart}
+          label="Relatório de Aderência"
+          onClick={onAdherenceReport}
+          title="Gerar o relatório de aderência (%) à execução das ordens de serviços em PDF"
         />
         <ActionButton icon={FilterX} label="Limpar filtros" onClick={onClear} disabled={!canClear} />
       </div>
