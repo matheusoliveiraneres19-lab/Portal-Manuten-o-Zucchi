@@ -50,9 +50,108 @@ import type {
   PcFactoryTopResource,
   PcFactoryTrendPoint
 } from "@/types/pc-factory";
+import {
+  calculateFleetPhysicalAvailability,
+  calculateMonthHoursWithinWindow,
+  calculatePeriodHours,
+  calculatePhysicalAvailability
+} from "@/utils/pc-factory-physical-availability";
 import { PC_FACTORY_DEFAULT_MODE } from "@/types/pc-factory";
 
 const DEFAULT_PAGE_SIZE = 50;
+
+/* ------------------------------------------------------------------ */
+/* Janela do período — denominador da Disponibilidade Física           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A janela de tempo do recorte, em horas-calendário. É o DENOMINADOR de toda
+ * disponibilidade do módulo (ver `pc-factory-physical-availability`).
+ */
+export type PcFactoryPeriodWindow = {
+  start: Date;
+  end: Date;
+  /** Horas-calendário do período, POR MÁQUINA (dias × 24). */
+  hours: number;
+  /**
+   * De onde veio a janela:
+   *  - "filtro": o usuário escolheu data inicial e/ou final na tela;
+   *  - "base": sem filtro de data, usa-se a extensão da base inteira.
+   */
+  source: "filtro" | "base";
+};
+
+/**
+ * Extensão TOTAL da base de PC-Factory (primeiro início → último término).
+ *
+ * Só é consultada quando a tela está sem filtro de período. Memoizada por request
+ * (React.cache) porque a home e a aba podem pedir a mesma janela várias vezes.
+ */
+const loadBaseExtent = cache(async (): Promise<{ start: Date; end: Date } | null> => {
+  try {
+    const agg = await prisma.pcFactoryRecord.aggregate({
+      _min: { startDateTime: true },
+      _max: { endDateTime: true, startDateTime: true }
+    });
+    const start = agg._min.startDateTime;
+    // Registro sem término cai no início: a extensão nunca encolhe por causa dele.
+    const end = agg._max.endDateTime ?? agg._max.startDateTime;
+    if (!start || !end || end < start) return null;
+    return { start, end };
+  } catch (error) {
+    console.error("Falha ao medir a extensão da base PC-Factory.", error);
+    return null;
+  }
+});
+
+/**
+ * JANELA DO PERÍODO do recorte — fonte ÚNICA do "Tempo Total do Período".
+ *
+ * Regras, nesta ordem:
+ *  1. o filtro da tela manda. Com as duas datas, a janela é exatamente ela, e
+ *     `calculatePeriodHours` conta dias civis inclusivos (01/08→31/08 = 744 h).
+ *  2. com só uma das pontas, a outra vem da extensão da base;
+ *  3. sem filtro nenhum, a janela é a extensão da base inteira.
+ *
+ * A janela é GLOBAL à consulta, nunca por máquina. Derivar o período do primeiro
+ * registro de cada máquina seria inferir data de entrada em operação a partir do
+ * PC-Factory — inferência insegura e explicitamente descartada: a base não tem
+ * cadastro de vigência de recurso. A regra gerencial documentada é que toda
+ * máquina válida conta como disponível 24 h/dia durante todo o período.
+ */
+export const resolvePeriodWindow = cache(
+  async (params: PcFactoryQueryParams = {}): Promise<PcFactoryPeriodWindow> => {
+    const hasStart = Boolean(params.startDate);
+    const hasEnd = Boolean(params.endDate);
+
+    if (hasStart && hasEnd) {
+      return {
+        start: new Date(`${params.startDate}T00:00:00.000Z`),
+        end: new Date(`${params.endDate}T23:59:59.999Z`),
+        hours: calculatePeriodHours(params.startDate as string, params.endDate as string),
+        source: "filtro"
+      };
+    }
+
+    const extent = await loadBaseExtent();
+    if (!extent) {
+      // Base vazia: sem período não há denominador, e a disponibilidade sai null.
+      const now = new Date();
+      return { start: now, end: now, hours: 0, source: "base" };
+    }
+
+    const start = hasStart ? new Date(`${params.startDate}T00:00:00.000Z`) : extent.start;
+    const end = hasEnd ? new Date(`${params.endDate}T23:59:59.999Z`) : extent.end;
+
+    return {
+      start,
+      end,
+      // Uma das pontas é timestamp real da base: diferença exata, sem supor mês cheio.
+      hours: calculatePeriodHours(start, end),
+      source: hasStart || hasEnd ? "filtro" : "base"
+    };
+  }
+);
 
 /**
  * Decisão de negócio (confirmada): Setup conta como parada/perda operacional e,
@@ -521,11 +620,37 @@ function availabilityBreakdown(agg: HoursAggregate) {
  *
  * Retorna null (nunca NaN/Infinity) quando não há Tempo Operacional.
  */
-function availability(agg: HoursAggregate): number | null {
+function g0134Availability(agg: HoursAggregate): number | null {
   return calculateG0134BusinessAvailability({
     operationalHours: availabilityBreakdown(agg).operationalHours,
     maintenanceHours: agg.maintenanceHours
   });
+}
+
+/** Recursos distintos no recorte — as "máquinas válidas" do denominador agregado. */
+function countMachines(records: AnalyticsRecord[]): number {
+  return new Set(records.map((record) => record.resourceName)).size;
+}
+
+/**
+ * DISPONIBILIDADE FÍSICA DE UM CONJUNTO de máquinas (frota, grupo de área, linha,
+ * mês da evolução). Fonte única dos percentuais agregados do módulo.
+ *
+ *     Tempo Total = horas do período × nº de máquinas válidas
+ *     Paradas     = Σ horas de manutenção (os seis subtipos) do conjunto
+ *
+ * `agg.maintenanceHours` é a soma da categoria MANUTENÇÃO, que são exatamente os
+ * seis subtipos — o mesmo número que a coluna "Paradas" da tabela por máquina.
+ *
+ * Ponderado pelo tempo, NUNCA média simples dos percentuais individuais: com 10
+ * máquinas em agosto o denominador é 744 × 10 = 7.440 h.
+ */
+function fleetAvailability(records: AnalyticsRecord[], agg: HoursAggregate, periodHours: number): number | null {
+  return calculateFleetPhysicalAvailability({
+    periodHoursPerMachine: periodHours,
+    machineCount: countMachines(records),
+    downtimeHours: agg.maintenanceHours
+  }).availabilityPercent;
 }
 
 function mttr(maintenanceHours: number, maintenanceEvents: number): number | null {
@@ -561,7 +686,7 @@ function maintenancePercent(plannedHours: number, maintenanceHours: number): num
 /* Ranking por recurso                                                */
 /* ------------------------------------------------------------------ */
 
-function buildResourceRanking(records: AnalyticsRecord[]): PcFactoryResourceRow[] {
+function buildResourceRanking(records: AnalyticsRecord[], periodHours: number): PcFactoryResourceRow[] {
   const groups = new Map<string, AnalyticsRecord[]>();
   for (const record of records) {
     const list = groups.get(record.resourceName);
@@ -572,6 +697,11 @@ function buildResourceRanking(records: AnalyticsRecord[]): PcFactoryResourceRow[
   const rows: PcFactoryResourceRow[] = [];
   for (const [resourceName, list] of Array.from(groups.entries())) {
     const agg = aggregateHours(list);
+    // Uma máquina: o tempo-calendário do período vale uma vez.
+    const physical = calculatePhysicalAvailability({
+      totalPeriodHours: periodHours,
+      downtimeHours: agg.maintenanceHours
+    });
     const sample = list.find((item) => item.resourceCode) ?? list[0];
     const line = list.find((item) => item.productionLine)?.productionLine ?? null;
     const group = list.find((item) => item.groupPortal)?.groupPortal ?? null;
@@ -596,7 +726,11 @@ function buildResourceRanking(records: AnalyticsRecord[]): PcFactoryResourceRow[
       mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
       mtbf: mtbf(agg.plannedHours, agg.maintenanceHours, agg.maintenanceEvents),
       mtta: mtta(agg.waitingHours, agg.waitingEvents),
-      availabilityPercent: availability(agg)
+      periodHours: physical.totalPeriodHours,
+      downtimeHours: physical.downtimeHours,
+      availableHours: physical.availableHours,
+      availabilityPercent: physical.availabilityPercent,
+      g0134AvailabilityPercent: g0134Availability(agg)
     });
   }
   return rows;
@@ -682,8 +816,35 @@ export type MachineAvailabilityMetrics = {
   mtbf: number | null;
   mttr: number | null;
   mtta: number | null;
-  /** Vem de calculateMachineG0134Availability(). null = sem LOADTIME. */
+
+  /* --- Disponibilidade Física (fórmula OFICIAL do portal) ---------- */
+  /** Tempo-calendário do recorte para esta máquina (dias × 24 h). */
+  periodHours: number;
+  /**
+   * HORAS DE PARADA da fórmula = os seis tipos de manutenção. É o MESMO número
+   * exibido na coluna "Paradas" da tabela (`totalMaintenanceForAvailability`) —
+   * a conferência manual depende de serem idênticos.
+   */
+  downtimeHours: number;
+  /** Tempo Total − Paradas. */
+  availableHours: number;
+  /** Paradas acima do tempo-calendário: inconsistência de dados, nunca mascarada. */
+  downtimeExceedsPeriod: boolean;
+  excessDowntimeHours: number;
+  /**
+   * DISPONIBILIDADE OFICIAL DO PORTAL (Física). null quando não há período.
+   * Vem de `calculatePhysicalAvailability()`.
+   */
   availabilityPercent: number | null;
+
+  /* --- G0134 (auditoria histórica, fora das telas gerenciais) ------ */
+  /**
+   * Fórmula ANTERIOR, preservada para comparação durante a transição:
+   * (LOADTIME − Manutenção) / LOADTIME × 100. Não alimenta card, tabela nem
+   * gráfico — ver scripts/compare-pcfactory-availability-methods.ts.
+   */
+  g0134AvailabilityPercent: number | null;
+
   dataQualityIssue: string | null;
 };
 
@@ -710,7 +871,10 @@ export type MachineAvailabilityMetrics = {
  *
  * Vale para QUALQUER recurso — não há lista de códigos nem exceção por máquina.
  */
-export function buildMachineAvailabilityMetrics(records: AnalyticsRecord[]): MachineAvailabilityMetrics {
+export function buildMachineAvailabilityMetrics(
+  records: AnalyticsRecord[],
+  periodHours: number
+): MachineAvailabilityMetrics {
   let totalHours = 0;
   let outOfShiftHours = 0;
   let unscheduledResourceHours = 0;
@@ -771,11 +935,20 @@ export function buildMachineAvailabilityMetrics(records: AnalyticsRecord[]): Mac
   const repairHours = round(mechanicalHours + electricalHours + automationHours + thirdPartyHours);
   const maintenanceHours = round(repairHours + plannedMaintenanceHours);
 
-  // A Disponibilidade e as parcelas dela vêm da função central — nunca refeitas aqui.
+  // Decomposição G0134 — mantida para auditoria e para as parcelas de manutenção
+  // (maintenanceHours / waiting / total), que a tabela exibe. A DISPONIBILIDADE que
+  // sai daqui NÃO é mais a do portal: ver `physical` logo abaixo.
   const availability = calculateMachineG0134Availability({
     loadTimeHours: loadHours - plannedStopHours,
     maintenanceHours,
     waitingMaintenanceHours
+  });
+
+  // DISPONIBILIDADE FÍSICA — fórmula oficial. Denominador = tempo-calendário do
+  // recorte; numerador = as MESMAS horas de parada já somadas acima (os seis tipos).
+  const physical = calculatePhysicalAvailability({
+    totalPeriodHours: periodHours,
+    downtimeHours: availability.totalMaintenanceForAvailability
   });
 
   const failureEvents = failureRepairEvents + waitingEvents;
@@ -811,17 +984,27 @@ export function buildMachineAvailabilityMetrics(records: AnalyticsRecord[]): Mac
       availability.waitingMaintenanceHours > 0 && failureEvents > 0
         ? safeRound(availability.waitingMaintenanceHours / failureEvents)
         : null,
-    availabilityPercent: availability.availabilityPercent,
-    dataQualityIssue:
-      loadHours <= 0
-        ? "Sem tempo de carga no período — LOADTIME/disponibilidade não calculáveis."
-        : availability.loadTimeHours <= 0
-          ? "Todo o tempo de carga é Setup — sem LOADTIME para calcular disponibilidade."
-          : availability.totalMaintenanceForAvailability > availability.loadTimeHours
-            ? "Manutenção excede o LOADTIME (verificar importação)."
-            : operatingHours <= 0
-              ? "Toda a base de tempo é manutenção (sem produção) — MTBF/disponibilidade pouco representativos."
-              : null
+    periodHours: physical.totalPeriodHours,
+    downtimeHours: physical.downtimeHours,
+    availableHours: physical.availableHours,
+    downtimeExceedsPeriod: physical.downtimeExceedsPeriod,
+    excessDowntimeHours: physical.excessDowntimeHours,
+    availabilityPercent: physical.availabilityPercent,
+    g0134AvailabilityPercent: availability.availabilityPercent,
+
+    // O aviso de qualidade passa a falar da fórmula em uso. O caso impossível da
+    // Disponibilidade Física é parada > calendário (sobreposição/duplicidade) —
+    // vem primeiro porque invalida o número, ao contrário dos avisos de LOADTIME,
+    // que hoje só afetam o G0134 de auditoria.
+    dataQualityIssue: physical.downtimeExceedsPeriod
+      ? `Horas de parada (${physical.downtimeHours} h) superiores às horas-calendário do período (${physical.totalPeriodHours} h). Verifique sobreposição ou duplicidade dos registros.`
+      : periodHours <= 0
+        ? "Sem período definido — disponibilidade não calculável."
+        : loadHours <= 0
+          ? "Sem tempo de carga no período — indicadores G0134 de auditoria não calculáveis."
+          : operatingHours <= 0
+            ? "Toda a base de tempo é manutenção (sem produção) — MTBF pouco representativo."
+            : null
   };
 }
 
@@ -836,11 +1019,11 @@ function groupRecordsByMachine(records: AnalyticsRecord[]): Map<string, Analytic
   return groups;
 }
 
-function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabilityRow[] {
+function buildReliabilityByMachine(records: AnalyticsRecord[], periodHours: number): PcFactoryReliabilityRow[] {
   const rows: PcFactoryReliabilityRow[] = [];
 
   for (const [machineName, list] of Array.from(groupRecordsByMachine(records).entries())) {
-    const metrics = buildMachineAvailabilityMetrics(list);
+    const metrics = buildMachineAvailabilityMetrics(list, periodHours);
 
     // Entra toda máquina com tempo medido no recorte. Antes o corte era
     // `failureEvents <= 0`, e isso escondia as máquinas SEM quebra — justamente as
@@ -873,7 +1056,11 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
       mttr: metrics.mttr,
       mtta: metrics.mtta,
       downtimeHours: metrics.totalMaintenanceForAvailability,
+      periodHours: metrics.periodHours,
+      availableHours: metrics.availableHours,
+      downtimeExceedsPeriod: metrics.downtimeExceedsPeriod,
       availability: metrics.availabilityPercent,
+      g0134Availability: metrics.g0134AvailabilityPercent,
       dataQualityIssue: metrics.dataQualityIssue
     });
   }
@@ -883,7 +1070,8 @@ function buildReliabilityByMachine(records: AnalyticsRecord[]): PcFactoryReliabi
 }
 
 export async function getPcFactoryReliabilityByMachine(params: PcFactoryQueryParams): Promise<PcFactoryReliabilityRow[]> {
-  return buildReliabilityByMachine(await loadRecords(params));
+  const [records, period] = await Promise.all([loadRecords(params), resolvePeriodWindow(params)]);
+  return buildReliabilityByMachine(records, period.hours);
 }
 
 /** Uma máquina do recorte com a identificação dela e as métricas da fórmula G0134. */
@@ -907,13 +1095,13 @@ export type PcFactoryMachineAvailabilityRow = MachineAvailabilityMetrics & {
 export async function getPcFactoryAvailabilityByMachine(
   params: PcFactoryQueryParams
 ): Promise<PcFactoryMachineAvailabilityRow[]> {
-  const records = await loadRecords(params);
+  const [records, period] = await Promise.all([loadRecords(params), resolvePeriodWindow(params)]);
   const rows: PcFactoryMachineAvailabilityRow[] = [];
 
   for (const [machineName, list] of Array.from(groupRecordsByMachine(records).entries())) {
     const sample = list.find((item) => item.resourceCode) ?? list[0];
     rows.push({
-      ...buildMachineAvailabilityMetrics(list),
+      ...buildMachineAvailabilityMetrics(list, period.hours),
       machineName,
       machineCode: sample.resourceCode ?? null,
       productionLine: list.find((item) => item.productionLine)?.productionLine ?? null,
@@ -929,9 +1117,14 @@ export async function getPcFactoryAvailabilityByMachine(
 /* ------------------------------------------------------------------ */
 
 export async function getPcFactoryDashboardKPIs(params: PcFactoryQueryParams): Promise<PcFactoryKpis> {
-  const records = await loadRecords(params);
+  const [records, period] = await Promise.all([loadRecords(params), resolvePeriodWindow(params)]);
   const agg = aggregateHours(records);
-  const ranking = buildResourceRanking(records);
+  const ranking = buildResourceRanking(records, period.hours);
+  const fleet = calculateFleetPhysicalAvailability({
+    periodHoursPerMachine: period.hours,
+    machineCount: countMachines(records),
+    downtimeHours: agg.maintenanceHours
+  });
 
   const resourceNames = new Set(records.map((r) => r.resourceName));
   const lines = new Set(records.map((r) => r.productionLine).filter(Boolean) as string[]);
@@ -964,7 +1157,15 @@ export async function getPcFactoryDashboardKPIs(params: PcFactoryQueryParams): P
     mtbf: mtbf(agg.plannedHours, agg.maintenanceHours, agg.maintenanceEvents),
     mtta: mtta(agg.waitingHours, agg.waitingEvents),
     maintenancePercentOfPlanned: maintenancePercent(agg.plannedHours, agg.maintenanceHours),
-    availabilityPercent: availability(agg),
+    // Disponibilidade Física da frota do recorte (ponderada pelo tempo).
+    periodHoursPerMachine: fleet.periodHoursPerMachine,
+    machineCount: fleet.machineCount,
+    totalPeriodHours: fleet.totalPeriodHours,
+    downtimeHours: fleet.downtimeHours,
+    availableHours: fleet.availableHours,
+    downtimeExceedsPeriod: fleet.downtimeExceedsPeriod,
+    availabilityPercent: fleet.availabilityPercent,
+    g0134AvailabilityPercent: g0134Availability(agg),
     topMaintenanceResource: topByMaintenance(ranking)
   };
 }
@@ -1110,7 +1311,8 @@ function maintenanceSplitFromAggregate(agg: HoursAggregate): PcFactoryMaintenanc
 /* ------------------------------------------------------------------ */
 
 export async function getPcFactoryResourceRanking(params: PcFactoryQueryParams): Promise<PcFactoryResourceRow[]> {
-  return buildResourceRanking(await loadRecords(params)).sort((a, b) => b.maintenanceHours - a.maintenanceHours);
+  const [records, period] = await Promise.all([loadRecords(params), resolvePeriodWindow(params)]);
+  return buildResourceRanking(records, period.hours).sort((a, b) => b.maintenanceHours - a.maintenanceHours);
 }
 
 export type PcFactoryMachineBelowAverage = {
@@ -1138,12 +1340,11 @@ export type PcFactoryMachinesBelowAverageResult = {
  * "Máquinas Críticas" da aba Início: máquinas com disponibilidade ABAIXO da média
  * geral do PC-Factory no período.
  *
- * Usa a DISPONIBILIDADE OFICIAL já calculada por `buildResourceRanking` →
- * `availability(agg)` (regra da planilha G0134: (Tempo Operacional − Manutenção) ÷
- * Tempo Operacional). Antes esta função tinha uma fórmula PRÓPRIA
- * (`(plannedHours − maintenanceHours) / plannedHours`) que usava o Tempo de Carga como
- * denominador em vez do Tempo Operacional e por isso divergia do card e da tabela de
- * confiabilidade. Não recriar regra local aqui.
+ * Usa a DISPONIBILIDADE FÍSICA já calculada por `buildResourceRanking` — a MESMA
+ * fórmula e o MESMO tempo-calendário da aba PC-Factory. É isso que impede a home de
+ * continuar na regra antiga enquanto a aba já usa a nova: não há conta local aqui.
+ * (Esta função já teve fórmula própria uma vez — `(plannedHours − maintenanceHours) /
+ * plannedHours` — e por isso divergia do card e da tabela. Não recriar regra local.)
  *
  * A média é a média simples da disponibilidade oficial de TODAS as máquinas com
  * disponibilidade calculável (inclui as saudáveis, sem manutenção) — é uma média ENTRE
@@ -1189,7 +1390,7 @@ export async function getPcFactoryMachinesBelowAverage(
 }
 
 export async function getPcFactoryProductionLineSummary(params: PcFactoryQueryParams): Promise<PcFactoryProductionLineRow[]> {
-  const records = await loadRecords(params);
+  const [records, period] = await Promise.all([loadRecords(params), resolvePeriodWindow(params)]);
   const groups = new Map<string, AnalyticsRecord[]>();
   for (const record of records) {
     const key = record.productionLine?.trim() || "Sem linha";
@@ -1201,25 +1402,34 @@ export async function getPcFactoryProductionLineSummary(params: PcFactoryQueryPa
   const rows: PcFactoryProductionLineRow[] = [];
   for (const [productionLine, list] of Array.from(groups.entries())) {
     const agg = aggregateHours(list);
+    // Denominador da linha = horas do período × máquinas da linha (ver fleetAvailability).
+    const fleet = calculateFleetPhysicalAvailability({
+      periodHoursPerMachine: period.hours,
+      machineCount: countMachines(list),
+      downtimeHours: agg.maintenanceHours
+    });
     rows.push({
       productionLine,
-      resourcesCount: new Set(list.map((item) => item.resourceName)).size,
+      resourcesCount: fleet.machineCount,
       plannedHours: agg.plannedHours,
       productionHours: agg.productionHours,
       maintenanceHours: agg.maintenanceHours,
       lossHours: agg.lossHours,
       stoppedHours: agg.stoppedHours,
-      availabilityPercent: availability(agg)
+      totalPeriodHours: fleet.totalPeriodHours,
+      availableHours: fleet.availableHours,
+      availabilityPercent: fleet.availabilityPercent
     });
   }
   return rows.sort((a, b) => b.maintenanceHours - a.maintenanceHours);
 }
 
 export async function getPcFactoryGroupSummary(params: PcFactoryQueryParams): Promise<PcFactoryGroupRow[]> {
-  return buildGroupSummary(await loadRecords(params));
+  const [records, period] = await Promise.all([loadRecords(params), resolvePeriodWindow(params)]);
+  return buildGroupSummary(records, period.hours);
 }
 
-function buildGroupSummary(records: AnalyticsRecord[]): PcFactoryGroupRow[] {
+function buildGroupSummary(records: AnalyticsRecord[], periodHours: number): PcFactoryGroupRow[] {
   const groups = new Map<string, AnalyticsRecord[]>();
   for (const record of records) {
     const key = record.groupPortal?.trim() || "Sem grupo";
@@ -1231,9 +1441,17 @@ function buildGroupSummary(records: AnalyticsRecord[]): PcFactoryGroupRow[] {
   const rows: PcFactoryGroupRow[] = [];
   for (const [groupPortal, list] of Array.from(groups.entries())) {
     const agg = aggregateHours(list);
+    // GRUPO DE ÁREA (Indústria de Granito / Mármore / Dolomítico / Serraria):
+    // Tempo Total = horas do período × máquinas válidas do grupo. Ponderado, nunca
+    // média simples das disponibilidades individuais.
+    const fleet = calculateFleetPhysicalAvailability({
+      periodHoursPerMachine: periodHours,
+      machineCount: countMachines(list),
+      downtimeHours: agg.maintenanceHours
+    });
     rows.push({
       groupPortal,
-      resourcesCount: new Set(list.map((item) => item.resourceName)).size,
+      resourcesCount: fleet.machineCount,
       plannedHours: agg.plannedHours,
       maintenanceHours: agg.maintenanceHours,
       mechanicalHours: agg.mechanicalHours,
@@ -1247,7 +1465,9 @@ function buildGroupSummary(records: AnalyticsRecord[]): PcFactoryGroupRow[] {
       mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
       mtbf: mtbf(agg.plannedHours, agg.maintenanceHours, agg.maintenanceEvents),
       mtta: mtta(agg.waitingHours, agg.waitingEvents),
-      availabilityPercent: availability(agg)
+      totalPeriodHours: fleet.totalPeriodHours,
+      availableHours: fleet.availableHours,
+      availabilityPercent: fleet.availabilityPercent
     });
   }
   return rows.sort((a, b) => b.maintenanceHours - a.maintenanceHours);
@@ -1266,7 +1486,8 @@ function buildGroupSummary(records: AnalyticsRecord[]): PcFactoryGroupRow[] {
  * (YYYY-MM ordena lexicograficamente = cronologicamente).
  */
 export async function getPcFactoryTrend(params: PcFactoryQueryParams): Promise<PcFactoryTrendPoint[]> {
-  const records = (await loadRecords(params)).filter((r) => r.startDateTime);
+  const [allRecords, period] = await Promise.all([loadRecords(params), resolvePeriodWindow(params)]);
+  const records = allRecords.filter((r) => r.startDateTime);
   if (records.length === 0) return [];
 
   // Um registro que atravessa meses é DIVIDIDO entre eles (TAREFA 9): uma parada
@@ -1288,18 +1509,33 @@ export async function getPcFactoryTrend(params: PcFactoryQueryParams): Promise<P
 
   return Array.from(buckets.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([period, list]) => {
+    .map(([monthKey, list]) => {
       const agg = aggregateHours(list);
+      // CADA MÊS TEM O SEU total-calendário — jan 744 h, fev 672 h, abr 720 h — e
+      // nunca se aplica o total de um mês a outro. Nas pontas do recorte o mês entra
+      // só com a fatia dentro da janela (um filtro de 10/08 a 20/09 dá 22 dias de
+      // agosto e 20 de setembro), senão a disponibilidade das bordas sairia alta
+      // demais: paradas de meio mês divididas pelo mês cheio.
+      const monthHours = calculateMonthHoursWithinWindow(monthKey, period.start, period.end);
+      const fleet = calculateFleetPhysicalAvailability({
+        periodHoursPerMachine: monthHours,
+        machineCount: countMachines(list),
+        downtimeHours: agg.maintenanceHours
+      });
       return {
-        period,
-        label: monthLabel(period),
+        period: monthKey,
+        label: monthLabel(monthKey),
         maintenanceHours: agg.maintenanceHours,
         mechanicalHours: agg.mechanicalHours,
         electricalHours: agg.electricalHours,
         automationHours: agg.automationHours,
         waitingHours: agg.waitingHours,
         plannedHours: agg.plannedHours,
-        availabilityPercent: availability(agg)
+        periodHoursPerMachine: fleet.periodHoursPerMachine,
+        machineCount: fleet.machineCount,
+        totalPeriodHours: fleet.totalPeriodHours,
+        availableHours: fleet.availableHours,
+        availabilityPercent: fleet.availabilityPercent
       };
     });
 }
@@ -1523,7 +1759,9 @@ export async function getPcFactoryResourceDetails(
 
   // MESMA função da linha da tabela — é isso que garante o critério "ao clicar numa
   // máquina, os números do detalhe batem com a linha no mesmo filtro".
-  const metrics = buildMachineAvailabilityMetrics(analytics);
+  // MESMA janela de período da tabela: o painel não pode ter outro denominador.
+  const period = await resolvePeriodWindow(params);
+  const metrics = buildMachineAvailabilityMetrics(analytics, period.hours);
   const agg = aggregateHours(analytics);
   const sample = analytics.find((item) => item.resourceCode) ?? analytics[0];
 
@@ -1550,11 +1788,19 @@ export async function getPcFactoryResourceDetails(
     mtta: metrics.mtta,
     availabilityPercent: metrics.availabilityPercent,
     availabilityAudit: {
+      // Disponibilidade Física — os quatro números que o painel publica e que o
+      // gestor confere na mão.
+      periodHours: metrics.periodHours,
+      downtimeHours: metrics.downtimeHours,
+      availableHours: metrics.availableHours,
+      availabilityPercent: metrics.availabilityPercent,
+      downtimeExceedsPeriod: metrics.downtimeExceedsPeriod,
+      // Decomposição G0134, mantida ao lado para auditoria histórica.
       loadTimeHours: metrics.loadTimeHours,
       maintenanceHours: metrics.maintenanceHours,
       waitingMaintenanceHours: metrics.waitingMaintenanceHours,
       totalMaintenanceForAvailability: metrics.totalMaintenanceForAvailability,
-      availabilityPercent: metrics.availabilityPercent,
+      g0134AvailabilityPercent: metrics.g0134AvailabilityPercent,
       totalHours: metrics.totalHours,
       outOfShiftHours: metrics.outOfShiftHours,
       unscheduledResourceHours: metrics.unscheduledResourceHours,
@@ -1732,9 +1978,9 @@ async function loadPcFactoryPageData(params: PcFactoryQueryParams): Promise<PcFa
   const totalRecords = await prisma.pcFactoryRecord.count();
   if (totalRecords === 0) return emptyPageData(reference);
 
-  const records = await loadRecords(params);
+  const [records, period] = await Promise.all([loadRecords(params), resolvePeriodWindow(params)]);
   const agg = aggregateHours(records);
-  const ranking = buildResourceRanking(records);
+  const ranking = buildResourceRanking(records, period.hours);
 
   const [kpis, productionLines, groupSummary, trend, rootCausePareto, records_, filterOptions, dataQuality] = await Promise.all([
     getPcFactoryDashboardKPIs(params),
@@ -1748,7 +1994,7 @@ async function loadPcFactoryPageData(params: PcFactoryQueryParams): Promise<PcFa
     buildDataQuality(params)
   ]);
 
-  const reliabilityByMachine = buildReliabilityByMachine(records);
+  const reliabilityByMachine = buildReliabilityByMachine(records, period.hours);
   const filterAudit = await buildFilterAudit(params, filterOptions, reliabilityByMachine.length);
 
   const criticalResources = [...ranking].filter((r) => r.maintenanceHours > 0).sort((a, b) => b.maintenanceHours - a.maintenanceHours).slice(0, 10);
@@ -1802,8 +2048,15 @@ async function buildDataQuality(params: PcFactoryQueryParams): Promise<PcFactory
   const resourcesDistinct = await prisma.pcFactoryRecord.findMany({ where, select: { resourceName: true }, distinct: ["resourceName"] });
   // Reaproveita os registros já carregados no render (loadRecords é memoizado por params),
   // sem query extra: horas não apontadas + auditoria da fórmula de Disponibilidade.
-  const hoursAgg = aggregateHours(await loadRecords(params));
+  const auditRecords = await loadRecords(params);
+  const hoursAgg = aggregateHours(auditRecords);
   const breakdown = availabilityBreakdown(hoursAgg);
+  const period = await resolvePeriodWindow(params);
+  const fleet = calculateFleetPhysicalAvailability({
+    periodHoursPerMachine: period.hours,
+    machineCount: countMachines(auditRecords),
+    downtimeHours: hoursAgg.maintenanceHours
+  });
 
   return {
     totalRecords,
@@ -1835,8 +2088,18 @@ async function buildDataQuality(params: PcFactoryQueryParams): Promise<PcFactory
       notPointedHours: hoursAgg.bucketHours.NAO_APONTADO,
       maintenanceHours: hoursAgg.maintenanceHours,
       waitingMaintenanceHours: hoursAgg.waitingHours,
-      availabilityPercent: availability(hoursAgg),
-      formula: "(operationalHours - maintenanceHours) / operationalHours * 100",
+
+      periodHours: fleet.totalPeriodHours,
+      periodHoursPerMachine: fleet.periodHoursPerMachine,
+      machineCount: fleet.machineCount,
+      downtimeHours: fleet.downtimeHours,
+      availableHours: fleet.availableHours,
+      downtimeExceedsPeriod: fleet.downtimeExceedsPeriod,
+      availabilityPercent: fleet.availabilityPercent,
+      formula: "(totalPeriodHours - downtimeHours) / totalPeriodHours * 100",
+
+      g0134AvailabilityPercent: g0134Availability(hoursAgg),
+      g0134Formula: "(operationalHours - maintenanceHours) / operationalHours * 100",
       utilizationPercent: breakdown.utilizationPercent
     }
   };
@@ -1862,8 +2125,16 @@ const EMPTY_AVAILABILITY_AUDIT: PcFactoryAvailabilityAudit = {
   notPointedHours: 0,
   maintenanceHours: 0,
   waitingMaintenanceHours: 0,
+  periodHours: 0,
+  periodHoursPerMachine: 0,
+  machineCount: 0,
+  downtimeHours: 0,
+  availableHours: 0,
+  downtimeExceedsPeriod: false,
   availabilityPercent: null,
-  formula: "(operationalHours - maintenanceHours) / operationalHours * 100",
+  formula: "(totalPeriodHours - downtimeHours) / totalPeriodHours * 100",
+  g0134AvailabilityPercent: null,
+  g0134Formula: "(operationalHours - maintenanceHours) / operationalHours * 100",
   utilizationPercent: null
 };
 
@@ -1880,13 +2151,13 @@ export async function getPcFactoryDashboardSummary(): Promise<PcFactoryDashboard
   if (totalRecords === 0) {
     return { hasData: false, maintenanceHours: 0, availabilityPercent: null, mttr: null, topMaintenanceResources: [], waitingMaintenanceResources: [] };
   }
-  const records = await loadRecords({});
+  const [records, period] = await Promise.all([loadRecords({}), resolvePeriodWindow({})]);
   const agg = aggregateHours(records);
-  const ranking = buildResourceRanking(records);
+  const ranking = buildResourceRanking(records, period.hours);
   return {
     hasData: true,
     maintenanceHours: agg.maintenanceHours,
-    availabilityPercent: availability(agg),
+    availabilityPercent: fleetAvailability(records, agg, period.hours),
     mttr: mttr(agg.maintenanceHours, agg.maintenanceEvents),
     topMaintenanceResources: [...ranking]
       .filter((r) => r.maintenanceHours > 0)
@@ -1934,7 +2205,14 @@ function emptyPageData(
       mtbf: null,
       mtta: null,
       maintenancePercentOfPlanned: null,
+      periodHoursPerMachine: 0,
+      machineCount: 0,
+      totalPeriodHours: 0,
+      downtimeHours: 0,
+      availableHours: 0,
+      downtimeExceedsPeriod: false,
       availabilityPercent: null,
+      g0134AvailabilityPercent: null,
       topMaintenanceResource: null
     },
     categoryDistribution: [],

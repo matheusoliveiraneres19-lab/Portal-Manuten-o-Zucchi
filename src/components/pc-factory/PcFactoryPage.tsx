@@ -237,26 +237,40 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
         bege vira um cinza médio) com `text-gold` e `text-zinc-400` — claro sobre
         claro, ~1,9:1. Agora é superfície branca com borda dourada e texto escuro.
       */}
+      {/*
+        Este controle NUNCA governou a fórmula da disponibilidade — ele decide a que
+        período um registro que atravessa meses pertence. Com o rótulo "Modo de
+        cálculo / Oficial G0134" a tela dava a entender que a disponibilidade exibida
+        era a do G0134, o que deixou de ser verdade: o indicador do portal agora é a
+        Disponibilidade Física em qualquer um dos dois modos. Daí o rótulo falar do
+        que o botão realmente faz — atribuir horas ao período — e a fórmula ficar
+        declarada ao lado.
+      */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gold/35 bg-white/75 px-3 py-2 shadow-sm">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-gold-deep">Modo de cálculo</span>
+        <span className="text-[11px] font-bold uppercase tracking-wide text-gold-deep">
+          Atribuição das horas ao período
+        </span>
         <div className="flex gap-1">
           <ModeButton
             active={appliedFilters.mode === "G0134_OFICIAL"}
             disabled={isPending || isRefreshing}
             onClick={() => changeMode("G0134_OFICIAL")}
-            label="Oficial G0134"
+            label="Mês de início (G0134)"
           />
           <ModeButton
             active={appliedFilters.mode === "INTERVALO_REAL"}
             disabled={isPending || isRefreshing}
             onClick={() => changeMode("INTERVALO_REAL")}
-            label="Intervalo real"
+            label="Rateio por mês real"
           />
         </div>
         <p className="text-[11px] leading-snug text-neutralized-strong">
           {appliedFilters.mode === "G0134_OFICIAL"
-            ? "Replica o relatório nativo do PC-Factory: o registro conta inteiro no período em que começou."
-            : "Distribui eventos longos entre os meses reais — pode divergir do G0134 de propósito."}
+            ? "O registro conta inteiro no período em que começou — mesmo agrupamento do relatório nativo do PC-Factory."
+            : "Eventos longos são rateados entre os meses que atravessam; o período conta só a fatia dentro da janela."}{" "}
+          <strong className="font-semibold text-gold-deep">
+            Em ambos, a disponibilidade é a Física: (Tempo Total − Horas de Parada) / Tempo Total × 100.
+          </strong>
         </p>
       </div>
 

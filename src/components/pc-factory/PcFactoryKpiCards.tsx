@@ -59,14 +59,19 @@ export function PcFactoryKpiCards({ kpis }: PcFactoryKpiCardsProps) {
     // kpis.mtbf, kpis.mtta, kpis.maintenancePercentOfPlanned) para uso futuro em
     // relatórios técnicos — só não são renderizados aqui.
     {
-      title: "Disponibilidade",
+      title: "Disponibilidade Física",
       value: percent(kpis.availabilityPercent),
-      description: "Base G0134: (Tempo Operacional − Manutenção) / Tempo Operacional.",
+      description: "(Tempo Total do Período − Horas de Parada) / Tempo Total do Período × 100.",
       hint:
-        "Tempo de Carga = Total − Fora de Turno − Recurso Não Programado. " +
-        "Tempo Operacional = Tempo de Carga − Setup (só o Setup sai; Refeição, Limpeza, Falta de Material e demais " +
-        "paradas continuam dentro). Manutenção = os 6 subtipos, incluindo Planejada e Aguardando Manutenção — é aí " +
-        "que esta conta difere do DTM% nativo do PC-Factory.",
+        `Tempo Total = tempo-calendário do filtro × máquinas válidas: ` +
+        `${hours(kpis.periodHoursPerMachine)} por máquina × ${kpis.machineCount} máquina(s) = ${hours(kpis.totalPeriodHours)}. ` +
+        `Horas de parada: ${hours(kpis.downtimeHours)} (Mecânica + Elétrica + Automação + Planejada + Terceiros + ` +
+        `Aguardando). Horas disponíveis: ${hours(kpis.availableHours)}. ` +
+        "Ponderado pelo tempo, nunca média simples das máquinas. Não usa LOADTIME, Tempo Operacional, Setup, " +
+        "MTBF, MTTR, MTTA nem quantidade de quebras." +
+        (kpis.downtimeExceedsPeriod
+          ? " ATENÇÃO: horas de parada superiores às horas-calendário do período — verifique sobreposição ou duplicidade dos registros."
+          : ""),
       icon: CircleGauge,
       tone: "green"
     },

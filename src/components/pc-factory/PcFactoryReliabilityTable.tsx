@@ -33,9 +33,10 @@ const HEADER_HINTS = {
     "É o mesmo número do card Horas de Manutenção e do que a Disponibilidade subtrai — maior que o " +
     "numerador do MTTR, que é só o reparo corretivo. Passe o mouse na célula para ver a composição.",
   availability:
-    "Disponibilidade = (LOADTIME − (Manutenção + Aguardando Manutenção)) / LOADTIME × 100, " +
-    "com LOADTIME = Tempo de Carga − Setup (= G0134.LOADTIME). Soma direta de horas: não usa " +
-    "MTTR, MTBF, MTTA nem quebras. Passe o mouse na célula para ver a conta da máquina."
+    "Disponibilidade Física = (Tempo Total do Período − Horas de Parada) / Tempo Total do Período × 100. " +
+    "O Tempo Total é o tempo-calendário do filtro (ex.: agosto = 31 × 24 = 744 h). Soma direta de horas: " +
+    "não usa LOADTIME, Tempo Operacional, Setup, MTTR, MTBF, MTTA nem quebras. " +
+    "Passe o mouse na célula para ver a conta da máquina."
 } as const;
 
 /**
@@ -157,8 +158,8 @@ export function PcFactoryReliabilityTable({ rows, className = "", onSelect }: Pc
             }}
             className="h-8 rounded-md border border-zinc-300 bg-white px-2 text-xs font-semibold text-zinc-800 outline-none transition focus-visible:border-gold"
           >
-            <option value="availability:asc">Disponibilidade — menor primeiro</option>
-            <option value="availability:desc">Disponibilidade — maior primeiro</option>
+            <option value="availability:asc">Disponibilidade Física — menor primeiro</option>
+            <option value="availability:desc">Disponibilidade Física — maior primeiro</option>
             <option value="downtimeHours:desc">Paradas — maior primeiro</option>
             <option value="failureEvents:desc">Quebras — maior primeiro</option>
             <option value="mtbf:asc">MTBF — menor primeiro</option>
@@ -218,7 +219,7 @@ export function PcFactoryReliabilityTable({ rows, className = "", onSelect }: Pc
                   <SortableHeader label="MTTA" sortKey="mtta" active={sortKey} direction={sortDirection} hint={HEADER_HINTS.mtta} onSort={toggleSort} align="right" />
                   <SortableHeader label="Paradas" sortKey="downtimeHours" active={sortKey} direction={sortDirection} hint={HEADER_HINTS.downtime} onSort={toggleSort} align="right" />
                   <SortableHeader
-                    label="Disponib."
+                    label="Disponib. Física"
                     sortKey="availability"
                     active={sortKey}
                     direction={sortDirection}
@@ -382,20 +383,37 @@ function downtimeBreakdown(row: PcFactoryReliabilityRow): string {
 }
 
 /**
- * A conta da Disponibilidade da máquina aberta na célula — os mesmos termos das colunas
- * do relatório oficial G0134, para conferir sem sair da tela.
+ * A conta da DISPONIBILIDADE FÍSICA aberta na célula, nos mesmos termos da
+ * conferência manual do PCM — os três insumos e a divisão, para bater na calculadora
+ * sem sair da tela:
+ *
+ *   Tempo total do período: 744 h
+ *   Horas de parada:        128 h
+ *   Horas disponíveis:      616 h
+ *   (616 / 744) × 100 = 82,8%
  */
 function availabilityBreakdown(row: PcFactoryReliabilityRow): string {
   const h = (value: number) => `${value.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h`;
-  return [
-    `Disponibilidade — ${normalizeMachineName(row.machineName) || row.machineName}`,
-    `LOADTIME: ${h(row.loadTimeHours)}  (carga ${h(row.plannedHours)} − setup ${h(row.plannedStopHours)})`,
-    `Manutenção: ${h(row.maintenanceHours)}`,
-    `Aguardando: ${h(row.waitingMaintenanceHours)}`,
-    `Manutenção total usada: ${h(row.maintenanceDowntimeHours)}`,
-    `Disponibilidade: ${formatPercent(row.availability)}`,
-    "(LOADTIME − manutenção total) ÷ LOADTIME × 100 — sem MTTR/MTBF/MTTA/quebras."
-  ].join("\n");
+  const lines = [
+    `Disponibilidade Física — ${normalizeMachineName(row.machineName) || row.machineName}`,
+    "",
+    `Tempo total do período: ${h(row.periodHours)}`,
+    `Horas de parada: ${h(row.downtimeHours)}`,
+    `Horas disponíveis: ${h(row.availableHours)}`,
+    "",
+    `(${h(row.availableHours)} ÷ ${h(row.periodHours)}) × 100 = ${formatPercent(row.availability)}`,
+    "",
+    "Paradas = Mecânica + Elétrica + Automação + Planejada + Terceiros + Aguardando.",
+    "Não usa LOADTIME, Tempo Operacional, MTTR, MTBF, MTTA nem quebras."
+  ];
+  if (row.downtimeExceedsPeriod) {
+    lines.push(
+      "",
+      "⚠ Horas de parada superiores às horas-calendário do período.",
+      "Verifique sobreposição ou duplicidade dos registros."
+    );
+  }
+  return lines.join("\n");
 }
 
 /**

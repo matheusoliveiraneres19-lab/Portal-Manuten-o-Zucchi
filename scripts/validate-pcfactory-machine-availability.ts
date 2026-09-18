@@ -53,7 +53,10 @@ type LinhaPortal = {
   maintenanceHours: number;
   waitingMaintenanceHours: number;
   totalMaintenanceForAvailability: number;
+  /** Após o remapeamento abaixo, carrega o valor G0134 — é ele que se compara com a planilha. */
   availabilityPercent: number | null;
+  /** Disponibilidade G0134 como o service a devolve (antes do remapeamento). */
+  g0134AvailabilityPercent: number | null;
   loadHours: number;
   plannedStopHours: number;
   repairHours: number;
@@ -273,7 +276,24 @@ async function main() {
   );
 
   /* --- 2. Portal x oficial, máquina a máquina --- */
-  const portal = await service.getPcFactoryAvailabilityByMachine(filtros);
+  /*
+   * ESTE SCRIPT VALIDA A FÓRMULA G0134, não a Disponibilidade Física.
+   *
+   * A comparação é contra a coluna `Disponibilidade` do relatório nativo do
+   * PC-Factory, que usa o LOADTIME como denominador. O service passou a devolver a
+   * DISPONIBILIDADE FÍSICA em `availabilityPercent` (indicador oficial do portal
+   * desde 2026-09) e a manter o G0134 em `g0134AvailabilityPercent`. Aqui as linhas
+   * são remapeadas para o campo G0134 — senão o script compararia tempo-calendário
+   * com LOADTIME e acusaria divergência onde não há erro nenhum.
+   *
+   * A Disponibilidade Física tem validação própria:
+   *   npm run test:availability
+   *   npm run compare:pc-factory-availability
+   */
+  const portal = (await service.getPcFactoryAvailabilityByMachine(filtros)).map((linha) => ({
+    ...linha,
+    availabilityPercent: linha.g0134AvailabilityPercent
+  }));
 
   const porMaquina = new Map<LinhaPortal, LinhaOficial[]>();
   const semCorrespondencia: LinhaOficial[] = [];

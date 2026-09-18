@@ -120,21 +120,55 @@ export function PcFactoryQualityPanel({ quality, filterAudit }: PcFactoryQuality
       {quality.availabilityAudit.operationalHours > 0 ? (
         <details className="mt-3 rounded-lg border border-gold/15 bg-black/25 p-3">
           <summary className="cursor-pointer text-[11px] font-bold uppercase tracking-wide text-gold">
-            Auditoria da Disponibilidade (base G0134)
+            Auditoria da Disponibilidade Física
           </summary>
           <div className="mt-2 space-y-1 text-[11px] text-zinc-300">
             <p className="text-[11px]">
-              <span className="text-zinc-500">Modo de cálculo: </span>
+              <span className="text-zinc-500">Atribuição das horas ao período: </span>
               <strong className="font-semibold text-gold">
-                {quality.availabilityAudit.mode === "G0134_OFICIAL" ? "Oficial G0134" : "Intervalo real"}
+                {quality.availabilityAudit.mode === "G0134_OFICIAL" ? "Mês de início (G0134)" : "Rateio por mês real"}
               </strong>
             </p>
             <p className="text-[10px] leading-snug text-zinc-500">
               {quality.availabilityAudit.mode === "G0134_OFICIAL"
-                ? "O registro conta inteiro no período em que começou — é o agrupamento do relatório nativo do PC-Factory, e é o que permite conferir o portal contra o G0134."
-                : "Registros que atravessam meses são rateados proporcionalmente, e o período conta só a fatia dentro da janela. Por isso este modo pode divergir do G0134: a diferença é de atribuição das horas, não de fórmula."}
+                ? "O registro conta inteiro no período em que começou — é o agrupamento do relatório nativo do PC-Factory."
+                : "Registros que atravessam meses são rateados proporcionalmente, e o período conta só a fatia dentro da janela."}{" "}
+              Esta escolha muda QUAIS horas entram no recorte, não a fórmula da disponibilidade.
             </p>
+
+            {/* A conta oficial primeiro: os três números que o gestor confere na mão. */}
+            <p className="pt-2 text-[10px] font-bold uppercase tracking-wide text-gold">Disponibilidade Física</p>
             <p className="font-mono text-[10px] text-zinc-400">{quality.availabilityAudit.formula}</p>
+            <AuditLine
+              label={`Tempo Total do Período (${fmt(quality.availabilityAudit.periodHoursPerMachine)} h × ${quality.availabilityAudit.machineCount} máquina(s))`}
+              value={`${fmt(quality.availabilityAudit.periodHours)} h`}
+            />
+            <AuditLine label="− Horas de Parada (os 6 subtipos)" value={`${fmt(quality.availabilityAudit.downtimeHours)} h`} />
+            <AuditLine label="= Horas Disponíveis" value={`${fmt(quality.availabilityAudit.availableHours)} h`} />
+            <AuditLine
+              label="= Disponibilidade Física"
+              value={
+                quality.availabilityAudit.availabilityPercent === null
+                  ? "—"
+                  : `${quality.availabilityAudit.availabilityPercent.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`
+              }
+              strong
+            />
+            {quality.availabilityAudit.downtimeExceedsPeriod ? (
+              <p className="mt-1 rounded-md border border-danger/40 bg-danger/15 px-2 py-1.5 text-[10px] leading-snug text-rose-200">
+                Horas de parada superiores às horas-calendário do período. Verifique sobreposição ou duplicidade dos
+                registros.
+              </p>
+            ) : null}
+            <p className="text-[10px] leading-snug text-zinc-500">
+              Máquina válida conta como disponível 24 h/dia durante todo o período: a base do PC-Factory não tem
+              cadastro de entrada em operação/desativação, e inferir isso do primeiro registro seria inseguro.
+            </p>
+
+            <p className="pt-3 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+              Decomposição G0134 (fórmula anterior — auditoria da transição)
+            </p>
+            <p className="font-mono text-[10px] text-zinc-500">{quality.availabilityAudit.g0134Formula}</p>
 
             <AuditLine label="Tempo Total" value={`${fmt(quality.availabilityAudit.totalHours)} h`} />
             <AuditLine label="− Fora de Turno" value={`${fmt(quality.availabilityAudit.outOfShiftHours)} h`} muted />
@@ -171,13 +205,12 @@ export function PcFactoryQualityPanel({ quality, filterAudit }: PcFactoryQuality
             />
 
             <AuditLine
-              label="= Disponibilidade"
+              label="= Disponibilidade G0134 (não é o indicador do portal)"
               value={
-                quality.availabilityAudit.availabilityPercent === null
+                quality.availabilityAudit.g0134AvailabilityPercent === null
                   ? "—"
-                  : `${quality.availabilityAudit.availabilityPercent.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`
+                  : `${quality.availabilityAudit.g0134AvailabilityPercent.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`
               }
-              strong
             />
 
             <p className="pt-2 text-[10px] font-bold uppercase tracking-wide text-zinc-500">

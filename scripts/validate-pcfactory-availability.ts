@@ -1,5 +1,12 @@
 /**
- * Confere a Disponibilidade do portal contra o relatório oficial G0009/G0134.
+ * Confere a DISPONIBILIDADE G0134 do portal contra o relatório oficial G0009/G0134.
+ *
+ * ESCOPO: este script valida SOMENTE a fórmula G0134 (auditoria histórica), lida de
+ * `availabilityAudit.g0134AvailabilityPercent`. Ele NÃO valida a Disponibilidade
+ * Física, que é o indicador oficial do portal desde 2026-09 — essa tem script
+ * próprio (`npm run test:availability`) e comparação em
+ * `npm run compare:pc-factory-availability`. Divergência entre as duas fórmulas é
+ * ESPERADA (denominadores diferentes) e não é erro de nenhuma delas.
  *
  *   npm run validate:pc-factory                      → invariantes sobre o banco
  *   npm run validate:pc-factory -- "<arquivo.csv>"   → + confronto com o oficial
@@ -147,12 +154,12 @@ async function confrontarBancoNoModoOficial() {
   conferir("− Setup", a.setupPlannedStopHours, OFICIAL.setupPlannedStopHours, TOL_HORAS, " h");
   conferir("= Tempo Operacional", a.operationalHours, OFICIAL.operationalHours, 20, " h");
   conferir("Manutenção TOTAL", a.maintenanceHours, OFICIAL.maintenanceHours, TOL_HORAS, " h");
-  if (a.availabilityPercent === null) {
+  if (a.g0134AvailabilityPercent === null) {
     falhas += 1;
     console.log("  ✗ DISPONIBILIDADE veio null.");
     return;
   }
-  conferir("DISPONIBILIDADE", a.availabilityPercent, OFICIAL.availabilityPercent, TOL_PP, " %");
+  conferir("DISPONIBILIDADE G0134", a.g0134AvailabilityPercent, OFICIAL.availabilityPercent, TOL_PP, " %");
 }
 
 async function verificarInvariantes() {
@@ -229,14 +236,14 @@ async function verificarInvariantes() {
       ["Operacional = Carga − Setup", Math.abs(a.operationalHours - (a.loadHours - a.setupPlannedStopHours)) <= 0.05],
       ["Manutenção = soma dos 6 subtipos", Math.abs(somaSubtipos - a.maintenanceHours) <= 0.05],
       ["card Horas de Manutenção = fórmula", Math.abs(dados.kpis.maintenanceHours - a.maintenanceHours) <= 0.05],
-      ["sem NaN/Infinity", a.availabilityPercent === null || Number.isFinite(a.availabilityPercent)],
-      ["disponibilidade entre 0 e 100", a.availabilityPercent === null || (a.availabilityPercent >= 0 && a.availabilityPercent <= 100)]
+      ["sem NaN/Infinity (G0134)", a.g0134AvailabilityPercent === null || Number.isFinite(a.availabilityPercent)],
+      ["disponibilidade G0134 entre 0 e 100", a.g0134AvailabilityPercent === null || (a.g0134AvailabilityPercent >= 0 && a.g0134AvailabilityPercent <= 100)]
     ];
 
     const todasOk = checagens.every(([, ok]) => ok);
     if (!todasOk) falhas += 1;
     console.log(
-      `  ${todasOk ? "✓" : "✗"} ${rotulo.padEnd(18)} [${a.mode === "G0134_OFICIAL" ? "oficial" : "real   "}] disponibilidade ${a.availabilityPercent === null ? "null" : `${a.availabilityPercent.toFixed(2)}%`}` +
+      `  ${todasOk ? "✓" : "✗"} ${rotulo.padEnd(18)} [${a.mode === "G0134_OFICIAL" ? "oficial" : "real   "}] G0134 ${a.g0134AvailabilityPercent === null ? "null" : `${a.g0134AvailabilityPercent.toFixed(2)}%`} | física ${a.availabilityPercent === null ? "null" : `${a.availabilityPercent.toFixed(2)}%`}` +
         ` | operacional ${a.operationalHours.toFixed(2)} h | manutenção ${a.maintenanceHours.toFixed(2)} h`
     );
     for (const [nome, ok] of checagens) if (!ok) console.log(`      ✗ ${nome}`);
@@ -251,11 +258,20 @@ async function verificarInvariantes() {
   console.log(`  − Setup ....................... ${a.setupPlannedStopHours.toFixed(2)} h`);
   console.log(`  = Tempo Operacional ........... ${a.operationalHours.toFixed(2)} h`);
   console.log(`  − Manutenção .................. ${a.maintenanceHours.toFixed(2)} h`);
-  console.log(`  = DISPONIBILIDADE ............. ${a.availabilityPercent === null ? "null" : `${a.availabilityPercent.toFixed(2)}%`}`);
+  console.log(`  = DISPONIBILIDADE G0134 ....... ${a.g0134AvailabilityPercent === null ? "null" : `${a.g0134AvailabilityPercent.toFixed(2)}%`}`);
   console.log(
     `    (ficam no Operacional, não subtraem: paradas não planejadas ${a.unplannedStopHours.toFixed(2)} h,` +
       ` produção ${a.productiveHours.toFixed(2)} h, não apontado ${a.notPointedHours.toFixed(2)} h)`
   );
+
+  // A fórmula OFICIAL do portal, lado a lado — para ficar claro que a cadeia acima é
+  // auditoria do G0134, e não o indicador que as telas exibem.
+  console.log("\n=== AGOSTO/2026 — DISPONIBILIDADE FÍSICA (indicador oficial do portal) ===");
+  console.log(`    Tempo Total do Período ...... ${a.periodHours.toFixed(2)} h  (${a.periodHoursPerMachine.toFixed(0)} h × ${a.machineCount} máquinas)`);
+  console.log(`  − Horas de Parada ............. ${a.downtimeHours.toFixed(2)} h`);
+  console.log(`  = Horas Disponíveis ........... ${a.availableHours.toFixed(2)} h`);
+  console.log(`  = DISPONIBILIDADE FÍSICA ...... ${a.availabilityPercent === null ? "null" : `${a.availabilityPercent.toFixed(2)}%`}`);
+  console.log("    Divergir do G0134 acima é esperado: o denominador é o tempo-calendário, não o LOADTIME.");
 }
 
 async function main() {

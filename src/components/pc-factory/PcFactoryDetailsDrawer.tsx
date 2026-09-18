@@ -83,13 +83,24 @@ export function PcFactoryDetailsDrawer({ open, loading, error, details, onClose 
               ) : (
                 <div className="space-y-5">
                   <div className="grid grid-cols-2 gap-3">
-                    <Metric icon={CircleGauge} label="Disponibilidade" value={percent(details.availabilityPercent)} />
+                    <Metric icon={CircleGauge} label="Disponibilidade Física" value={percent(details.availabilityPercent)} />
                     <Metric icon={AlarmClock} label="MTTR gerencial" value={metric(details.mttr)} />
                     <Metric icon={Wrench} label="Horas de manutenção" value={hours(details.maintenanceHours)} />
                     <Metric icon={Timer} label="Tempo planejado" value={hours(details.plannedHours)} />
                     <Metric icon={Cog} label="Manut. Mecânica" value={hours(details.mechanicalHours)} />
                     <Metric icon={Zap} label="Manut. Elétrica" value={hours(details.electricalHours)} />
                   </div>
+
+                  {/* Os quatro números da Disponibilidade Física em destaque: são os
+                      mesmos da linha da tabela e da conferência manual do PCM. */}
+                  <Section title="Disponibilidade Física">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-gold/25 bg-black/30 px-3 py-2 text-xs">
+                      <InlineInfo label="Tempo total do período" value={hours(details.availabilityAudit.periodHours)} />
+                      <InlineInfo label="Horas de parada" value={hours(details.availabilityAudit.downtimeHours)} />
+                      <InlineInfo label="Horas disponíveis" value={hours(details.availabilityAudit.availableHours)} />
+                      <InlineInfo label="Disponibilidade Física" value={percent(details.availabilityPercent)} />
+                    </div>
+                  </Section>
 
                   <Section title="Resumo operacional">
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-gold/10 bg-black/20 px-3 py-2 text-xs">
@@ -100,7 +111,7 @@ export function PcFactoryDetailsDrawer({ open, loading, error, details, onClose 
                     </div>
                   </Section>
 
-                  <Section title="Como a disponibilidade foi calculada (G0134)">
+                  <Section title="Como a Disponibilidade Física foi calculada">
                     <AvailabilityAudit audit={details.availabilityAudit} />
                   </Section>
 
@@ -183,43 +194,64 @@ export function PcFactoryDetailsDrawer({ open, loading, error, details, onClose 
 }
 
 /**
- * A conta da Disponibilidade aberta, linha a linha — as mesmas colunas do relatório
- * oficial G0134, para conferência direta contra a planilha:
+ * A conta da DISPONIBILIDADE FÍSICA aberta, nos mesmos quatro números da conferência
+ * manual do PCM — Tempo Total, Horas de Parada, Horas Disponíveis e a divisão.
  *
- *   LOADTIME ↔ G0134.LOADTIME
- *   Manutenção ↔ Tempo de Manutenção      Aguardando ↔ Tempo Ag. Manutenção
- *   Disponibilidade ↔ Disponibilidade
+ * A decomposição G0134 continua abaixo, recolhida: ela já foi bastante validada e
+ * segue útil para auditar a transição, mas não é mais o indicador do portal.
  */
 function AvailabilityAudit({ audit }: { audit: PcFactoryMachineAvailabilityAudit }) {
   return (
     <div className="space-y-2 rounded-lg border border-gold/10 bg-black/20 px-3 py-2.5 text-xs">
       <div className="space-y-1 font-mono text-[11px] text-zinc-300">
-        <AuditLine label="Tempo total" value={audit.totalHours} />
-        <AuditLine label="− Fora de turno" value={audit.outOfShiftHours} />
-        <AuditLine label="− Recurso não programado" value={audit.unscheduledResourceHours} />
-        <AuditLine label="= Tempo de carga" value={audit.loadHours} strong />
-        <AuditLine label="− Setup" value={audit.plannedStopHours} />
-        <AuditLine label="= LOADTIME" value={audit.loadTimeHours} strong />
-      </div>
-
-      <div className="space-y-1 border-t border-gold/10 pt-2 font-mono text-[11px] text-zinc-300">
-        <AuditLine label="Manutenção" value={audit.maintenanceHours} />
-        <AuditLine label="Aguardando manutenção" value={audit.waitingMaintenanceHours} />
-        <AuditLine label="= Manutenção total usada" value={audit.totalMaintenanceForAvailability} strong />
+        <AuditLine label="Tempo total do período" value={audit.periodHours} strong />
+        <AuditLine label="− Horas de parada" value={audit.downtimeHours} />
+        <AuditLine label="= Horas disponíveis" value={audit.availableHours} strong />
       </div>
 
       <div className="border-t border-gold/10 pt-2">
         <p className="font-mono text-[11px] text-zinc-400">
-          (LOADTIME − Manutenção total) ÷ LOADTIME × 100
+          ({hours(audit.availableHours)} ÷ {hours(audit.periodHours)}) × 100
         </p>
         <p className="mt-0.5 font-mono text-sm font-bold text-gold">
-          Disponibilidade: {percent(audit.availabilityPercent)}
+          Disponibilidade Física: {percent(audit.availabilityPercent)}
         </p>
       </div>
 
+      {audit.downtimeExceedsPeriod ? (
+        <p className="rounded-md border border-danger/40 bg-danger/15 px-2 py-1.5 text-[10px] leading-snug text-rose-200">
+          Horas de parada superiores às horas-calendário do período. Verifique sobreposição ou duplicidade dos
+          registros.
+        </p>
+      ) : null}
+
       <p className="text-[10px] leading-snug text-zinc-500">
-        Soma direta de horas. MTTR, MTBF, MTTA e quebras aparecem acima para leitura, mas não entram nesta conta.
+        Paradas = Mecânica + Elétrica + Automação + Planejada + Terceiros + Aguardando — o mesmo número da coluna
+        &quot;Paradas&quot; da tabela. Soma direta de horas: MTTR, MTBF, MTTA e quebras aparecem acima para leitura,
+        mas não entram nesta conta.
       </p>
+
+      <details className="border-t border-gold/10 pt-2">
+        <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wide text-zinc-500 hover:text-zinc-300">
+          Auditoria da fórmula anterior (G0134)
+        </summary>
+        <div className="mt-2 space-y-1 font-mono text-[11px] text-zinc-400">
+          <AuditLine label="Tempo total medido" value={audit.totalHours} />
+          <AuditLine label="− Fora de turno" value={audit.outOfShiftHours} />
+          <AuditLine label="− Recurso não programado" value={audit.unscheduledResourceHours} />
+          <AuditLine label="= Tempo de carga" value={audit.loadHours} />
+          <AuditLine label="− Setup" value={audit.plannedStopHours} />
+          <AuditLine label="= LOADTIME" value={audit.loadTimeHours} />
+          <AuditLine label="Manutenção total usada" value={audit.totalMaintenanceForAvailability} />
+          <p className="pt-1 text-[10px] text-zinc-500">
+            (LOADTIME − Manutenção total) ÷ LOADTIME × 100 = {percent(audit.g0134AvailabilityPercent)}
+          </p>
+          <p className="text-[10px] leading-snug text-zinc-600">
+            Regra antiga, mantida só para comparação durante a transição. Divergir da Disponibilidade Física é
+            esperado: o denominador é outro (LOADTIME em vez de tempo-calendário).
+          </p>
+        </div>
+      </details>
     </div>
   );
 }

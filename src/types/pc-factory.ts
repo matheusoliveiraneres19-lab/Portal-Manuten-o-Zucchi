@@ -118,14 +118,28 @@ export type PcFactoryKpis = {
   mtta: number | null;
   /** % manutenção sobre o tempo planejado. null = dados insuficientes. */
   maintenancePercentOfPlanned: number | null;
+  /* --- Disponibilidade Física da frota do recorte ------------------ */
+  /** Horas-calendário do período, por máquina (agosto = 744 h). */
+  periodHoursPerMachine: number;
+  /** Máquinas válidas no recorte. */
+  machineCount: number;
+  /** periodHoursPerMachine × machineCount — denominador da frota. */
+  totalPeriodHours: number;
+  /** Σ paradas (os seis subtipos) de todas as máquinas do recorte. */
+  downtimeHours: number;
+  availableHours: number;
+  /** Paradas acima do tempo-calendário da frota — inconsistência a investigar. */
+  downtimeExceedsPeriod: boolean;
   /**
-   * Disponibilidade (%) — regra da planilha oficial G0134:
-   * (Tempo Operacional − Manutenção) / Tempo Operacional × 100, onde Tempo Operacional =
-   * Tempo de Carga − Paradas Planejadas (= G0134.LOADTIME) e Manutenção inclui Aguardando
-   * Manutenção. Ponderado pelos totais do recorte, nunca média simples de máquinas.
-   * NÃO é Utilização nem o DTM [%] nativo. null = sem Tempo Operacional.
+   * DISPONIBILIDADE FÍSICA (%) — indicador oficial do portal:
+   * (Tempo Total − Paradas) / Tempo Total × 100, com Tempo Total = horas-calendário
+   * do período × máquinas válidas. Ponderado pelo tempo, nunca média simples das
+   * disponibilidades individuais. NÃO usa LOADTIME, Tempo Operacional, Setup, MTBF,
+   * MTTR, MTTA nem contagem de eventos. null = sem período.
    */
   availabilityPercent: number | null;
+  /** Fórmula G0134 anterior, exposta só para auditoria da transição. */
+  g0134AvailabilityPercent: number | null;
   topMaintenanceResource: PcFactoryTopResource;
 };
 
@@ -180,7 +194,15 @@ export type PcFactoryResourceRow = {
   mttr: number | null;
   mtbf: number | null;
   mtta: number | null;
+  /** Tempo-calendário do recorte (denominador da Disponibilidade Física). */
+  periodHours: number;
+  /** Paradas = os seis subtipos de manutenção. */
+  downtimeHours: number;
+  availableHours: number;
+  /** DISPONIBILIDADE FÍSICA (%) — indicador oficial. */
   availabilityPercent: number | null;
+  /** Fórmula G0134 anterior, só auditoria. */
+  g0134AvailabilityPercent: number | null;
 };
 
 /**
@@ -238,19 +260,40 @@ export type PcFactoryReliabilityRow = {
   /** (waitingMaintenanceHours / failureEvents). null = sem Aguardando Manutenção. */
   mtta: number | null;
 
-  /** Alias de maintenanceDowntimeHours (coluna "Paradas"). */
+  /** Alias de maintenanceDowntimeHours (coluna "Paradas") — numerador da fórmula. */
   downtimeHours: number;
+
   /**
-   * Disponibilidade da máquina (%), de `calculateMachineG0134Availability()`:
+   * Tempo Total do Período (horas-calendário: dias × 24) — DENOMINADOR da
+   * Disponibilidade Física. Agosto/2026 = 744 h. Não é coluna fixa da tabela, mas
+   * viaja na linha para alimentar o tooltip e a auditoria.
+   */
+  periodHours: number;
+  /** Tempo Total − Paradas. Ex.: 744 − 128 = 616 h. */
+  availableHours: number;
+  /** Paradas acima do tempo-calendário — inconsistência de dados, nunca silenciada. */
+  downtimeExceedsPeriod: boolean;
+
+  /**
+   * DISPONIBILIDADE FÍSICA (%) — indicador oficial do portal:
    *
-   *   (loadTimeHours − (maintenanceHours + waitingMaintenanceHours)) / loadTimeHours × 100
+   *   (periodHours − downtimeHours) / periodHours × 100
    *
-   * Soma direta de horas. NUNCA derivada de MTTR, MTBF, MTTA ou quantidade de quebras —
-   * esses aparecem nas colunas vizinhas mas não entram nesta conta. null = sem LOADTIME.
+   * Ex.: (744 − 128) / 744 × 100 = 82,8 %.
+   *
+   * Soma direta de horas. NUNCA derivada de MTTR, MTBF, MTTA, quantidade de quebras,
+   * LOADTIME ou Tempo Operacional — esses aparecem nas colunas vizinhas mas não entram
+   * nesta conta. null = sem período.
    */
   availability: number | null;
 
-  /** Aviso de qualidade de dados (ex.: paradas > planejado, sem tempo planejado). */
+  /**
+   * Fórmula ANTERIOR (G0134), preservada só para auditoria da transição:
+   * (LOADTIME − Manutenção) / LOADTIME × 100. Nenhuma tela gerencial a exibe.
+   */
+  g0134Availability: number | null;
+
+  /** Aviso de qualidade de dados (ex.: paradas > período, sem período). */
   dataQualityIssue: string | null;
 };
 
@@ -280,6 +323,17 @@ export type PcFactoryGroupRow = {
   mttr: number | null;
   mtbf: number | null;
   mtta: number | null;
+  /**
+   * Tempo Total do GRUPO = horas do período × máquinas válidas do grupo
+   * (ex.: agosto com 10 máquinas = 744 × 10 = 7.440 h).
+   */
+  totalPeriodHours: number;
+  availableHours: number;
+  /**
+   * DISPONIBILIDADE FÍSICA do grupo, PONDERADA pelo tempo:
+   * (totalPeriodHours − Σ paradas) / totalPeriodHours × 100.
+   * Não é média simples das disponibilidades individuais.
+   */
   availabilityPercent: number | null;
 };
 
@@ -291,6 +345,10 @@ export type PcFactoryProductionLineRow = {
   maintenanceHours: number;
   lossHours: number;
   stoppedHours: number;
+  /** Horas do período × máquinas da linha. */
+  totalPeriodHours: number;
+  availableHours: number;
+  /** DISPONIBILIDADE FÍSICA da linha, ponderada pelo tempo. */
   availabilityPercent: number | null;
 };
 
@@ -303,6 +361,17 @@ export type PcFactoryTrendPoint = {
   automationHours: number;
   waitingHours: number;
   plannedHours: number;
+  /**
+   * Horas-calendário DESTE mês (jan 744, fev 672, abr 720…), já recortadas à janela
+   * do filtro quando o mês entra pela metade. Nunca o total de outro mês.
+   */
+  periodHoursPerMachine: number;
+  /** Máquinas válidas com registro no mês — multiplicador do denominador. */
+  machineCount: number;
+  /** periodHoursPerMachine × machineCount. */
+  totalPeriodHours: number;
+  availableHours: number;
+  /** DISPONIBILIDADE FÍSICA (%) do mês. */
   availabilityPercent: number | null;
 };
 
@@ -391,16 +460,29 @@ export type PcFactoryRecommendation = {
  * fórmula, para conferir linha a linha contra as colunas do G0134.
  */
 export type PcFactoryMachineAvailabilityAudit = {
+  /* --- Disponibilidade Física: os 4 números da conferência manual --- */
+  /** Tempo Total do Período (horas-calendário: dias × 24). Agosto = 744 h. */
+  periodHours: number;
+  /** Horas de Parada = os seis subtipos de manutenção. Ex.: 128 h. */
+  downtimeHours: number;
+  /** Horas Disponíveis = periodHours − downtimeHours. Ex.: 616 h. */
+  availableHours: number;
+  /** Disponibilidade Física = availableHours / periodHours × 100. Ex.: 82,8 %. */
+  availabilityPercent: number | null;
+  /** Paradas acima do tempo-calendário: sobreposição/duplicidade a investigar. */
+  downtimeExceedsPeriod: boolean;
+
+  /* --- G0134: decomposição mantida ao lado, só auditoria histórica --- */
   /** ↔ G0134.LOADTIME */
   loadTimeHours: number;
   /** ↔ Tempo de Manutenção (Mecânica + Elétrica + Automação + Planejada + Terceiros) */
   maintenanceHours: number;
   /** ↔ Tempo Ag. Manutenção */
   waitingMaintenanceHours: number;
-  /** maintenanceHours + waitingMaintenanceHours */
+  /** maintenanceHours + waitingMaintenanceHours — é o mesmo número de downtimeHours. */
   totalMaintenanceForAvailability: number;
-  /** ↔ Disponibilidade */
-  availabilityPercent: number | null;
+  /** Disponibilidade pela fórmula ANTERIOR (G0134). Não é o indicador da tela. */
+  g0134AvailabilityPercent: number | null;
   /** Cadeia até o LOADTIME, para explicar de onde ele veio. */
   totalHours: number;
   outOfShiftHours: number;
@@ -556,10 +638,30 @@ export type PcFactoryAvailabilityAudit = {
   maintenanceHours: number;
   /** Parcela de "Aguardando Manutenção" — o que o DTM [%] nativo NÃO desconta. */
   waitingMaintenanceHours: number;
-  /** Resultado da fórmula, ou null quando não há Tempo Operacional. */
+
+  /* --- Disponibilidade Física (fórmula OFICIAL do portal) ---------- */
+  /** Tempo Total do Período = horas-calendário × máquinas válidas. */
+  periodHours: number;
+  /** Horas-calendário por máquina (agosto = 744 h). */
+  periodHoursPerMachine: number;
+  /** Máquinas válidas que compõem o Tempo Total. */
+  machineCount: number;
+  /** Horas de parada (os 6 subtipos) — mesmo número de `maintenanceHours`. */
+  downtimeHours: number;
+  /** Tempo Total − Paradas. */
+  availableHours: number;
+  /** Paradas acima do tempo-calendário: sobreposição/duplicidade a investigar. */
+  downtimeExceedsPeriod: boolean;
+  /** Resultado da Disponibilidade Física, ou null quando não há período. */
   availabilityPercent: number | null;
   /** A fórmula, em texto, para não haver dúvida sobre qual regra gerou o número. */
   formula: string;
+  /**
+   * Disponibilidade G0134 (fórmula anterior) e a fórmula dela em texto — lado a
+   * lado com a Física durante a transição, para auditoria. Não é o indicador da tela.
+   */
+  g0134AvailabilityPercent: number | null;
+  g0134Formula: string;
   /**
    * UTILIZAÇÃO (Trabalhado ÷ Operacional) — a fórmula ANTIGA, mantida só para
    * comparação. NÃO é a Disponibilidade.

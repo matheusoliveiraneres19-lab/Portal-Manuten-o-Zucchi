@@ -1,10 +1,33 @@
 # Disponibilidade oficial do PC-Factory
 
-> **Fonte da verdade:** planilha do negócio `disponibilidade mensal exportado.xlsx`
-> (aba `ag-grid`), que replica o relatório nativo **G0134 — Indicadores de Manutenção
-> OEE** do PC-Factory. Recebida em 2026-08-05.
+> ### ⚠ MUDANÇA DE REGRA — 2026-09
+>
+> A **Disponibilidade Física** passou a ser a fórmula oficial do portal, por decisão
+> da manutenção após conferência manual com os dados físicos:
+>
+> ```
+> Disponibilidade Física (%) =
+>   (Tempo Total do Período − Horas de Parada) ÷ Tempo Total do Período × 100
+> ```
+>
+> Conferência que motivou a troca (agosto/2026, uma máquina):
+> `744 h − 128 h = 616 h` → `616 / 744 × 100 ≈ 82,8 %`.
+>
+> O **denominador deixou de ser o `G0134.LOADTIME`** e passou a ser o
+> **tempo-calendário** do recorte (dias × 24 h). Tudo o que este documento descreve
+> abaixo sobre LOADTIME, Tempo Operacional, Carga, Setup e Fora de Turno continua
+> valendo **apenas para a auditoria histórica G0134**, que foi preservada lado a lado
+> e não alimenta mais nenhuma tela gerencial.
+>
+> - Fórmula nova: `src/utils/pc-factory-physical-availability.ts`
+> - Fórmula antiga: `calculateMachineG0134Availability()` em `pc-factory-normalizer.ts`
+> - Comparação entre as duas: `npm run compare:pc-factory-availability`
+> - Testes da fórmula nova: `npm run test:availability`
+>
+> Ver a seção **[Disponibilidade Física](#disponibilidade-física-regra-oficial-desde-2026-09)**
+> no fim deste documento.
 
-## A fórmula
+## A fórmula G0134 (histórica — auditoria)
 
 ```
 Disponibilidade = (G0134.LOADTIME − (Tempo de Manutenção + Tempo Ag. Manutenção)) / G0134.LOADTIME × 100
@@ -29,7 +52,7 @@ O equivalente de cada termo:
 | `G0134.LOADTIME` | `availabilityBreakdown(agg).operationalHours` | `metrics.loadTimeHours` |
 | `Tempo de Manutenção` | — (vem somado com o Aguardando) | `metrics.maintenanceHours` |
 | `Tempo Ag. Manutenção` | `agg.waitingHours` | `metrics.waitingMaintenanceHours` |
-| `Disponibilidade` | `availability(agg)` | `metrics.availabilityPercent` |
+| `Disponibilidade` | `g0134Availability(agg)` | `metrics.g0134AvailabilityPercent` |
 
 Os dois caminhos terminam na MESMA função pura:
 `calculateMachineG0134Availability({ loadTimeHours, maintenanceHours, waitingMaintenanceHours })`.
@@ -71,11 +94,11 @@ O bucket continua existindo para que o volume apareça no painel de qualidade e 
 resultado da importação, em vez de desaparecer dentro da conta. Quanto maior essa fatia,
 menos o indicador fala sobre a máquina e mais sobre a falta de apontamento.
 
-**Fonte única:** `calculateMachineG0134Availability()` em
-`src/utils/pc-factory-normalizer.ts`. Toda Disponibilidade do módulo passa por ela:
-card principal, tabela Confiabilidade por Máquina, ranking, evolução mensal, detalhes
-por máquina, Máquinas Críticas da home e Máquinas abaixo da média. **Não criar regra
-paralela.**
+**Fonte única da fórmula G0134:** `calculateMachineG0134Availability()` em
+`src/utils/pc-factory-normalizer.ts`. Desde 2026-09 ela alimenta **apenas a auditoria**
+(painel de qualidade, gaveta da máquina recolhida, `validate:pc-factory`). O indicador
+das telas é a Disponibilidade Física — ver a seção final. **Não criar regra paralela**
+para nenhuma das duas.
 
 A função recebe HORAS e só horas. Ela não vê — e não pode passar a ver — MTTR, MTBF,
 MTTA, quantidade de quebras ou eventos de manutenção. Esses indicadores aparecem ao lado
@@ -107,7 +130,9 @@ A Disponibilidade de um recorte (mês, linha, grupo, geral) é calculada sobre a
 | Ponderada pelos totais | **89,06 %** |
 | Média simples das 33 máquinas | 84,28 % |
 
-Em código isso é automático: `availability(agg)` recebe o agregado já somado.
+Em código isso continua automático, nas DUAS fórmulas: `g0134Availability(agg)` recebe o
+agregado já somado, e a Disponibilidade Física usa `calculateFleetPhysicalAvailability()`
+(horas do período × máquinas válidas). Nenhuma das duas faz média de percentuais.
 
 ## Status abertos saem das somas de horas
 
@@ -307,3 +332,135 @@ Resultado em agosto/2026: 26/26 linhas reproduzidas pela fórmula, 25 máquinas 
 `durationHours` (Tempo Decorrido) é a base oficial, alinhada à Management View.
 `realDurationHours` fica **apenas como auditoria** e nunca substitui `durationHours` —
 não existe fallback `realDurationHours ?? durationHours` no cálculo.
+
+---
+
+## Disponibilidade Física (regra oficial desde 2026-09)
+
+### A fórmula
+
+```
+Disponibilidade Física (%) =
+  (Tempo Total do Período − Horas de Parada) ÷ Tempo Total do Período × 100
+```
+
+Depende de **dois números e só deles**. Não usa — e não pode passar a usar —
+`G0134.LOADTIME`, Tempo Operacional, Fora de Turno, Recurso Não Programado, Setup,
+MTBF, MTTR, MTTA, quantidade de quebras/eventos, nem média de disponibilidades.
+
+### Tempo Total do Período
+
+Tempo-**calendário** do recorte selecionado, via `calculatePeriodHours(de, até)`.
+Nenhum mês está fixo em código:
+
+| Filtro | Conta | Tempo Total |
+|---|---|---|
+| 01/08/2026 → 31/08/2026 | 31 dias × 24 | **744 h** |
+| 01/04/2026 → 30/04/2026 | 30 dias × 24 | 720 h |
+| 01/02/2026 → 28/02/2026 | 28 dias × 24 | 672 h |
+| 01/08/2026 → 10/08/2026 | 10 dias × 24 | **240 h** |
+
+Datas sem hora contam **dias civis inclusivos**; com timestamps reais, a diferença é
+exata. Sem filtro de período, a janela é a extensão da base (`resolvePeriodWindow`).
+
+### Horas de Parada
+
+Soma direta de `durationHours` dos **seis** tipos de manutenção:
+
+```
+downtimeHours = Mecânica + Elétrica + Automação + Planejada + Terceiros + Aguardando
+```
+
+É exatamente a coluna **Paradas** da tabela Confiabilidade por Máquina
+(`totalMaintenanceForAvailability`). O número da tela e o número da fórmula são o
+mesmo — a conferência manual depende disso. Nunca reconstruído a partir de MTTR/MTTA.
+
+Esta tarefa **não mudou a classificação dos eventos**: mudou o denominador e a fórmula.
+
+### Agregados: ponderados, nunca média simples
+
+Para um grupo de área (Indústria de Granito/Mármore/Dolomítico, Serraria), linha de
+produção ou a frota inteira:
+
+```
+Tempo Total do grupo = horas do período × nº de máquinas válidas
+Disponibilidade      = (Tempo Total do grupo − Σ paradas) ÷ Tempo Total do grupo × 100
+```
+
+Exemplo: agosto, 10 máquinas → `744 × 10 = 7.440 h`. Com 1.100 h de parada,
+`(7.440 − 1.100) / 7.440 = 85,2 %`. Média simples dos percentuais individuais daria
+outro número e faria uma máquina de baixíssimo volume pesar igual à linha principal.
+
+### Evolução mensal
+
+Cada mês tem o **seu** total-calendário (jan 744 h, fev 672 h, abr 720 h). O total de
+um mês nunca é aplicado a outro. Nas pontas do recorte o mês entra só com a fatia
+dentro da janela (`calculateMonthHoursWithinWindow`): um filtro de 10/08 a 20/09 dá
+22 dias de agosto e 20 de setembro.
+
+### Vigência das máquinas
+
+A base do PC-Factory **não tem** cadastro de entrada em operação, desativação ou
+vigência do recurso — `PcFactoryRecord` é um histórico de status, e não existe tabela
+de máquinas. Portanto vale a regra gerencial documentada:
+
+> Cada máquina válida conta como disponível **24 h/dia durante todo o período
+> selecionado**.
+
+"Máquina válida" = recurso distinto presente no recorte. A data de entrada **não** é
+inferida do primeiro registro do PC-Factory — seria inferência insegura.
+
+### Paradas maiores que o período
+
+`downtimeHours > totalPeriodHours` é fisicamente impossível e indica sobreposição ou
+duplicidade de registros. O portal **não mascara**: o percentual fica em 0 %, mas o
+dataset carrega `downtimeExceedsPeriod` e a tela emite
+
+> Horas de parada superiores às horas-calendário do período. Verifique sobreposição ou
+> duplicidade dos registros.
+
+### Onde está o código
+
+| Papel | Arquivo |
+|---|---|
+| Fórmula (pura, sem banco) | `src/utils/pc-factory-physical-availability.ts` |
+| Janela do período | `resolvePeriodWindow()` em `pc-factory.service.ts` |
+| Uma máquina | `buildMachineAvailabilityMetrics(records, periodHours)` |
+| Conjunto de máquinas | `calculateFleetPhysicalAvailability()` |
+| Teste da fórmula | `npm run test:availability` |
+| Comparação Física × G0134 | `npm run compare:pc-factory-availability` |
+
+### Invariantes garantidas
+
+```
+Horas Disponíveis = Tempo Total − Paradas
+Disponibilidade   = Horas Disponíveis / Tempo Total × 100
+
+Paradas = 0            → 100 %
+Paradas = Tempo Total  → 0 %
+Tempo Total ≤ 0        → null   (a UI mostra "—", nunca 0 %)
+```
+
+Nunca NaN, nunca Infinity, nunca acima de 100 % nem abaixo de 0 %.
+
+### Impacto medido na troca (agosto/2026, 40 máquinas)
+
+| | G0134 | Física |
+|---|---|---|
+| Frota (ponderada) | 90,13 % | **96,76 %** |
+| Média entre máquinas | 91,56 % | 96,76 % |
+| Abaixo de 85 % | 5 de 32 com valor | 2 de 40 |
+| Faixas verde / âmbar / vermelho | 26 / 3 / 3 | 38 / 1 / 1 |
+
+A Física é sistematicamente maior porque o denominador é o calendário cheio (744 h),
+enquanto o LOADTIME já descontava Fora de Turno, Recurso Não Programado e Setup —
+em agosto o LOADTIME da frota era 9.779 h contra 29.760 h de calendário.
+
+**Os limites (meta de 85 %, faixas de cor 90/70) não foram alterados nesta tarefa** —
+mudar meta exige autorização do negócio. O impacto acima existe para essa decisão.
+
+### MTBF, MTTR e MTTA continuam separados
+
+Não entram na fórmula e não são recalculados a partir dela. Seguem com as definições
+e denominadores de sempre, ao lado da Disponibilidade na tabela — mexer em qualquer um
+deles não pode mover a Disponibilidade em nenhum ponto do módulo.
