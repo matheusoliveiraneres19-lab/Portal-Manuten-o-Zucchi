@@ -1,6 +1,8 @@
 import { PcFactoryStatusCategory } from "@prisma/client";
 import { PcFactoryPage, type AppliedPcFactoryFilters } from "@/components/pc-factory/PcFactoryPage";
 import { getPcFactoryPageData } from "@/services/pc-factory.service";
+import { getSession } from "@/lib/auth-guard";
+import { AVAILABILITY_NOTE_WRITE_ROLES } from "@/types/pc-factory-availability-note";
 import { PC_FACTORY_DEFAULT_MODE, type PcFactoryCalculationMode } from "@/types/pc-factory";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +31,11 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
   const excludeOutOfPlanned = isTrue(searchParams.excludeOutOfPlanned);
   const search = firstParam(searchParams.q);
   const mode = parseMode(searchParams.mode);
+
+  // Escrita de justificativa é gerencial (ADMIN/GESTOR). Papéis somente-leitura
+  // continuam vendo tudo — inclusive as justificativas já registradas.
+  const session = await getSession();
+  const canEditAvailabilityNotes = AVAILABILITY_NOTE_WRITE_ROLES.includes(session?.role ?? "");
 
   const data = await getPcFactoryPageData({
     startDate,
@@ -70,7 +77,13 @@ export default async function PcFactoryRoute({ searchParams = {} }: PcFactoryRou
     mode
   };
 
-  return <PcFactoryPage data={data} appliedFilters={appliedFilters} />;
+  return (
+    <PcFactoryPage
+      data={data}
+      appliedFilters={appliedFilters}
+      canEditAvailabilityNotes={canEditAvailabilityNotes}
+    />
+  );
 }
 
 function firstParam(value: string | string[] | undefined): string | undefined {

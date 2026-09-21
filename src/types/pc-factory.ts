@@ -2,6 +2,7 @@ import type { PcFactoryStatusCategory } from "@prisma/client";
 import type { PcFactoryManagementGroup } from "@/utils/pc-factory-normalizer";
 import type { FilterOption } from "@/utils/filter-options";
 import type { PageDataSource } from "@/types/page-data";
+import type { PcFactoryAvailabilityNoteDTO } from "@/types/pc-factory-availability-note";
 
 export type { PcFactoryStatusCategory };
 export type { PcFactoryManagementGroup };
@@ -450,6 +451,28 @@ export type PcFactoryReferencePeriod = {
   label: string;
 };
 
+/**
+ * A janela RESOLVIDA do recorte — a mesma que serviu de denominador (Tempo Total
+ * do Período) para a Disponibilidade Física, já em "YYYY-MM-DD".
+ *
+ * Diferença para `PcFactoryReferencePeriod`: aquele reflete o que o usuário
+ * digitou e vem VAZIO quando não há filtro de data; este é sempre concreto
+ * (sem filtro, é a extensão da base). Por isso é ele — e não o `reference` — que
+ * identifica o período de uma justificativa: a chave precisa existir mesmo quando
+ * a tela está sem filtro.
+ *
+ * É só um espelho do que `resolvePeriodWindow` já calculava: nenhuma conta nova.
+ */
+export type PcFactoryPeriodWindowDTO = {
+  startDate: string;
+  endDate: string;
+  label: string;
+  /** Horas-calendário por máquina (dias × 24) — o denominador da fórmula. */
+  totalHours: number;
+  /** "filtro" quando o usuário escolheu data; "base" quando é a extensão da base. */
+  source: "filtro" | "base";
+};
+
 export type PcFactoryRecommendation = {
   tone: "danger" | "warning" | "info";
   message: string;
@@ -533,6 +556,13 @@ export type PcFactoryResourceDetails = {
 
 export type PcFactoryPageData = {
   reference: PcFactoryReferencePeriod;
+  /** Janela resolvida do recorte — chave de período das justificativas. */
+  periodWindow: PcFactoryPeriodWindowDTO;
+  /**
+   * Justificativas de baixa disponibilidade JÁ FILTRADAS por `periodWindow`.
+   * Texto gerencial: não entra em nenhum indicador desta mesma estrutura.
+   */
+  availabilityNotes: PcFactoryAvailabilityNoteDTO[];
   kpis: PcFactoryKpis;
   categoryDistribution: PcFactoryCategorySlice[];
   /** Distribuição de horas pelos STATUS REAIS da planilha, com cor (planilha/fallback). */

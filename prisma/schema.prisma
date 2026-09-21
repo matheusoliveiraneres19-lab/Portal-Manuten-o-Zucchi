@@ -1102,3 +1102,55 @@ model PortalSetting {
   @@unique([category, key])
   @@index([category])
 }
+
+/// JUSTIFICATIVA GERENCIAL DE BAIXA DISPONIBILIDADE (PC-Factory).
+///
+/// Texto escrito por um gestor para explicar POR QUE uma máquina teve a
+/// disponibilidade que teve **naquele recorte**. É informação gerencial pura:
+/// `reason`, `actionPlan` e `responsible` NUNCA entram em nenhum cálculo de
+/// Disponibilidade Física, Horas de Parada, Tempo Total, MTBF, MTTR ou MTTA —
+/// esses números continuam saindo exclusivamente de `PcFactoryRecord`.
+///
+/// A chave é (máquina + período), não só a máquina: "Quebra do redutor" de
+/// agosto/2026 não vale para setembro/2026. Trocar o filtro de período busca a
+/// justificativa daquele período e as anteriores continuam no banco, cada uma na
+/// sua janela — nada é sobrescrito silenciosamente.
+///
+/// `resourceName` é a chave canônica de máquina do módulo (a mesma que
+/// `PcFactoryRecord.resourceName` e que o agrupamento da tabela de
+/// confiabilidade usam). `resourceCode` viaja junto só como identificação
+/// auxiliar: a base do PC-Factory tem esse campo majoritariamente nulo, então ele
+/// não serve como chave.
+model PcFactoryAvailabilityNote {
+  id                    String   @id @default(cuid())
+  /// Chave canônica da máquina — igual a PcFactoryRecord.resourceName.
+  resourceName          String
+  /// Código do recurso quando a planilha o trouxe. Auxiliar, nunca chave.
+  resourceCode          String?
+  /// Janela analisada (dia-calendário, UTC). Parte da chave junto com resourceName.
+  periodStart           DateTime @db.Date
+  periodEnd             DateTime @db.Date
+  /// Justificativa da baixa disponibilidade. Obrigatória.
+  reason                String
+  /// Plano de ação (opcional).
+  actionPlan            String?
+  /// Responsável pelo plano de ação (opcional).
+  responsible           String?
+  /// FOTO dos números no instante do registro, só para o futuro "Relatório de
+  /// Baixa Disponibilidade" citar o que o gestor via ao escrever. NÃO é fonte de
+  /// verdade: a tela e os relatórios recalculam sempre a partir dos registros.
+  availabilitySnapshot  Float?
+  downtimeHoursSnapshot Float?
+  /// Auditoria: quem criou/alterou e quando (justificativa gerencial é rastreável).
+  createdById           String?
+  createdByName         String?
+  createdAt             DateTime @default(now())
+  updatedById           String?
+  updatedByName         String?
+  updatedAt             DateTime @updatedAt
+
+  /// Uma justificativa por máquina e período — o que permite editar sem duplicar.
+  @@unique([resourceName, periodStart, periodEnd], map: "PcFactoryAvailabilityNote_resource_period_key")
+  @@index([resourceName])
+  @@index([periodStart, periodEnd])
+}

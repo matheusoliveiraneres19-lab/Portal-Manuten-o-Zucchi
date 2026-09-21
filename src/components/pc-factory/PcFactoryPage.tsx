@@ -72,9 +72,15 @@ export type AppliedPcFactoryFilters = {
 type PcFactoryPageProps = {
   data: PcFactoryPageData;
   appliedFilters: AppliedPcFactoryFilters;
+  /**
+   * Papel do usuário permite CRIAR/EDITAR justificativa de disponibilidade?
+   * Resolvido no server (ver a rota da página) a partir da sessão; a API
+   * revalida por conta própria — isto aqui só decide o que a tela oferece.
+   */
+  canEditAvailabilityNotes?: boolean;
 };
 
-export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
+export function PcFactoryPage({ data, appliedFilters, canEditAvailabilityNotes = false }: PcFactoryPageProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
@@ -327,7 +333,14 @@ export function PcFactoryPage({ data, appliedFilters }: PcFactoryPageProps) {
             <PcFactoryStatusChart className="xl:col-span-5" slices={data.statusDistribution} />
             <PcFactoryMaintenanceSplitChart className="xl:col-span-7" split={data.maintenanceSplit} />
 
-            <PcFactoryReliabilityTable className="xl:col-span-12" rows={data.reliabilityByMachine} onSelect={openDetails} />
+            <PcFactoryReliabilityTable
+              className="xl:col-span-12"
+              rows={data.reliabilityByMachine}
+              period={data.periodWindow}
+              notes={data.availabilityNotes}
+              canEdit={canEditAvailabilityNotes}
+              onSelect={openDetails}
+            />
 
             <PcFactoryCriticalMachinesStackedChart
               className="xl:col-span-6"

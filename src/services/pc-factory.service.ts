@@ -35,6 +35,7 @@ import type {
   PcFactoryMaintenanceSplit,
   PcFactoryManagementGroupRow,
   PcFactoryPageData,
+  PcFactoryPeriodWindowDTO,
   PcFactoryProductionLineRow,
   PcFactoryQueryParams,
   PcFactoryRecommendation,
@@ -57,6 +58,7 @@ import {
   calculatePhysicalAvailability
 } from "@/utils/pc-factory-physical-availability";
 import { PC_FACTORY_DEFAULT_MODE } from "@/types/pc-factory";
+import { listAvailabilityNotesForPeriod } from "@/services/pc-factory-availability-notes.service";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -152,6 +154,25 @@ export const resolvePeriodWindow = cache(
     };
   }
 );
+
+/**
+ * A MESMA janela que virou denominador da fórmula, serializada em "YYYY-MM-DD"
+ * para atravessar server→client e servir de chave de período das justificativas.
+ *
+ * Só formata o que `resolvePeriodWindow` já devolveu — não recalcula nada, para
+ * não abrir uma segunda fonte de verdade sobre o período.
+ */
+function toPeriodWindowDTO(window: PcFactoryPeriodWindow): PcFactoryPeriodWindowDTO {
+  const startDate = window.start.toISOString().slice(0, 10);
+  const endDate = window.end.toISOString().slice(0, 10);
+  return {
+    startDate,
+    endDate,
+    label: `${formatBr(startDate)} a ${formatBr(endDate)}`,
+    totalHours: window.hours,
+    source: window.source
+  };
+}
 
 /**
  * Decisão de negócio (confirmada): Setup conta como parada/perda operacional e,
@@ -1997,6 +2018,24 @@ async function loadPcFactoryPageData(params: PcFactoryQueryParams): Promise<PcFa
   const reliabilityByMachine = buildReliabilityByMachine(records, period.hours);
   const filterAudit = await buildFilterAudit(params, filterOptions, reliabilityByMachine.length);
 
+  // Justificativas GERENCIAIS da janela atual. Carregadas DEPOIS de tudo que é
+  // cálculo e sem participar de nada acima: se esta consulta falhasse, os números
+  // da tela seriam exatamente os mesmos. Chave = janela resolvida, então trocar
+  // agosto por setembro devolve outro conjunto (ou nenhum).
+  //
+  // A falha é engolida DE PROPÓSITO: se esta consulta estourasse, o catch de
+  // `getPcFactoryPageData` derrubaria a aba inteira para o estado vazio — e a
+  // tela inteira de disponibilidade sumiria por causa de um texto opcional. É o
+  // que aconteceria num deploy que suba o código antes da migration. Sem as
+  // justificativas a tabela ainda responde a pergunta principal.
+  const periodWindow = toPeriodWindowDTO(period);
+  const availabilityNotes = await listAvailabilityNotesForPeriod(periodWindow.startDate, periodWindow.endDate).catch(
+    (error) => {
+      console.error("Falha ao carregar justificativas de disponibilidade. Exibindo a tabela sem elas.", error);
+      return [];
+    }
+  );
+
   const criticalResources = [...ranking].filter((r) => r.maintenanceHours > 0).sort((a, b) => b.maintenanceHours - a.maintenanceHours).slice(0, 10);
   const topMechanical = [...ranking].filter((r) => r.mechanicalHours > 0).sort((a, b) => b.mechanicalHours - a.mechanicalHours).slice(0, 10);
   const topElectrical = [...ranking].filter((r) => r.electricalHours > 0).sort((a, b) => b.electricalHours - a.electricalHours).slice(0, 10);
@@ -2005,6 +2044,8 @@ async function loadPcFactoryPageData(params: PcFactoryQueryParams): Promise<PcFa
 
   return {
     reference,
+    periodWindow,
+    availabilityNotes,
     kpis,
     categoryDistribution: categoryDistributionFromAggregate(agg),
     statusDistribution: statusDistributionFromRecords(records),
@@ -2178,6 +2219,16 @@ function emptyPageData(
 ): PcFactoryPageData {
   return {
     reference,
+    // Sem dados não há janela resolvida: cai no que o usuário digitou (ou vazio).
+    // A tabela nem chega a renderizar neste estado.
+    periodWindow: {
+      startDate: reference.startDate,
+      endDate: reference.endDate,
+      label: reference.label,
+      totalHours: 0,
+      source: reference.startDate || reference.endDate ? "filtro" : "base"
+    },
+    availabilityNotes: [],
     kpis: {
       totalRecords: 0,
       totalResources: 0,

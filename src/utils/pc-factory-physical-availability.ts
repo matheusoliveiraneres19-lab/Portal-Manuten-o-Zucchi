@@ -247,3 +247,36 @@ export function calculateMonthHoursWithinWindow(monthKey: string, windowFrom: Da
 
   return round2((to - from) / MS_PER_HOUR);
 }
+
+/* ------------------------------------------------------------------ */
+/* Faixas de leitura da Disponibilidade Física                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * As faixas que o portal JÁ usava para ler a disponibilidade, agora nomeadas em
+ * um lugar só. Não são limites novos: são exatamente os números que estavam
+ * espalhados no código —
+ *
+ *   ≥ 90 %  verde   (cor da célula na tabela de confiabilidade e na tendência)
+ *   ≥ 70 %  âmbar   (idem)
+ *   < 70 %  vermelho / "crítico" — o mesmo corte de
+ *           `buildRecommendations` ("Máquina com baixa disponibilidade estimada")
+ *
+ * São faixas de APRESENTAÇÃO: nenhuma delas entra na fórmula.
+ */
+export const PHYSICAL_AVAILABILITY_BANDS = {
+  /** A partir daqui a disponibilidade é considerada boa. */
+  good: 90,
+  /** A partir daqui é atenção; abaixo disso é crítico. */
+  attention: 70
+} as const;
+
+export type PhysicalAvailabilityBand = "indefinida" | "boa" | "atencao" | "critica";
+
+/** Em que faixa um percentual cai. `null` (indicador não aplicável) → "indefinida". */
+export function classifyPhysicalAvailability(value: number | null): PhysicalAvailabilityBand {
+  if (value === null || !Number.isFinite(value)) return "indefinida";
+  if (value >= PHYSICAL_AVAILABILITY_BANDS.good) return "boa";
+  if (value >= PHYSICAL_AVAILABILITY_BANDS.attention) return "atencao";
+  return "critica";
+}

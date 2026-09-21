@@ -13,6 +13,7 @@ export const AUDIT_ACTIONS = {
   EDITAR_PROCEDIMENTO: "editar_procedimento",
   EXCLUIR_PROCEDIMENTO: "excluir_procedimento",
   ALTERAR_CONFIGURACAO: "alterar_configuracao",
+  REGISTRAR_JUSTIFICATIVA_DISPONIBILIDADE: "registrar_justificativa_disponibilidade",
   IMPORTAR_PLANILHA: "importar_planilha",
   ERRO_IMPORTACAO: "erro_importacao"
 } as const;
@@ -25,7 +26,8 @@ export const AUDIT_MODULES = {
   USUARIOS: "usuarios",
   PROCEDIMENTOS: "procedimentos",
   CONFIGURACOES: "configuracoes",
-  IMPORTACAO: "importacao"
+  IMPORTACAO: "importacao",
+  PC_FACTORY: "pc_factory"
 } as const;
 
 /** Rótulos amigáveis para exibição na tabela de auditoria. */
@@ -37,6 +39,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   criar_procedimento: "Criação de procedimento",
   editar_procedimento: "Edição de procedimento",
   excluir_procedimento: "Exclusão/arquivamento de procedimento",
+  registrar_justificativa_disponibilidade: "Justificativa de baixa disponibilidade (PC-Factory)",
   alterar_configuracao: "Alteração de configuração",
   importar_planilha: "Importação de planilha",
   erro_importacao: "Erro de importação"
@@ -47,7 +50,8 @@ export const AUDIT_MODULE_LABELS: Record<string, string> = {
   usuarios: "Usuários",
   procedimentos: "Procedimentos",
   configuracoes: "Configurações",
-  importacao: "Importação"
+  importacao: "Importação",
+  pc_factory: "PC-Factory"
 };
 
 export type AuditLogDTO = {
