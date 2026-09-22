@@ -36,7 +36,10 @@
     "auth:set-password": "tsx scripts/set-password.ts",
     "capture": "node scripts/capture-portal.mjs",
     "video": "remotion studio remotion/index.ts",
-    "video:render": "remotion render remotion/index.ts PortalDemo out/portal-demo.mp4"
+    "video:render": "remotion render remotion/index.ts PortalDemo out/portal-demo.mp4",
+    "backup:pc-factory": "tsx scripts/backup-pc-factory.ts",
+    "backfill:pc-factory-fingerprint": "tsx scripts/backfill-pcfactory-fingerprint.ts",
+    "validate:pc-factory-incremental": "tsx scripts/validate-pcfactory-incremental-import.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

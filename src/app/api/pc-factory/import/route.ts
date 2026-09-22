@@ -13,9 +13,9 @@
  * Storage + staging (upload-url → start → process → finish) sempre que ele
  * está disponível, e só cai aqui para arquivos pequenos.
  *
- * Para arquivos grandes prefira SEMPRE o fluxo de staging: lá o DELETE e os
- * INSERTs ficam na mesma transação, enquanto aqui o `replaceAll` apaga a base
- * antes de gravar.
+ * Para arquivos grandes prefira SEMPRE o fluxo de staging: lá a aplicação é
+ * transacional e a tela de confirmação mostra o período detectado antes de
+ * gravar. Os dois caminhos são INCREMENTAIS — nenhum apaga o histórico.
  */
 import { type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
@@ -86,8 +86,10 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const result = await importPcFactoryFromExcel(buffer, {
       fileName: file.name,
-      importedBy: session?.name ?? "portal-web",
-      replaceAll: true
+      importedBy: session?.name ?? "portal-web"
+      // Sem `replaceAll`: este caminho passou a ser INCREMENTAL como o
+      // principal. A gravação regrava por FINGERPRINT, então reimportar o mesmo
+      // arquivo atualiza os eventos e nenhum mês fora do arquivo é tocado.
     });
 
     await auditImport({ request, session, module: "PC-Factory", fileName, result });

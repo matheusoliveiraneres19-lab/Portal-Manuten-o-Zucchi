@@ -33,6 +33,7 @@ import {
   parsePcFactoryDate,
   resolvePcFactoryStatusColor
 } from "@/utils/pc-factory-normalizer";
+import { buildPcFactoryFingerprints } from "@/utils/pc-factory-fingerprint";
 import { isMultiMonthRecord, splitPcFactoryRecordByMonth } from "@/utils/pc-factory-segments";
 import type { PcFactoryAvailabilityBucket } from "@/utils/pc-factory-normalizer";
 import type {
@@ -253,11 +254,18 @@ export type ImportOptions = {
   importBatch?: string;
   sheetName?: string;
   /**
-   * Quando true, SUBSTITUI toda a base de PcFactoryRecord: apaga todos os registros
-   * antes de gravar os novos. Trava de segurança: só apaga se a planilha produzir
-   * pelo menos uma linha válida (um arquivo inválido não zera a base existente).
+   * REMOVIDO em 2026-09-21 (importação incremental).
+   *
+   * Apagava TODA a base de PcFactoryRecord antes de gravar — era isso que fazia
+   * importar setembro destruir janeiro a agosto. Não existe mais nenhum caminho
+   * de importação que apague o histórico; a gravação é sempre incremental, por
+   * fingerprint. O reset total permanece disponível só no script de CLI
+   * explícito `scripts/reset-pc-factory.ts`.
+   *
+   * O campo segue declarado, e ignorado, para que um chamador antigo que ainda
+   * o passe não quebre a compilação nem, muito menos, volte a apagar dados.
    */
-  replaceAll?: boolean;
+  replaceAll?: never;
 };
 
 export type ReadResult = {
@@ -1046,16 +1054,50 @@ export async function buildPcFactoryRecords(
     end: maxDate ? maxDate.toISOString() : null
   };
 
+  // FINGERPRINT — identidade estável do evento, atribuída depois que o lote
+  // inteiro foi lido porque as repetições da mesma tupla de negócio precisam
+  // ser numeradas em conjunto (ver buildPcFactoryFingerprints). É esta chave, e
+  // não a `technicalKey` (que embutia o número da linha do Excel), que permite
+  // reimportar um mês sem duplicar.
+  const fingerprints = buildPcFactoryFingerprints(
+    toPersist.map((record) => ({
+      resourceName: record.resourceName,
+      resourceCode: record.resourceCode ?? null,
+      statusCode: record.statusCode ?? null,
+      statusRaw: record.statusRaw ?? null,
+      startDateTime: toDateOrNull(record.startDateTime),
+      endDateTime: toDateOrNull(record.endDateTime),
+      durationMinutes: record.durationMinutes,
+      orderNumber: record.orderNumber ?? null,
+      operationCode: record.operationCode ?? null
+    }))
+  );
+  for (let i = 0; i < toPersist.length; i += 1) toPersist[i].fingerprint = fingerprints[i];
+
   return { records: toPersist, result };
+}
+
+/** `Date | string | null | undefined` (o tipo do Prisma) → `Date | null`. */
+function toDateOrNull(value: Date | string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 /**
  * Caminho LEGADO: grava direto na base oficial.
  *
  * Mantido para os scripts de CLI (`npm run import:pc-factory`) e para arquivos
- * pequenos. O `replaceAll` daqui apaga a base ANTES de gravar, em transações
- * separadas — se a gravação falhar no meio, a base fica parcial. É exatamente essa
- * a fragilidade que o fluxo de staging resolve; prefira-o para arquivos grandes.
+ * pequenos (reserva do modal quando o Storage não está configurado). Prefira o
+ * fluxo de staging para arquivos grandes: lá a aplicação é transacional.
+ *
+ * INCREMENTAL por padrão, como o fluxo principal: `persistRecords` regrava por
+ * FINGERPRINT, então este caminho nunca apaga um mês que não está no arquivo.
+ *
+ * `replaceAll` NÃO é mais aceito aqui. Apagar a base inteira porque um arquivo
+ * novo chegou era o que destruía janeiro–agosto ao importar setembro. O reset
+ * total continua possível, mas só pelo script de CLI explícito
+ * `scripts/reset-pc-factory.ts`, que existe para isso e diz o que faz.
  */
 export async function importPcFactoryRecords(
   rows: PcFactoryExcelRow[],
@@ -1067,12 +1109,9 @@ export async function importPcFactoryRecords(
 ): Promise<PcFactoryImportResult> {
   const { records, result } = await buildPcFactoryRecords(rows, options, sheetUsed, statusColorMap, layoutType, read);
 
-  // Substituição total (opcional): apaga TODA a base antes de gravar — mas só quando há
-  // linhas válidas, para um arquivo inválido nunca zerar os dados existentes.
-  if (options.replaceAll && records.length > 0) {
-    const removed = await prisma.pcFactoryRecord.deleteMany({});
-    result.replacedRows = removed.count;
-  }
+  // Nenhum delete global acontece aqui. `replacedRows` fica em 0 e é justamente
+  // esse 0 que a tela reporta como "registros históricos removidos".
+  result.replacedRows = 0;
 
   // Gravação em massa (substitui o antigo N+1: 2 round-trips por linha).
   await persistRecords(records, result);
@@ -1099,11 +1138,19 @@ export class PcFactoryLayoutError extends Error {
 const PERSIST_CHUNK = 500;
 
 /**
- * Persiste os registros em massa. Em vez de 2 round-trips por linha (findUnique +
- * update/create), faz: (1) checagem das chaves já existentes em poucas queries —
- * só para contar created vs updated; (2) regravação por chunk com deleteMany +
- * createMany dentro de uma transação. PcFactoryRecord é tabela-folha (sem FKs de
- * entrada), então apagar e recriar a chave é seguro e idempotente.
+ * Persiste os registros em massa, de forma INCREMENTAL e idempotente.
+ *
+ * A identidade é a FINGERPRINT (ver `buildPcFactoryRecordFingerprint`), não mais
+ * a `technicalKey` — que nos layouts XLSX embutia o número da linha do Excel e,
+ * por isso, nunca reconhecia o mesmo evento vindo de um arquivo reexportado.
+ *
+ * Por chunk, dentro de UMA transação: apaga as fingerprints DAQUELE chunk (isto
+ * é, só os eventos que o próprio arquivo traz — nunca um mês inteiro, nunca a
+ * tabela) e recria. Assim reimportar o mesmo mês ATUALIZA os eventos em vez de
+ * duplicá-los, e um mês que não está no arquivo simplesmente não é tocado.
+ *
+ * PcFactoryRecord é tabela-folha (sem FKs de entrada), então apagar e recriar a
+ * própria chave é seguro.
  */
 async function persistRecords(
   records: Prisma.PcFactoryRecordCreateManyInput[],
@@ -1111,33 +1158,33 @@ async function persistRecords(
 ): Promise<void> {
   if (records.length === 0) return;
 
-  const keys = records.map((r) => r.technicalKey).filter((k): k is string => Boolean(k));
+  const keys = records.map((r) => r.fingerprint).filter((k): k is string => Boolean(k));
 
-  // (1) Quais chaves já existem — apenas para a contagem created/updated.
+  // (1) Quais fingerprints já existem — apenas para a contagem created/updated.
   const existingKeys = new Set<string>();
   try {
     for (let i = 0; i < keys.length; i += PERSIST_CHUNK) {
       const found = await prisma.pcFactoryRecord.findMany({
-        where: { technicalKey: { in: keys.slice(i, i + PERSIST_CHUNK) } },
-        select: { technicalKey: true }
+        where: { fingerprint: { in: keys.slice(i, i + PERSIST_CHUNK) } },
+        select: { fingerprint: true }
       });
-      for (const f of found) if (f.technicalKey) existingKeys.add(f.technicalKey);
+      for (const f of found) if (f.fingerprint) existingKeys.add(f.fingerprint);
     }
   } catch {
     /* a checagem é só para a contagem; se falhar, a regravação abaixo segue normalmente */
   }
 
-  // (2) Regrava por chunk: apaga as chaves do chunk e recria, de forma atômica.
+  // (2) Regrava por chunk: apaga as fingerprints do chunk e recria, atomicamente.
   for (let i = 0; i < records.length; i += PERSIST_CHUNK) {
     const slice = records.slice(i, i + PERSIST_CHUNK);
-    const sliceKeys = slice.map((r) => r.technicalKey).filter((k): k is string => Boolean(k));
+    const sliceKeys = slice.map((r) => r.fingerprint).filter((k): k is string => Boolean(k));
     try {
       await prisma.$transaction([
-        prisma.pcFactoryRecord.deleteMany({ where: { technicalKey: { in: sliceKeys } } }),
+        prisma.pcFactoryRecord.deleteMany({ where: { fingerprint: { in: sliceKeys } } }),
         prisma.pcFactoryRecord.createMany({ data: slice, skipDuplicates: true })
       ]);
       for (const record of slice) {
-        if (record.technicalKey && existingKeys.has(record.technicalKey)) result.updatedRows += 1;
+        if (record.fingerprint && existingKeys.has(record.fingerprint)) result.updatedRows += 1;
         else result.createdRows += 1;
         result.importedRows += 1;
       }

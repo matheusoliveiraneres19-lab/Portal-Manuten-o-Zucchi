@@ -916,6 +916,21 @@ model PcFactoryRecord {
   importBatch               String?
   /// Chave de deduplicação na reimportação.
   technicalKey              String?                 @unique
+  /// FINGERPRINT determinística do EVENTO (SHA-1 hex) — ver
+  /// `buildPcFactoryRecordFingerprint` em src/utils/pc-factory-fingerprint.ts.
+  ///
+  /// É a identidade usada pela importação INCREMENTAL: o mesmo evento vindo de
+  /// qualquer arquivo futuro produz a mesma chave, então reimportar um mês já
+  /// carregado não duplica nada (createMany + skipDuplicates sobre este índice).
+  ///
+  /// Diferente de `technicalKey`, que nos layouts XLSX embutia o NÚMERO DA LINHA
+  /// do Excel e por isso mudava a cada reexportação — inutilizável para
+  /// deduplicar entre arquivos. `technicalKey` continua existindo para não
+  /// quebrar os registros e scripts anteriores.
+  ///
+  /// Nullable só por causa dos registros gravados antes desta coluna; o backfill
+  /// (scripts/backfill-pcfactory-fingerprint.ts) preenche todos.
+  fingerprint               String?                 @unique
   createdAt                 DateTime                @default(now())
   updatedAt                 DateTime                @updatedAt
 

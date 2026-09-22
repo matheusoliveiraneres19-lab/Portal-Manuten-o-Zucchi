@@ -8,8 +8,18 @@
  *   3. `processPcFactoryImport` baixa o arquivo no servidor, lê, valida e grava
  *      cada linha em ImportStagingRow — em fatias, com orçamento de tempo, para
  *      caber na janela da função serverless;
- *   4. `finishPcFactoryImport`  aplica o staging na base oficial DENTRO de uma
+ *   4. `previewPcFactoryImport`  mede período, novos e duplicados — sem escrever;
+ *   5. `finishPcFactoryImport`  aplica o staging na base oficial DENTRO de uma
  *      única transação.
+ *
+ * IMPORTAÇÃO INCREMENTAL (2026-09-21)
+ * -----------------------------------
+ * Até esta data toda importação começava com `deleteMany({})`: a base era um
+ * retrato do ÚLTIMO arquivo, e importar setembro apagava janeiro a agosto.
+ * Agora o padrão é INCREMENTAL — nada é apagado, e a deduplicação acontece pelo
+ * índice único `fingerprint` (`createMany({ skipDuplicates: true })`).
+ * REPLACE_PERIOD existe para corrigir um mês e apaga SOMENTE a janela do
+ * arquivo. Não há mais delete global em nenhum caminho de importação.
  *
  * O QUE ISSO CONSERTA
  * -------------------
@@ -19,8 +29,9 @@
  * 'R'". Aqui o arquivo nunca passa pela função: vai do navegador ao Storage.
  *
  * E o `replaceAll` legado apagava a base ANTES de gravar, em transações
- * separadas: uma falha no meio deixava a base parcial. Aqui o DELETE e os
- * INSERTs vivem na MESMA transação — falhou, a base antiga continua inteira.
+ * separadas: uma falha no meio deixava a base parcial. Aqui qualquer DELETE (só
+ * no REPLACE_PERIOD, e só da janela do arquivo) vive na MESMA transação dos
+ * INSERTs — falhou, a base antiga continua inteira.
  *
  * REGRAS DE NEGÓCIO
  * -----------------
@@ -47,6 +58,13 @@ import {
   type SheetStatusColor
 } from "@/services/importacao/pc-factory-import.service";
 import type { PcFactoryImportResult } from "@/types/pc-factory";
+import {
+  PC_FACTORY_DEFAULT_IMPORT_MODE,
+  isPcFactoryImportMode,
+  type PcFactoryDetectedPeriod,
+  type PcFactoryImportMode,
+  type PcFactoryImportPreview
+} from "@/types/pc-factory-import-mode";
 
 /** Linhas gravadas por round-trip. Ver DEFAULT_IMPORT_BATCH_SIZE em @/types/imports. */
 const STAGING_BATCH_SIZE = 500;
@@ -309,26 +327,52 @@ export async function processPcFactoryImport(params: {
 
 export type FinishPcFactoryImportResult = {
   importId: string;
+  /** Registros efetivamente INSERIDOS na base. */
   appliedRows: number;
+  /**
+   * Registros históricos REMOVIDOS. Em INCREMENTAL é sempre 0 — é o número que
+   * prova, no retorno da própria API, que nada do histórico foi apagado. Em
+   * REPLACE_PERIOD é quanto havia dentro da janela do arquivo.
+   */
   replacedRows: number;
+  /** Linhas do arquivo que já existiam na base (mesma fingerprint) e foram puladas. */
+  duplicateRows: number;
+  mode: PcFactoryImportMode;
+  period: PcFactoryDetectedPeriod;
   audit: PcFactoryAudit | null;
 };
 
 /**
  * Aplica o staging validado em `PcFactoryRecord`, dentro de UMA transação.
  *
- * As travas rodam ANTES de abrir a transação:
- *  - existe ao menos uma linha válida (sem isso, um arquivo vazio zeraria a base);
- *  - nenhuma linha marcada como inválida.
+ * INCREMENTAL (padrão) — NENHUM registro é apagado. Os inserts passam por
+ * `createMany({ skipDuplicates: true })` sobre o índice único `fingerprint`:
+ * evento que já existe é pulado pelo próprio banco, então importar setembro
+ * mantém janeiro a agosto intactos e reimportar setembro não duplica horas.
  *
- * Dentro da transação o DELETE e os INSERTs são atômicos: qualquer erro desfaz
- * tudo e a base anterior permanece exatamente como estava.
+ * REPLACE_PERIOD — apaga SOMENTE a janela do arquivo (`startDateTime` entre o
+ * primeiro e o último início detectados) e insere. Nunca a tabela inteira.
+ *
+ * As travas rodam ANTES de abrir a transação:
+ *  - existe ao menos uma linha válida;
+ *  - nenhuma linha marcada como inválida;
+ *  - em REPLACE_PERIOD, o arquivo tem período datado (sem data não há janela
+ *    para apagar, e apagar "tudo" é exatamente o que esta tarefa proíbe).
+ *
+ * Dentro da transação, DELETE e INSERTs são atômicos: qualquer erro desfaz tudo
+ * e a base anterior permanece exatamente como estava.
  */
 export async function finishPcFactoryImport(params: {
   importId: string;
+  /** Ver PcFactoryImportMode. Ausente = INCREMENTAL (não apaga nada). */
+  mode?: PcFactoryImportMode;
   /** Teto da transação. Generoso: 10 mil linhas em lotes de 500. */
   timeoutMs?: number;
 }): Promise<FinishPcFactoryImportResult> {
+  const mode: PcFactoryImportMode = isPcFactoryImportMode(params.mode)
+    ? params.mode
+    : PC_FACTORY_DEFAULT_IMPORT_MODE;
+
   const history = await prisma.importHistory.findUnique({
     where: { id: params.importId },
     select: { id: true, type: true, stage: true, metadata: true }
@@ -362,6 +406,17 @@ export async function finishPcFactoryImport(params: {
     );
   }
 
+  // Período REAL do arquivo, lido do staging. É a janela que o REPLACE_PERIOD
+  // apaga e o que a tela mostra como "período detectado".
+  const period = await detectStagingPeriod(history.id);
+
+  if (mode === "REPLACE_PERIOD" && (!period.start || !period.end)) {
+    throw new PcFactoryImportError(
+      "Não foi possível identificar o período do arquivo — nenhuma linha tem data de início. " +
+        "Use o modo incremental: substituir sem janela definida apagaria dados de outros meses."
+    );
+  }
+
   await prisma.importHistory.update({
     where: { id: history.id },
     data: { stage: IMPORT_STAGES.PROCESSING, status: resolveLegacyStatus(IMPORT_STAGES.PROCESSING) }
@@ -369,12 +424,26 @@ export async function finishPcFactoryImport(params: {
 
   const applied = await prisma.$transaction(
     async (tx) => {
-      // Substituição total: a base do PC-Factory é sempre um retrato completo do
-      // arquivo. Aqui o DELETE está DENTRO da transação — foi por estar fora que
-      // o caminho legado conseguia deixar a base vazia.
-      const removed = await tx.pcFactoryRecord.deleteMany({});
+      // REPLACE_PERIOD apaga SOMENTE a janela do arquivo. Nunca
+      // `deleteMany({})`: apagar a tabela inteira porque um arquivo novo chegou
+      // é justamente o que destruía janeiro–agosto ao importar setembro.
+      //
+      // Registros SEM startDateTime ficam de fora do delete de propósito: não
+      // pertencem a janela nenhuma, então não há como afirmar que são deste
+      // período. Eles são tratados pela deduplicação por fingerprint.
+      let removed = 0;
+      if (mode === "REPLACE_PERIOD") {
+        const window = resolveReplacementWindow(period);
+        if (window) {
+          const deleted = await tx.pcFactoryRecord.deleteMany({
+            where: { startDateTime: { gte: window.start, lte: window.end } }
+          });
+          removed = deleted.count;
+        }
+      }
 
       let inserted = 0;
+      let considered = 0;
       let cursorId: string | null = null;
 
       // Pagina o staging por cursor em vez de carregar 10 mil JSONs de uma vez.
@@ -396,12 +465,20 @@ export async function finishPcFactoryImport(params: {
           .filter((record): record is Prisma.PcFactoryRecordCreateManyInput => record !== null);
 
         if (data.length > 0) {
+          considered += data.length;
+          // `skipDuplicates` sobre o índice único `fingerprint`: quem já existe
+          // é descartado pelo próprio banco. É o que torna a reimportação do
+          // mesmo arquivo inofensiva — insere 0 em vez de duplicar horas.
           const created = await tx.pcFactoryRecord.createMany({ data, skipDuplicates: true });
           inserted += created.count;
         }
       }
 
-      if (inserted === 0) {
+      // INCREMENTAL com tudo já presente é um resultado LEGÍTIMO (reimportar o
+      // mesmo mês), não uma falha: inserir 0 aqui significa "nada novo", e a
+      // base continua íntegra. Só o REPLACE_PERIOD precisa ter gravado algo —
+      // ele apagou a janela antes, e terminar com 0 deixaria o mês vazio.
+      if (mode === "REPLACE_PERIOD" && inserted === 0) {
         // Rollback: o DELETE acima volta atrás e a base anterior é preservada.
         throw new PcFactoryImportError(
           "Nenhum registro pôde ser gravado. A base atual do PC-Factory foi mantida."
@@ -413,7 +490,7 @@ export async function finishPcFactoryImport(params: {
         data: { status: IMPORT_ROW_STATUSES.APPLIED }
       });
 
-      return { inserted, removed: removed.count };
+      return { inserted, removed, duplicates: Math.max(0, considered - inserted) };
     },
     { timeout: params.timeoutMs ?? 240_000, maxWait: 15_000 }
   );
@@ -427,7 +504,22 @@ export async function finishPcFactoryImport(params: {
       status: ImportStatus.SUCESSO,
       finishedAt: new Date(),
       createdRows: applied.inserted,
-      validRows: applied.inserted
+      // Reimportação idempotente: as linhas já existentes entram como
+      // "atualizadas" no histórico, não como criadas nem como erro.
+      updatedRows: applied.duplicates,
+      validRows: applied.inserted,
+      // O lote fica identificável no histórico: modo, janela e quanto foi
+      // removido. É o que responde "o que esta importação fez com a base".
+      metadata: {
+        ...((audit ?? {}) as Record<string, unknown>),
+        importMode: mode,
+        periodStart: period.start,
+        periodEnd: period.end,
+        periodMonths: period.months,
+        insertedRows: applied.inserted,
+        duplicateRows: applied.duplicates,
+        replacedRows: applied.removed
+      } as unknown as Prisma.InputJsonValue
     }
   });
 
@@ -435,7 +527,135 @@ export async function finishPcFactoryImport(params: {
     importId: history.id,
     appliedRows: applied.inserted,
     replacedRows: applied.removed,
+    duplicateRows: applied.duplicates,
+    mode,
+    period,
     audit
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  3b) Período e prévia — o que a tela mostra ANTES de aplicar                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Período REAL coberto pelas linhas válidas do staging.
+ *
+ * Lê `startDateTime` — a MESMA data que o modo oficial (G0134) já usa para
+ * dizer a que mês um registro pertence. A importação não fatia nem reinterpreta
+ * registro nenhum por causa disso: eventos que atravessam a virada do mês
+ * (31/08 22:00 → 01/09 06:00) são gravados brutos, como sempre foram.
+ *
+ * O SQL roda sobre o JSON do staging, então nenhuma linha precisa ser
+ * desserializada em memória só para descobrir a janela.
+ */
+export async function detectStagingPeriod(importId: string): Promise<PcFactoryDetectedPeriod> {
+  const rows = await prisma.$queryRaw<Array<{ month: string | null; count: bigint; min: Date | null; max: Date | null }>>`
+    select to_char((normalized->>'startDateTime')::timestamptz, 'YYYY-MM') as month,
+           count(*)::bigint                                                as count,
+           min((normalized->>'startDateTime')::timestamptz)                as min,
+           max((normalized->>'startDateTime')::timestamptz)                as max
+      from "ImportStagingRow"
+     where "importHistoryId" = ${importId}
+       and status = ${IMPORT_ROW_STATUSES.VALID}
+     group by 1
+     order by 1
+  `;
+
+  const dated = rows.filter((row) => row.month && row.min && row.max);
+  const rowsWithoutDate = rows
+    .filter((row) => !row.month)
+    .reduce((sum, row) => sum + Number(row.count), 0);
+
+  if (dated.length === 0) {
+    return { start: null, end: null, months: [], singleMonth: false, rowsWithoutDate };
+  }
+
+  const start = dated.reduce((min, row) => (row.min! < min ? row.min! : min), dated[0].min!);
+  const end = dated.reduce((max, row) => (row.max! > max ? row.max! : max), dated[0].max!);
+
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+    months: dated.map((row) => row.month as string),
+    singleMonth: dated.length === 1,
+    rowsWithoutDate
+  };
+}
+
+/**
+ * JANELA DE SUBSTITUIÇÃO do REPLACE_PERIOD — os meses CIVIS inteiros que o
+ * arquivo toca, não o min/max exato das linhas.
+ *
+ * Por quê: "substituir setembro" quer dizer o mês, não "de 03/09 às 14h até
+ * 28/09 às 9h". Um arquivo corrigido quase nunca tem a mesma primeira e última
+ * linha do anterior — se a janela fosse o min/max das linhas, sobrariam
+ * registros da importação errada nas pontas do mês, que é exatamente o
+ * problema que o modo existe para resolver.
+ *
+ * Continua sem tocar em agosto nem outubro: os limites são o primeiro instante
+ * do primeiro mês e o último do último mês DETECTADOS no arquivo. Quando o
+ * arquivo cobre vários meses, todos eles entram — e a tela avisa isso com todas
+ * as letras antes de o operador confirmar.
+ */
+export function resolveReplacementWindow(period: PcFactoryDetectedPeriod): { start: Date; end: Date } | null {
+  if (period.months.length === 0) return null;
+
+  const first = period.months[0].split("-").map(Number);
+  const last = period.months[period.months.length - 1].split("-").map(Number);
+  if (first.length !== 2 || last.length !== 2) return null;
+
+  return {
+    start: new Date(Date.UTC(first[0], first[1] - 1, 1, 0, 0, 0, 0)),
+    // Dia 0 do mês seguinte = último dia deste mês, no último milissegundo.
+    end: new Date(Date.UTC(last[0], last[1], 0, 23, 59, 59, 999))
+  };
+}
+
+/**
+ * PRÉVIA da aplicação — tudo que a tela de confirmação precisa, medido de
+ * verdade contra o banco antes de qualquer escrita.
+ *
+ * Nenhuma linha é gravada aqui. A contagem de novos/duplicados compara as
+ * fingerprints do staging com as já presentes em `PcFactoryRecord`.
+ */
+export async function previewPcFactoryImport(importId: string): Promise<PcFactoryImportPreview> {
+  const period = await detectStagingPeriod(importId);
+
+  const [{ total, duplicates }] = await prisma.$queryRaw<Array<{ total: bigint; duplicates: bigint }>>`
+    select count(*)::bigint                                          as total,
+           count(existing."fingerprint")::bigint                     as duplicates
+      from "ImportStagingRow" staging
+      left join "PcFactoryRecord" existing
+        on existing."fingerprint" = staging.normalized->>'fingerprint'
+     where staging."importHistoryId" = ${importId}
+       and staging.status = ${IMPORT_ROW_STATUSES.VALID}
+  `;
+
+  const validRows = Number(total);
+  const duplicateRecords = Number(duplicates);
+
+  // MESMA janela que o REPLACE_PERIOD apagaria: o número mostrado na tela é o
+  // número de registros que seriam removidos, não uma contagem aproximada.
+  const window = resolveReplacementWindow(period);
+  const existingInPeriod = window
+    ? await prisma.pcFactoryRecord.count({
+        where: { startDateTime: { gte: window.start, lte: window.end } }
+      })
+    : 0;
+
+  return {
+    period,
+    validRows,
+    newRecords: validRows - duplicateRecords,
+    duplicateRecords,
+    existingInPeriod,
+    replacementStart: window ? window.start.toISOString() : null,
+    replacementEnd: window ? window.end.toISOString() : null,
+    // Só sugere substituir quando o período já tem dados. O padrão continua
+    // sendo acrescentar — a operação normal é mensal e não apaga nada.
+    suggestedMode: existingInPeriod > 0 ? "REPLACE_PERIOD" : PC_FACTORY_DEFAULT_IMPORT_MODE,
+    spansMultipleMonths: period.months.length > 1
   };
 }
 

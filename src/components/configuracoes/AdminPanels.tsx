@@ -51,6 +51,53 @@ function formatDateTime(iso: string): string {
 }
 
 /** Converte um input date (yyyy-mm-dd) para limites do dia, ou null. */
+/* ------------------------------------------------------------------ */
+/* Lote de importação: período, modo e o que foi removido             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * O `metadata` de cada importação carrega o que o lote fez com a base
+ * (gravado por `finishPcFactoryImport`). Importações anteriores à importação
+ * incremental não têm esses campos — daí o "—" em vez de um valor inventado.
+ */
+function importMeta(row: ImportHistoryDTO): { mode?: string; start?: string; end?: string; replaced?: number } {
+  const meta = (row.metadata ?? {}) as Record<string, unknown>;
+  return {
+    mode: typeof meta.importMode === "string" ? meta.importMode : undefined,
+    start: typeof meta.periodStart === "string" ? meta.periodStart : undefined,
+    end: typeof meta.periodEnd === "string" ? meta.periodEnd : undefined,
+    replaced: typeof meta.replacedRows === "number" ? meta.replacedRows : undefined
+  };
+}
+
+function importPeriodLabel(row: ImportHistoryDTO): string {
+  const { start, end } = importMeta(row);
+  if (!start || !end) return "—";
+  const br = (iso: string) => {
+    const date = new Date(iso);
+    return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString("pt-BR", { timeZone: "UTC" });
+  };
+  return `${br(start)} a ${br(end)}`;
+}
+
+function importModeLabel(row: ImportHistoryDTO): string {
+  const { mode } = importMeta(row);
+  if (mode === "INCREMENTAL") return "Adicionar ao histórico";
+  if (mode === "REPLACE_PERIOD") return "Substituir período";
+  return "—";
+}
+
+/**
+ * Registros históricos removidos. O 0 é informação: prova, lote a lote, que a
+ * importação incremental não apagou nada. Só é destacado em vermelho quando
+ * algo foi mesmo removido (modo substituir período).
+ */
+function renderRemoved(row: ImportHistoryDTO) {
+  const { replaced } = importMeta(row);
+  if (replaced === undefined) return <span className="text-zinc-500">—</span>;
+  return <span className={replaced > 0 ? "text-amber-300" : "text-zinc-400"}>{replaced}</span>;
+}
+
 function dayBounds(value: string, edge: "start" | "end"): number | null {
   if (!value) return null;
   const ms = new Date(`${value}T${edge === "start" ? "00:00:00" : "23:59:59.999"}`).getTime();
@@ -144,7 +191,7 @@ function ImportHistoryPanel({ rows }: { rows: ImportHistoryDTO[] }) {
       </div>
 
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[1320px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-gold/20 text-[11px] uppercase tracking-wide text-champagne/70">
               <th className="px-3 py-2 font-semibold">Data</th>
@@ -154,6 +201,9 @@ function ImportHistoryPanel({ rows }: { rows: ImportHistoryDTO[] }) {
               <th className="px-3 py-2 text-right font-semibold">Válidas</th>
               <th className="px-3 py-2 text-right font-semibold">Criadas</th>
               <th className="px-3 py-2 text-right font-semibold">Atualizadas</th>
+              <th className="px-3 py-2 text-right font-semibold" title="Registros históricos REMOVIDOS. Nas importações incrementais do PC-Factory é sempre 0.">Removidos</th>
+              <th className="px-3 py-2 font-semibold">Período</th>
+              <th className="px-3 py-2 font-semibold">Modo</th>
               <th className="px-3 py-2 text-right font-semibold">Ignoradas</th>
               <th className="px-3 py-2 text-right font-semibold">Erros</th>
               <th className="px-3 py-2 font-semibold">Status</th>
@@ -165,7 +215,7 @@ function ImportHistoryPanel({ rows }: { rows: ImportHistoryDTO[] }) {
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <EmptyRow colSpan={12} message="Nenhuma importação no período/filtros selecionados." />
+              <EmptyRow colSpan={15} message="Nenhuma importação no período/filtros selecionados." />
             ) : (
               filtered.map((r) => (
                 <tr key={r.id} className="border-b border-white/5 text-zinc-200 hover:bg-white/[0.03]">
@@ -178,6 +228,9 @@ function ImportHistoryPanel({ rows }: { rows: ImportHistoryDTO[] }) {
                   <td className="px-3 py-2 text-right tabular-nums text-emerald-300">{r.validRows}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-emerald-300">{r.createdRows}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-sky-300">{r.updatedRows}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{renderRemoved(r)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-zinc-400">{importPeriodLabel(r)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-zinc-400">{importModeLabel(r)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-zinc-400">{r.ignoredRows}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-red-300">{r.errorRows}</td>
                   <td className="px-3 py-2">

@@ -19,8 +19,21 @@
  * gerencial e não pode encostar em nenhum número.
  *
  * ESCREVE NO BANCO, mas só na tabela `PcFactoryAvailabilityNote`, e limpa o que
- * criou ao final (as justificativas reais de outras máquinas/períodos não são
- * tocadas). Nenhum `PcFactoryRecord` é lido para escrita nem alterado.
+ * criou ao final. Nenhum `PcFactoryRecord` é lido para escrita nem alterado.
+ *
+ * ⚠ PROTEÇÃO CONTRA SOBRESCRITA (adicionada em 2026-09-21, depois de o script
+ * ter apagado uma justificativa REAL de agosto/2026).
+ *
+ * O teste grava em (máquina + período) — a mesma chave única que a gestão usa.
+ * Se já houver justificativa ali, o `upsert` EDITA o texto do gestor, e a
+ * limpeza final não o restaura, porque o filtro de limpeza é pelo autor e o
+ * `createdById` original é preservado na edição. Resultado: texto perdido, sem
+ * recuperação (o AuditLog não guarda o conteúdo).
+ *
+ * Agora o script só usa uma máquina cuja janela esteja LIVRE nos dois períodos
+ * que ele toca, e ainda assim tira um retrato de qualquer nota pré-existente e
+ * a restaura no `finally`. Se nenhuma máquina estiver livre, ele aborta em vez
+ * de escrever por cima.
  */
 import type { PcFactoryPageData, PcFactoryQueryParams, PcFactoryReliabilityRow } from "../src/types/pc-factory";
 import { normalizeMachineName } from "../src/utils/technical-object-normalizer";
@@ -94,10 +107,55 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  const alvo =
-    escolhida ??
-    antes.reliabilityByMachine.find((row) => nomes(row).some((nome) => /mult.?fio 02/i.test(nome))) ??
-    antes.reliabilityByMachine[0];
+  /**
+   * Uma janela está LIVRE quando não existe justificativa da gestão nela. O
+   * teste só escreve em janelas livres — escrever numa ocupada editaria o texto
+   * de um gestor, que é irrecuperável.
+   */
+  async function janelaLivre(resourceName: string): Promise<boolean> {
+    const conflitos = await prisma.pcFactoryAvailabilityNote.count({
+      where: {
+        resourceName,
+        OR: [
+          { periodStart: new Date(`${AGOSTO.startDate}T00:00:00.000Z`), periodEnd: new Date(`${AGOSTO.endDate}T00:00:00.000Z`) },
+          { periodStart: new Date(`${SETEMBRO.startDate}T00:00:00.000Z`), periodEnd: new Date(`${SETEMBRO.endDate}T00:00:00.000Z`) }
+        ]
+      }
+    });
+    return conflitos === 0;
+  }
+
+  const preferida =
+    escolhida ?? antes.reliabilityByMachine.find((row) => nomes(row).some((nome) => /mult.?fio 02/i.test(nome)));
+
+  let alvo: PcFactoryReliabilityRow | undefined;
+  if (preferida && (await janelaLivre(preferida.machineName))) {
+    alvo = preferida;
+  } else {
+    if (preferida) {
+      console.log(
+        `  ! "${nomes(preferida)[1]}" já tem justificativa da gestão em agosto ou setembro/2026.\n` +
+          "    O teste NÃO escreve por cima: procurando outra máquina com a janela livre.\n"
+      );
+    }
+    for (const row of antes.reliabilityByMachine) {
+      if (await janelaLivre(row.machineName)) {
+        alvo = row;
+        break;
+      }
+    }
+  }
+
+  if (!alvo) {
+    console.log(
+      "  ! Todas as máquinas do recorte já têm justificativa em agosto ou setembro/2026.\n" +
+        "    O teste foi abortado para não sobrescrever texto da gestão.\n" +
+        "    Rode com --machine=<máquina de um recorte sem justificativas> ou em um banco de teste.\n"
+    );
+    await prisma.$disconnect();
+    process.exitCode = 1;
+    return;
+  }
 
   const janela = antes.periodWindow;
   console.log(`  Máquina: ${nomes(alvo)[1]}  (chave gravada: "${alvo.machineName}")`);
@@ -112,6 +170,14 @@ async function main() {
   // Deixa o terreno limpo caso uma execução anterior tenha morrido no meio.
   await prisma.pcFactoryAvailabilityNote.deleteMany({
     where: { resourceName: alvo.machineName, createdById: { in: [AUTOR.id, AUTOR_2.id] } }
+  });
+
+  // Rede de segurança: mesmo tendo escolhido uma janela livre, guarda um
+  // retrato do que existir nas chaves que o teste vai tocar. Se algo aparecer
+  // (corrida com um gestor salvando agora), o `finally` restaura palavra por
+  // palavra em vez de deixar o texto dele perdido.
+  const snapshot = await prisma.pcFactoryAvailabilityNote.findMany({
+    where: { resourceName: alvo.machineName }
   });
 
   try {
@@ -219,6 +285,32 @@ async function main() {
       where: { resourceName: alvo.machineName, createdById: { in: [AUTOR.id, AUTOR_2.id] } }
     });
     console.log(`\n  (limpeza: ${removidas.count} justificativa(s) de teste removida(s))`);
+
+    // Restaura, palavra por palavra, qualquer justificativa da gestão que
+    // existisse nesta máquina antes do teste. Em operação normal o snapshot
+    // está vazio (a janela escolhida era livre) e isto não faz nada.
+    let restauradas = 0;
+    for (const original of snapshot) {
+      const atual = await prisma.pcFactoryAvailabilityNote.findUnique({ where: { id: original.id } });
+      const intacta =
+        atual &&
+        atual.reason === original.reason &&
+        atual.actionPlan === original.actionPlan &&
+        atual.responsible === original.responsible;
+      if (intacta) continue;
+
+      const { id, ...campos } = original;
+      await prisma.pcFactoryAvailabilityNote.upsert({
+        where: { id },
+        create: { id, ...campos },
+        update: campos
+      });
+      restauradas += 1;
+    }
+    if (restauradas > 0) {
+      console.log(`  (restauradas ${restauradas} justificativa(s) da gestão que o teste havia tocado)`);
+    }
+
     await prisma.$disconnect();
   }
 

@@ -4,11 +4,18 @@
  * Aplica o staging validado em `PcFactoryRecord`, dentro de UMA transação.
  * É o único ponto de todo o fluxo em que a base oficial muda.
  *
+ * `mode` decide o que acontece com o histórico:
+ *   INCREMENTAL (padrão)  acrescenta; NADA é apagado; duplicados são pulados.
+ *   REPLACE_PERIOD        apaga SOMENTE a janela do arquivo e reinsere.
+ *
+ * Corpo ausente, inválido ou com modo desconhecido → INCREMENTAL. O caminho que
+ * apaga alguma coisa só é tomado quando explicitamente pedido.
+ *
  * Se qualquer coisa falhar, a transação reverte e a base anterior continua
  * exatamente como estava — a importação é marcada como FAILED e o usuário
  * recebe uma mensagem em português dizendo isso.
  *
- * Corpo: { importId }
+ * Corpo: { importId, mode? }
  */
 import { type NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
@@ -22,6 +29,10 @@ import {
   finishPcFactoryImport,
   getPcFactoryImportState
 } from "@/services/importacao/pc-factory-staging.service";
+import {
+  PC_FACTORY_DEFAULT_IMPORT_MODE,
+  isPcFactoryImportMode
+} from "@/types/pc-factory-import-mode";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -41,15 +52,21 @@ export async function POST(request: NextRequest) {
     importId = typeof body.importId === "string" ? body.importId : "";
     if (!importId) return badRequest("Informe o identificador da importação.", "campo 'importId' ausente");
 
+    // Modo desconhecido/ausente cai no INCREMENTAL, que não apaga nada. Um erro
+    // de digitação no corpo da requisição nunca pode virar exclusão de dados.
+    const mode = isPcFactoryImportMode(body.mode) ? body.mode : PC_FACTORY_DEFAULT_IMPORT_MODE;
+
     const state = await getPcFactoryImportState(importId);
     const fileName = state?.fileName ?? "(desconhecido)";
 
-    console.info(`[PC_FACTORY_IMPORT_APPLY] importId=${importId} file="${fileName}"`);
+    console.info(`[PC_FACTORY_IMPORT_APPLY] importId=${importId} file="${fileName}" modo=${mode}`);
 
-    const result = await finishPcFactoryImport({ importId });
+    const result = await finishPcFactoryImport({ importId, mode });
 
     console.info(
-      `[PC_FACTORY_IMPORT_DONE] importId=${importId} aplicados=${result.appliedRows} substituidos=${result.replacedRows}`
+      `[PC_FACTORY_IMPORT_DONE] importId=${importId} modo=${result.mode} ` +
+        `inseridos=${result.appliedRows} duplicados=${result.duplicateRows} removidos=${result.replacedRows} ` +
+        `periodo=${result.period.start ?? "-"}..${result.period.end ?? "-"}`
     );
 
     await auditImport({ request, session, module: "PC-Factory", fileName, result });

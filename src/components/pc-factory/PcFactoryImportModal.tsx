@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { AlertTriangle, Check, FileSpreadsheet, Loader2, Upload } from "lucide-react";
 import { ModalShell, modalGhostButtonClass, modalPrimaryButtonClass } from "@/components/ui/ModalShell";
 import type { PcFactoryLayoutType } from "@/types/pc-factory";
+import type { PcFactoryImportMode, PcFactoryImportPreview } from "@/types/pc-factory-import-mode";
 
 /** Rótulos amigáveis do layout detectado na importação. */
 const LAYOUT_LABELS: Record<string, string> = {
@@ -46,8 +47,9 @@ const STEPS = [
   { key: "validate", label: "Validando colunas" },
   { key: "process", label: "Processando linhas" },
   { key: "staging", label: "Gravando staging" },
-  { key: "apply", label: "Aplicando base oficial" },
-  { key: "finish", label: "Finalizando importação" },
+  { key: "compare", label: "Comparando com o histórico" },
+  { key: "apply", label: "Adicionando novos registros" },
+  { key: "finish", label: "Atualizando período" },
   { key: "done", label: "Importação concluída" }
 ] as const;
 
@@ -92,8 +94,29 @@ type ImportSummary = {
   audit: PcFactoryAudit | null;
   appliedRows: number;
   replacedRows: number;
+  /** Linhas do arquivo que já existiam na base e foram puladas. */
+  duplicateRows: number;
+  mode: PcFactoryImportMode;
   fileSizeBytes: number;
   viaStorage: boolean;
+};
+
+/** Prévia devolvida por /import/preview — nada foi gravado ainda. */
+type ImportPreview = PcFactoryImportPreview & { fileName: string };
+
+/**
+ * Importação já processada no staging, aguardando a CONFIRMAÇÃO do operador.
+ *
+ * Existir este estado é o ponto da tarefa: antes, `finish` era disparado no
+ * mesmo fluxo do upload e apagava a base sem ninguém ver o que ia acontecer.
+ * Agora o arquivo para aqui, o portal mostra o período detectado e o que já
+ * existe, e só então o operador escolhe entre acrescentar ou substituir.
+ */
+type PendingImport = {
+  importId: string;
+  preview: ImportPreview;
+  audit: PcFactoryAudit | null;
+  fileSizeBytes: number;
 };
 
 type PcFactoryImportModalProps = {
@@ -109,6 +132,7 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
   const [failedStep, setFailedStep] = useState<StepKey | null>(null);
   const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [pending, setPending] = useState<PendingImport | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -116,6 +140,7 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
     if (open) {
       setFile(null);
       setSummary(null);
+      setPending(null);
       setErrorDetail(null);
       setCurrentStep(null);
       setFailedStep(null);
@@ -246,28 +271,20 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
         if (data.done) break;
       }
 
-      // ---- 5) Aplica na base oficial (transação) -------------------------
-      at("apply");
-      const finished = await callApi("/api/pc-factory/import/finish", { importId });
-      if (!finished.ok) throw new ImportFailure(finished.error, finished.details);
+      // ---- 5) Prévia: compara com o histórico SEM gravar -----------------
+      // O fluxo PARA aqui. Nada foi aplicado à base oficial ainda: o operador
+      // vê o período detectado e o que já existe, e decide. Antes desta etapa,
+      // o `finish` disparava automático e apagava a base inteira.
+      at("compare");
+      const previewed = await callApi("/api/pc-factory/import/preview", { importId });
+      if (!previewed.ok) throw new ImportFailure(previewed.error, previewed.details);
 
-      at("finish");
-      const applied = finished.data as { appliedRows: number; replacedRows: number; audit: PcFactoryAudit | null };
-
-      setSummary({
-        audit: applied.audit ?? audit,
-        appliedRows: applied.appliedRows,
-        replacedRows: applied.replacedRows,
-        fileSizeBytes: file.size,
-        viaStorage: true
+      setPending({
+        importId,
+        preview: previewed.data as ImportPreview,
+        audit,
+        fileSizeBytes: file.size
       });
-      at("done");
-      toast.success(
-        applied.replacedRows > 0
-          ? `Base substituída: ${applied.appliedRows} registros (${applied.replacedRows} anteriores).`
-          : `Importação concluída: ${applied.appliedRows} registros.`
-      );
-      onImported();
     } catch (error) {
       setFailedStep(step);
       const message = error instanceof ImportFailure ? error.message : friendlyMessage(error);
@@ -278,6 +295,68 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
       setRunning(false);
     }
   }, [file, onImported]);
+
+  /**
+   * Segundo passo, disparado pelo BOTÃO do operador: aplica o staging já
+   * validado no modo escolhido. É o único momento em que a base oficial muda.
+   */
+  const applyImport = useCallback(
+    async (mode: PcFactoryImportMode) => {
+      if (!pending) return;
+
+      setRunning(true);
+      setErrorDetail(null);
+      setFailedStep(null);
+
+      try {
+        setCurrentStep("apply");
+        const finished = await callApi("/api/pc-factory/import/finish", {
+          importId: pending.importId,
+          mode
+        });
+        if (!finished.ok) throw new ImportFailure(finished.error, finished.details);
+
+        setCurrentStep("finish");
+        const applied = finished.data as {
+          appliedRows: number;
+          replacedRows: number;
+          duplicateRows: number;
+          mode: PcFactoryImportMode;
+          audit: PcFactoryAudit | null;
+        };
+
+        setSummary({
+          audit: applied.audit ?? pending.audit,
+          appliedRows: applied.appliedRows,
+          replacedRows: applied.replacedRows,
+          duplicateRows: applied.duplicateRows,
+          mode: applied.mode,
+          fileSizeBytes: pending.fileSizeBytes,
+          viaStorage: true
+        });
+        setPending(null);
+        setCurrentStep("done");
+
+        toast.success(
+          applied.appliedRows === 0
+            ? "Nada novo a importar: todos os registros do arquivo já estavam na base."
+            : applied.replacedRows > 0
+              ? `Período substituído: ${applied.appliedRows} registros (${applied.replacedRows} anteriores removidos).`
+              : `${applied.appliedRows} registros adicionados ao histórico.`
+        );
+        onImported();
+      } catch (error) {
+        setFailedStep("apply");
+        const message = error instanceof ImportFailure ? error.message : friendlyMessage(error);
+        const details = error instanceof ImportFailure ? error.details : null;
+        setErrorDetail(details ? `${message}\n\n${details}` : message);
+        toast.error(message.split("\n")[0]);
+      } finally {
+        setRunning(false);
+      }
+    },
+    [pending, onImported]
+  );
 
   const audit = summary?.audit ?? null;
 
@@ -355,23 +434,43 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
         </div>
       ) : null}
 
-      {!summary && !running ? (
+      {!summary && !pending && !running ? (
         <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] leading-snug text-amber-200/90">
-          <strong className="font-semibold">Atenção:</strong> a importação é <strong>validada antes</strong> de
-          substituir a base oficial do PC-Factory. Se houver falha, os dados atuais são preservados.
+          <strong className="font-semibold">Importação incremental:</strong> o arquivo é lido e comparado com o
+          histórico antes de gravar. Os meses já importados <strong>são preservados</strong> — você confirma o que
+          fazer antes de qualquer alteração.
         </div>
       ) : null}
+
+      {/* --------------------- Confirmação (prévia) ---------------------- */}
+      {pending ? <ConfirmPanel pending={pending} running={running} onApply={applyImport} /> : null}
 
       {/* ---------------------------- Resumo ----------------------------- */}
       {summary ? (
         <div className="mt-4 space-y-3">
+          {/* O 0 em "removidos" é o critério de aceite da importação
+              incremental, então fica visível no resultado, não só no log. */}
+          <p className="rounded-lg border border-gold/25 bg-gold/10 p-2.5 text-[11px] leading-snug text-champagne">
+            <strong className="font-semibold text-gold">
+              {summary.mode === "REPLACE_PERIOD" ? "Período substituído." : "Adicionado ao histórico."}
+            </strong>{" "}
+            {summary.appliedRows.toLocaleString("pt-BR")} registro(s) adicionado(s) ·{" "}
+            {summary.replacedRows.toLocaleString("pt-BR")} registro(s) histórico(s) removido(s) ·{" "}
+            {summary.duplicateRows.toLocaleString("pt-BR")} já existente(s) ignorado(s)
+            {(audit?.ignoredRows ?? 0) > 0
+              ? ` · ${(audit?.ignoredRows ?? 0).toLocaleString("pt-BR")} ignorado(s) por regra de qualidade`
+              : ""}
+            .
+          </p>
+
           <dl className="grid grid-cols-2 gap-2 rounded-lg border border-gold/15 bg-black/25 p-3 text-xs">
-            <Summary label="Registros aplicados" value={summary.appliedRows} tone="gold" />
+            <Summary label="Registros adicionados" value={summary.appliedRows} tone="gold" />
             <Summary
-              label="Substituídos (anteriores)"
+              label="Históricos removidos"
               value={summary.replacedRows}
               tone={summary.replacedRows > 0 ? "danger" : "default"}
             />
+            <Summary label="Já existentes (ignorados)" value={summary.duplicateRows} />
             <Summary label="Linhas lidas" value={audit?.totalRows ?? summary.appliedRows} />
             <Summary label="Linhas válidas" value={audit?.validRows ?? summary.appliedRows} />
             <Summary label="Linhas ignoradas" value={audit?.ignoredRows ?? 0} tone={(audit?.ignoredRows ?? 0) > 0 ? "danger" : "default"} />
@@ -475,13 +574,149 @@ export function PcFactoryImportModal({ open, onClose, onImported }: PcFactoryImp
         <button type="button" onClick={onClose} disabled={running} className={modalGhostButtonClass}>
           {summary ? "Fechar" : "Cancelar"}
         </button>
-        <button type="button" onClick={handleUpload} disabled={running || !file} className={modalPrimaryButtonClass}>
-          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-          Importar
-        </button>
+        {/* Com a prévia aberta, os botões de ação vivem DENTRO do painel de
+            confirmação: é lá que o operador lê o período e escolhe o modo. */}
+        {pending || summary ? null : (
+          <button type="button" onClick={handleUpload} disabled={running || !file} className={modalPrimaryButtonClass}>
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            Analisar arquivo
+          </button>
+        )}
       </div>
     </ModalShell>
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Painel de confirmação                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A tela que faltava: o que exatamente vai acontecer com a base, ANTES de
+ * acontecer.
+ *
+ * Quando o período do arquivo já tem dados, oferece "Substituir somente este
+ * período" — e só esse. Não existe, em nenhum lugar desta tela, a opção de
+ * apagar o histórico completo.
+ */
+function ConfirmPanel({
+  pending,
+  running,
+  onApply
+}: {
+  pending: PendingImport;
+  running: boolean;
+  onApply: (mode: PcFactoryImportMode) => void;
+}) {
+  const { preview } = pending;
+  const { period } = preview;
+  const hasConflict = preview.existingInPeriod > 0;
+  const monthLabel = describeMonths(period.months);
+
+  return (
+    <div className="mt-4 space-y-3 rounded-lg border border-gold/30 bg-black/30 p-3">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-gold">Confirmação da importação</p>
+
+      <dl className="grid gap-1.5 text-[12px]">
+        <Row label="Arquivo" value={preview.fileName} />
+        <Row
+          label="Período detectado"
+          value={
+            period.start && period.end
+              ? `${formatPeriod(period.start)} a ${formatPeriod(period.end)}${monthLabel ? ` (${monthLabel})` : ""}`
+              : "não identificado — nenhuma linha tem data de início"
+          }
+        />
+        <Row label="Linhas válidas" value={preview.validRows.toLocaleString("pt-BR")} />
+        <Row label="Novos registros" value={preview.newRecords.toLocaleString("pt-BR")} />
+        <Row label="Registros já existentes" value={preview.duplicateRecords.toLocaleString("pt-BR")} />
+        <Row
+          label="Histórico anterior"
+          value={hasConflict ? "PRESERVADO fora deste período" : "SERÁ PRESERVADO"}
+        />
+      </dl>
+
+      {preview.spansMultipleMonths ? (
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] leading-snug text-amber-200/90">
+          <strong className="font-semibold">Este arquivo cobre {period.months.length} meses</strong> (
+          {period.months.join(", ")}) — é uma base acumulada, não o recorte de um mês. Substituir apagaria{" "}
+          <strong>todos</strong> esses meses antes de reinserir. Na dúvida, use “Adicionar ao histórico”: ele
+          completa o que falta sem remover nada.
+        </p>
+      ) : null}
+
+      {hasConflict ? (
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] leading-snug text-amber-200/90">
+          <strong className="font-semibold">Já existem dados para este período:</strong>{" "}
+          {preview.existingInPeriod.toLocaleString("pt-BR")} registro(s). “Adicionar” insere apenas o que ainda não
+          existe. “Substituir somente este período” remove{" "}
+          {preview.replacementStart && preview.replacementEnd ? (
+            <>
+              os registros de <strong>{formatPeriod(preview.replacementStart)}</strong> a{" "}
+              <strong>{formatPeriod(preview.replacementEnd)}</strong> (mês civil completo)
+            </>
+          ) : (
+            "os registros da janela do arquivo"
+          )}{" "}
+          e grava a versão do arquivo — útil quando o mês foi importado errado. Os demais meses não são tocados em
+          nenhum dos dois casos.
+        </p>
+      ) : null}
+
+      {period.rowsWithoutDate > 0 ? (
+        <p className="text-[11px] leading-snug text-zinc-400">
+          {period.rowsWithoutDate.toLocaleString("pt-BR")} linha(s) sem data de início: não pertencem a nenhum mês,
+          então ficam fora da substituição por período e entram pela deduplicação.
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap justify-end gap-2 pt-1">
+        <button
+          type="button"
+          onClick={() => onApply("INCREMENTAL")}
+          disabled={running}
+          className={modalPrimaryButtonClass}
+        >
+          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+          {period.months.length === 1 ? `Adicionar ${monthLabel}` : "Adicionar ao histórico"}
+        </button>
+        {hasConflict ? (
+          <button
+            type="button"
+            onClick={() => onApply("REPLACE_PERIOD")}
+            disabled={running || !period.start}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-danger/50 bg-danger/10 px-4 text-sm font-bold text-rose-200 transition hover:bg-danger/20 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Substituir somente este período
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2">
+      <dt className="text-zinc-500">{label}:</dt>
+      <dd className="font-semibold text-champagne">{value}</dd>
+    </div>
+  );
+}
+
+/** ["2026-09"] → "set/2026"; vários meses → "set/2026 a nov/2026". */
+function describeMonths(months: string[]): string {
+  if (months.length === 0) return "";
+  const label = (key: string) => {
+    const [year, month] = key.split("-").map(Number);
+    if (!year || !month) return key;
+    const name = new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("pt-BR", {
+      month: "short",
+      timeZone: "UTC"
+    });
+    return `${name.replace(".", "")}/${year}`;
+  };
+  return months.length === 1 ? label(months[0]) : `${label(months[0])} a ${label(months[months.length - 1])}`;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -608,6 +843,8 @@ async function importDirect(file: File): Promise<ImportSummary> {
 
   const legacy = call.data as {
     importedRows?: number;
+    createdRows?: number;
+    updatedRows?: number;
     replacedRows?: number;
     totalRows?: number;
     ignoredRows?: number;
@@ -631,8 +868,13 @@ async function importDirect(file: File): Promise<ImportSummary> {
   };
 
   return {
-    appliedRows: legacy.importedRows ?? 0,
+    // `createdRows` é o que realmente entrou; `updatedRows` são eventos que já
+    // existiam e foram regravados pela mesma fingerprint (reimportação).
+    appliedRows: legacy.createdRows ?? legacy.importedRows ?? 0,
+    // O caminho direto também é incremental: nunca remove histórico.
     replacedRows: legacy.replacedRows ?? 0,
+    duplicateRows: legacy.updatedRows ?? 0,
+    mode: "INCREMENTAL",
     fileSizeBytes: file.size,
     viaStorage: false,
     audit: {

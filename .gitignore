@@ -71,3 +71,6 @@ yarn-error.log*
 
 # Relatorios gerados pelo teste de aderencia (npm run test:adherence)
 /scripts/out/
+
+# Dumps locais da base (nunca versionados)
+.backups/
