@@ -61,14 +61,20 @@ import type {
   EquipmentHoursByResponsible,
   FamilyDrilldownOrders,
   FamilyDrilldownResponse,
-  FamilyDrilldownSelection,
+  CriticalEquipmentScopedData,
+  CriticalEquipmentSelection,
   TrendDirection
 } from "@/types/critical-equipments";
 import {
   DRILLDOWN_ORDERS_LIMIT,
   buildFamilyDrilldown,
-  buildFamilyEvolution
+  buildFamilyEvolution,
+  buildSelectionContext,
+  filterRowsBySelection,
+  isSelectionActive,
+  type FamilyDrilldownComputation
 } from "@/services/critical-equipment-evolution.service";
+import { EMPTY_SELECTION } from "@/utils/critical-equipment-selection";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
 import { GOLD, SEMANTIC } from "@/constants/theme";
 
@@ -289,16 +295,18 @@ export async function getCriticalEquipmentsTrend(
 
 export async function getCriticalEquipmentDetails(
   equipmentId: string,
-  params: Partial<CriticalEquipmentFilters> = {}
+  params: Partial<CriticalEquipmentFilters> = {},
+  selection: CriticalEquipmentSelection = EMPTY_SELECTION
 ): Promise<CriticalEquipmentDetails | null> {
-  const [rows, lookup] = await Promise.all([fetchRowsFull(params), loadFunctionalLocationLookup()]);
+  const [allRows, lookup] = await Promise.all([fetchRowsFull(params), loadFunctionalLocationLookup()]);
+  // Mesmo recorte da página (filtros gerais ∩ seleção da análise).
+  const { scopedRows: rows, items } = buildCriticalEquipmentScope(allRows, params, lookup, selection);
   const groupRows = rows.filter((row) => resolveRootKey(row, lookup) === equipmentId);
 
   if (!groupRows.length) {
     return null;
   }
 
-  const items = analyzeEquipments(rows, params, lookup);
   const item = items.find((current) => current.id === equipmentId);
 
   if (!item) {
@@ -331,9 +339,12 @@ export async function getCriticalEquipmentDetails(
  */
 export async function getEquipmentHoursByResponsible(
   equipmentId: string,
-  params: Partial<CriticalEquipmentFilters> = {}
+  params: Partial<CriticalEquipmentFilters> = {},
+  selection: CriticalEquipmentSelection = EMPTY_SELECTION
 ): Promise<EquipmentHoursByResponsible | null> {
-  const [rows, lookup] = await Promise.all([fetchRows(params), loadFunctionalLocationLookup()]);
+  const [allRows, lookup] = await Promise.all([fetchRows(params), loadFunctionalLocationLookup()]);
+  // Mesmo recorte da barra clicada no gráfico de horas.
+  const { scopedRows: rows } = buildCriticalEquipmentScope(allRows, params, lookup, selection);
   const groupRows = rows.filter((row) => resolveRootKey(row, lookup) === equipmentId);
 
   if (!groupRows.length) {
@@ -460,24 +471,119 @@ function toServiceOrderDto(row: ServiceOrderFullRow): CriticalEquipmentServiceOr
   };
 }
 
-/**
- * DRILL-DOWN da evolução por família: FAMÍLIA → MÊS → MÁQUINA → REPARTIMENTO → OS.
- *
- * Mesmo recorte da página (período, filtros de OS e filtros de equipamento), com
- * UMA leitura leve das OS + o cadastro de locais, agregados em memória; a leitura
- * dos campos completos só acontece para as OS do nível final, por ID. Nada de uma
- * consulta por família/máquina, e o browser recebe só o nível pedido.
- */
-export async function getCriticalEquipmentFamilyDrilldown(
-  selection: FamilyDrilldownSelection,
-  params: Partial<CriticalEquipmentFilters> = {}
-): Promise<FamilyDrilldownResponse> {
-  const period = await resolvePeriod(params);
-  const effective: Partial<CriticalEquipmentFilters> = { ...params, startDate: period.startDate, endDate: period.endDate };
-  const [rows, lookup] = await Promise.all([fetchRows(effective), loadFunctionalLocationLookup()]);
-  const items = analyzeEquipments(rows, effective, lookup);
-  const computed = buildFamilyDrilldown(rows, items, lookup, selection, period);
+/* ------------------------------------------------------------------ */
+/* Recorte único da página (filtros gerais ∩ seleção da análise)      */
+/* ------------------------------------------------------------------ */
 
+/**
+ * Filtros de EQUIPAMENTO desligados: valem só na análise da frota (que decide
+ * quais máquinas entram); a análise do recorte roda sobre OS já filtradas.
+ */
+const EQUIPMENT_FILTERS_OFF: Partial<CriticalEquipmentFilters> = {
+  families: [],
+  costCenters: [],
+  sectors: [],
+  onlyOpenOrders: false,
+  onlyWithWorkedHours: false,
+  onlyRecurrent: false,
+  onlyCritical: false
+};
+
+/**
+ * `buildCriticalEquipmentScope` — o "where" da página inteira.
+ *
+ *  1. FROTA: `analyzeEquipments` sobre as OS dos filtros gerais. Decide quais
+ *     máquinas entram (filtros de família/setor/CC/abertas/reincidentes/críticos)
+ *     e calcula o score de criticidade — regra inalterada, relativa à frota.
+ *  2. RECORTE: `filterRowsBySelection` (família → mês → máquina → repartimento).
+ *  3. EQUIPAMENTOS DO RECORTE: volumes recalculados sobre as OS do recorte, com o
+ *     score/situação herdados da frota (o score não muda por causa do clique).
+ *
+ * KPIs, ranking, horas, status, grupo, tipo, corretivas x planejadas, tabela,
+ * drill-down, detalhe e horas por responsável saem TODOS de `scopedRows`.
+ */
+function buildCriticalEquipmentScope<Row extends ServiceOrderRow>(
+  rows: Row[],
+  params: Partial<CriticalEquipmentFilters>,
+  lookup: Map<string, FunctionalLocationLite>,
+  selection: CriticalEquipmentSelection
+): { fleetItems: CriticalEquipmentItem[]; scopedRows: Row[]; items: CriticalEquipmentItem[] } {
+  const fleetItems = analyzeEquipments(rows, params, lookup);
+  const scopedRows = filterRowsBySelection(rows, fleetItems, lookup, selection);
+  const fleetById = new Map(fleetItems.map((item) => [item.id, item]));
+  const items = analyzeEquipments(scopedRows, { ...params, ...EQUIPMENT_FILTERS_OFF }, lookup).map((item) => {
+    const fleet = fleetById.get(item.id);
+    return fleet ? { ...item, criticalityScore: fleet.criticalityScore, criticalityLabel: fleet.criticalityLabel } : item;
+  });
+  return { fleetItems, scopedRows, items };
+}
+
+/** Monta tudo o que depende da seleção — mesmo builder para a página e para a API. */
+async function buildScopedDashboard(input: {
+  rows: ServiceOrderRow[];
+  lookup: Map<string, FunctionalLocationLite>;
+  params: Partial<CriticalEquipmentFilters>;
+  period: { startDate: string; endDate: string };
+  selection: CriticalEquipmentSelection;
+  rawOrders: number;
+  ignoredInvalidEquipment: number;
+}): Promise<{ scoped: CriticalEquipmentScopedData; fleetItems: CriticalEquipmentItem[] }> {
+  const { rows, lookup, params, period, selection } = input;
+  const { fleetItems, scopedRows, items } = buildCriticalEquipmentScope(rows, params, lookup, selection);
+  const limit = normalizeLimit(params.limit);
+
+  const hours: CriticalEquipmentHoursPoint[] = [...items]
+    .filter((item) => item.totalWorkedHours > 0)
+    .sort((a, b) => b.totalWorkedHours - a.totalWorkedHours)
+    .slice(0, limit)
+    .map((item) => ({
+      id: item.id,
+      equipmentName: item.equipmentName,
+      equipmentCode: item.equipmentCode,
+      totalWorkedHours: item.totalWorkedHours
+    }));
+
+  const drilldown = selection.family
+    ? await resolveDrilldown(
+        buildFamilyDrilldown(
+          rows,
+          fleetItems,
+          lookup,
+          { family: selection.family, month: selection.month, machine: selection.machine, component: selection.partition },
+          period
+        ),
+        period
+      )
+    : null;
+
+  return {
+    fleetItems,
+    scoped: {
+      selection,
+      context: buildSelectionContext(selection, fleetItems, lookup, scopedRows.length),
+      summary: buildSummary(
+        items,
+        scopedRows,
+        input.rawOrders,
+        scopedRows.filter((row) => isProgrammedPreventiveOrder(row)).length,
+        input.ignoredInvalidEquipment
+      ),
+      ranking: items.slice(0, limit),
+      hours,
+      statusDistribution: buildStatusDistribution(scopedRows),
+      planningGroupDistribution: buildPlanningGroupDistribution(scopedRows),
+      activityDistribution: buildActivityDistribution(scopedRows),
+      correctivePlanned: buildCorrectivePlanned(scopedRows),
+      drilldown
+    }
+  };
+}
+
+/** Completa o drill-down com os campos das OS do nível final (lidas por ID). */
+async function resolveDrilldown(
+  computed: FamilyDrilldownComputation,
+  period: { startDate: string; endDate: string }
+): Promise<FamilyDrilldownResponse> {
   let orders: FamilyDrilldownOrders | null = null;
   if (computed.orders) {
     const ids = computed.orders.ids.slice(0, DRILLDOWN_ORDERS_LIMIT);
@@ -506,12 +612,51 @@ export async function getCriticalEquipmentFamilyDrilldown(
   };
 }
 
+/** OS dos filtros gerais: período + filtros SQL, sem "equipamento não informado", recorte de planejamento. */
+async function loadScopeRows(effective: Partial<CriticalEquipmentFilters>) {
+  const rawRows = await fetchRowsRaw(effective);
+  const validEquipmentRows = rawRows.filter((row) => !isInvalidTestEquipmentOrder(row));
+  return {
+    rawRows,
+    validEquipmentRows,
+    rows: applyPlanningFilters(validEquipmentRows, effective)
+  };
+}
+
 /**
- * Busca os dados completos da página em uma única consulta ao banco.
- * Toda a agregação é feita aqui (não no componente).
+ * API da seleção: devolve de UMA vez tudo o que muda com família/mês/máquina/
+ * repartimento. Duas consultas (OS + cadastro de locais) e, só no nível de OS,
+ * uma leitura por ID — em vez de uma consulta por gráfico.
+ */
+export async function getCriticalEquipmentDashboardData(
+  selection: CriticalEquipmentSelection,
+  params: Partial<CriticalEquipmentFilters> = {}
+): Promise<CriticalEquipmentScopedData> {
+  const period = await resolvePeriod(params);
+  const effective: Partial<CriticalEquipmentFilters> = { ...params, startDate: period.startDate, endDate: period.endDate };
+  const [{ rawRows, validEquipmentRows, rows }, lookup] = await Promise.all([
+    loadScopeRows(effective),
+    loadFunctionalLocationLookup()
+  ]);
+  const { scoped } = await buildScopedDashboard({
+    rows,
+    lookup,
+    params: effective,
+    period,
+    selection,
+    rawOrders: rawRows.length,
+    ignoredInvalidEquipment: rawRows.length - validEquipmentRows.length
+  });
+  return scoped;
+}
+
+/**
+ * Dados completos da página. Toda a agregação é feita aqui (não no componente).
+ * `selection` vem da URL: um link compartilhado abre a página já recortada.
  */
 export async function getCriticalEquipmentsPageData(
-  params: Partial<CriticalEquipmentFilters> = {}
+  params: Partial<CriticalEquipmentFilters> = {},
+  selection: CriticalEquipmentSelection = EMPTY_SELECTION
 ): Promise<CriticalEquipmentsPageData> {
   const period = await resolvePeriod(params);
   const effective: Partial<CriticalEquipmentFilters> = {
@@ -521,22 +666,18 @@ export async function getCriticalEquipmentsPageData(
   };
 
   try {
-    const [rawRows, filterOptions, lookup] = await Promise.all([
-      fetchRowsRaw(effective),
-      loadFilterOptions(effective),
-      loadFunctionalLocationLookup()
+    // O cadastro de locais é lido UMA vez e compartilhado com as opções de filtro.
+    const lookupPromise = loadFunctionalLocationLookup();
+    const [{ rawRows, validEquipmentRows, rows }, filterOptions, lookup] = await Promise.all([
+      loadScopeRows(effective),
+      loadFilterOptions(effective, lookupPromise),
+      lookupPromise
     ]);
 
-    // Passo 2: única exclusão automática — registros sem equipamento
-    // ("Equipamento não informado"), regra oficial mantida (TAREFA 12).
-    const validEquipmentRows = rawRows.filter((row) => !isInvalidTestEquipmentOrder(row));
+    // "Equipamento não informado" = ignorar (regra oficial, TAREFA 12). O recorte de
+    // planejamento (grupo, tipo, corretiva/planejada) é ESCOLHA do usuário.
     const ignoredInvalidEquipment = rawRows.length - validEquipmentRows.length;
-
-    // Passo 3: recorte de planejamento ESCOLHIDO PELO USUÁRIO (grupo, tipo de
-    // atividade e corretiva/planejada). PL/PV não são mais excluídas de ofício.
-    const rows = applyPlanningFilters(validEquipmentRows, effective);
     const ignoredByPlanningFilters = validEquipmentRows.length - rows.length;
-    // Contagem informativa de PL/PV dentro do recorte atual (não é exclusão).
     const programmedPreventiveOrders = rows.filter((row) => isProgrammedPreventiveOrder(row)).length;
 
     // Auditoria: com "Todas as ordens" e mesmo período, `rows.length` deve bater
@@ -548,32 +689,20 @@ export async function getCriticalEquipmentsPageData(
       );
     }
 
-    const items = analyzeEquipments(rows, effective, lookup);
-    const limit = normalizeLimit(params.limit);
-    const ranking = items.slice(0, limit);
-
-    const hours: CriticalEquipmentHoursPoint[] = [...items]
-      .filter((item) => item.totalWorkedHours > 0)
-      .sort((a, b) => b.totalWorkedHours - a.totalWorkedHours)
-      .slice(0, limit)
-      .map((item) => ({
-        id: item.id,
-        equipmentName: item.equipmentName,
-        equipmentCode: item.equipmentCode,
-        totalWorkedHours: item.totalWorkedHours
-      }));
-
-    const summary = buildSummary(
-      items,
+    const { scoped, fleetItems } = await buildScopedDashboard({
       rows,
-      rawRows.length,
-      programmedPreventiveOrders,
+      lookup,
+      params: effective,
+      period,
+      selection,
+      rawOrders: rawRows.length,
       ignoredInvalidEquipment
-    );
+    });
 
     const fieldAvailability = await loadFieldAvailability();
 
     return {
+      ...scoped,
       dataQuality: await buildCriticalEquipmentDataQuality(
         rawRows.length,
         rows.length,
@@ -582,14 +711,17 @@ export async function getCriticalEquipmentsPageData(
         filterOptions
       ),
       period,
-      summary,
-      ranking,
-      hours,
-      statusDistribution: buildStatusDistribution(rows),
-      familyEvolution: buildFamilyEvolution(rows, items, lookup, period),
-      planningGroupDistribution: buildPlanningGroupDistribution(rows),
-      activityDistribution: buildActivityDistribution(rows),
-      correctivePlanned: buildCorrectivePlanned(rows),
+      audit: {
+        rawOrders: rawRows.length,
+        ignoredInvalidEquipment,
+        consideredOrders: rows.length,
+        programmedPreventiveOrders,
+        ordersWithoutTechnicalCode: fleetItems
+          .filter((item) => item.dataQualityIssue)
+          .reduce((sum, item) => sum + item.totalOrders, 0)
+      },
+      // Contexto da seleção: o gráfico de evolução NÃO é recortado pela seleção.
+      familyEvolution: buildFamilyEvolution(rows, fleetItems, lookup, period),
       // Disponibilidade medida na BASE INTEIRA (não no recorte), para o aviso da
       // TAREFA 15 não piscar só porque o filtro atual ficou vazio.
       fieldAvailability,
@@ -598,7 +730,7 @@ export async function getCriticalEquipmentsPageData(
     };
   } catch (error) {
     console.error("Falha ao carregar análise de equipamentos críticos.", error);
-    return emptyPageData(period);
+    return emptyPageData(period, selection);
   }
 }
 
@@ -1511,7 +1643,8 @@ async function loadFunctionalLocationLookup(): Promise<Map<string, FunctionalLoc
  * em vez de virarem três seletores sem opção.
  */
 async function loadFilterOptions(
-  params: Partial<CriticalEquipmentFilters> = {}
+  params: Partial<CriticalEquipmentFilters> = {},
+  lookupSource: Promise<Map<string, FunctionalLocationLite>> = loadFunctionalLocationLookup()
 ): Promise<CriticalEquipmentFilterOptions> {
   try {
     const periodWhere: Prisma.ServiceOrderWhereInput =
@@ -1526,7 +1659,7 @@ async function loadFilterOptions(
 
     const [options, lookup, codes] = await Promise.all([
       getServiceOrderFilterOptions({ startDate: params.startDate, endDate: params.endDate }),
-      loadFunctionalLocationLookup(),
+      lookupSource,
       prisma.serviceOrder.findMany({
         where: { AND: [excludeInvalidTestEquipmentWhere(), periodWhere] },
         select: { equipmentCode: true, equipmentName: true, technicalObjectRaw: true },
@@ -1603,9 +1736,22 @@ async function resolvePeriod(
   return { startDate: params.startDate ?? today, endDate: params.endDate ?? today };
 }
 
-function emptyPageData(period: { startDate: string; endDate: string }): CriticalEquipmentsPageData {
+function emptyPageData(
+  period: { startDate: string; endDate: string },
+  selection: CriticalEquipmentSelection = EMPTY_SELECTION
+): CriticalEquipmentsPageData {
   return {
     period,
+    selection,
+    context: { active: isSelectionActive(selection), path: [], label: "", totalOrders: 0 },
+    drilldown: null,
+    audit: {
+      rawOrders: 0,
+      ignoredInvalidEquipment: 0,
+      consideredOrders: 0,
+      programmedPreventiveOrders: 0,
+      ordersWithoutTechnicalCode: 0
+    },
     summary: {
       totalEquipmentsAnalyzed: 0,
       totalOrdersInPeriod: 0,

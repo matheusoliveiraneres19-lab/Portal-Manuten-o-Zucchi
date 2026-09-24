@@ -2,10 +2,17 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
+import {
+  SCOPED_EMPTY_DESCRIPTION,
+  SCOPED_EMPTY_TITLE,
+  ScopeCaption
+} from "@/components/critical-equipments/ScopeCaption";
 import type { CriticalEquipmentPlanningGroupSlice } from "@/types/critical-equipments";
 
 type CriticalEquipmentPlanningGroupChartProps = {
   slices: CriticalEquipmentPlanningGroupSlice[];
+  /** Recorte ativo (família/máquina/repartimento · mês) exibido sob o título. */
+  scopeLabel?: string | null;
 };
 
 /**
@@ -13,7 +20,7 @@ type CriticalEquipmentPlanningGroupChartProps = {
  * Serviço Terceiro, Lubrificação, Usinagem e Outros. Os grupos chegam do service
  * já normalizados e na ordem oficial; aqui só há apresentação.
  */
-export function CriticalEquipmentPlanningGroupChart({ slices }: CriticalEquipmentPlanningGroupChartProps) {
+export function CriticalEquipmentPlanningGroupChart({ slices, scopeLabel }: CriticalEquipmentPlanningGroupChartProps) {
   const data = slices.map((slice) => ({
     name: slice.label,
     value: slice.totalOrders,
@@ -29,14 +36,15 @@ export function CriticalEquipmentPlanningGroupChart({ slices }: CriticalEquipmen
       <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
         Ordens por Grupo de Planejamento
       </h3>
+      <ScopeCaption label={scopeLabel} />
       <p className="mb-3 text-[11px] text-zinc-500">
         Volume de ordens por equipe responsável pelo planejamento da manutenção.
       </p>
 
       {data.length === 0 ? (
         <EmptyState
-          title="Sem grupos de planejamento no período"
-          description="Ajuste os filtros para visualizar a distribuição por grupo."
+          title={scopeLabel ? SCOPED_EMPTY_TITLE : "Sem grupos de planejamento no período"}
+          description={scopeLabel ? SCOPED_EMPTY_DESCRIPTION : "Ajuste os filtros para visualizar a distribuição por grupo."}
         />
       ) : (
         <div className="h-[280px] w-full">

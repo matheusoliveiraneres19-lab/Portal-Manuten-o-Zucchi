@@ -1,18 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Check, ChevronDown, Search, Table2 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
-import { CriticalEquipmentFamilyDrilldown } from "@/components/critical-equipments/CriticalEquipmentFamilyDrilldown";
-import type {
-  FamilyDrilldownResponse,
-  FamilyDrilldownSelection,
-  FamilyEvolutionData,
-  FamilyEvolutionMetric,
-  FamilyEvolutionSeries
-} from "@/types/critical-equipments";
+import type { FamilyEvolutionData, FamilyEvolutionMetric, FamilyEvolutionSeries } from "@/types/critical-equipments";
 import { CHART_CHROME } from "@/constants/theme";
 import { formatMonthLong } from "@/services/critical-equipment-evolution.service";
 
@@ -36,49 +28,34 @@ export const FAMILY_PALETTE = [
 export const FAMILY_CONTEXT_COLOR = "#B8AF9F";
 
 const DEFAULT_VISIBLE = 5;
+
+/** Família/mês destacados — vêm do estado único da página. */
+type ChartSelection = { family: string | null; month: string | null };
+
 type Props = {
   data: FamilyEvolutionData;
-  /** Query string dos filtros aplicados na página (mesmo recorte no drill-down). */
-  filterQuery: string;
-  /** Card que divide a linha com o gráfico no desktop (renderizado entre o gráfico e o painel). */
-  side?: ReactNode;
+  selection: ChartSelection;
+  /** Clique num ponto/célula (mês) ou na legenda (período inteiro, `month = null`). */
+  onSelect: (family: string, month: string | null) => void;
 };
 
-export function CriticalEquipmentFamilyEvolutionChart({ data, filterQuery, side }: Props) {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
+/**
+ * Gráfico de CONTEXTO: não é recortado pela seleção (senão a linha clicada viraria a
+ * única do gráfico). Ele só DEFINE família/mês no estado da página, que recorta os
+ * dashboards abaixo.
+ */
+export function CriticalEquipmentFamilyEvolutionChart({ data, selection, onSelect }: Props) {
   const [metric, setMetric] = useState<FamilyEvolutionMetric>("orders");
   const familyNames = useMemo(() => data.families.map((family) => family.family), [data.families]);
 
-  // Seleção inicial vinda da URL (link compartilhado reabre a mesma análise).
-  const initialSelection = useMemo<FamilyDrilldownSelection | null>(() => {
-    const family = searchParams.get("family");
-    if (!family || !familyNames.includes(family)) {
-      return null;
-    }
-    return {
-      family,
-      month: searchParams.get("month"),
-      machine: searchParams.get("machine"),
-      component: searchParams.get("rep")
-    };
-    // Só no carregamento: depois disso a URL é espelho do estado, não fonte.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const [visible, setVisible] = useState<string[]>(() => {
     const top = familyNames.slice(0, DEFAULT_VISIBLE);
-    return initialSelection && !top.includes(initialSelection.family) ? [...top, initialSelection.family] : top;
+    return selection.family && familyNames.includes(selection.family) && !top.includes(selection.family)
+      ? [...top, selection.family]
+      : top;
   });
   const [slots, setSlots] = useState<Record<string, number>>(() => assignSlots({}, visible));
-  const [selection, setSelection] = useState<FamilyDrilldownSelection | null>(initialSelection);
-  const [drilldown, setDrilldown] = useState<FamilyDrilldownResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const requestRef = useRef(0);
   const hoverIndexRef = useRef<number | null>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   // Filtros novos da página: o conjunto de famílias pode mudar — mantém as exibidas que sobreviveram.
   useEffect(() => {
@@ -87,6 +64,14 @@ export function CriticalEquipmentFamilyEvolutionChart({ data, filterQuery, side 
       return kept.length ? kept : familyNames.slice(0, DEFAULT_VISIBLE);
     });
   }, [familyNames]);
+
+  // Família selecionada fora das exibidas (ex.: via ranking) entra no gráfico.
+  useEffect(() => {
+    const family = selection.family;
+    if (family && familyNames.includes(family)) {
+      setVisible((current) => (current.includes(family) ? current : [...current, family]));
+    }
+  }, [selection.family, familyNames]);
 
   useEffect(() => {
     setSlots((current) => assignSlots(current, visible));
@@ -102,59 +87,9 @@ export function CriticalEquipmentFamilyEvolutionChart({ data, filterQuery, side 
     return slot === undefined ? FAMILY_CONTEXT_COLOR : FAMILY_PALETTE[slot];
   };
 
-  // Busca do drill-down sempre que a seleção muda (só o nível pedido).
-  useEffect(() => {
-    syncUrl(pathname, selection);
-    if (!selection) {
-      setDrilldown(null);
-      setError(null);
-      return;
-    }
-    const requestId = requestRef.current + 1;
-    requestRef.current = requestId;
-    setLoading(true);
-    setError(null);
-
-    const params = new URLSearchParams(filterQuery);
-    params.set("family", selection.family);
-    if (selection.month) params.set("month", selection.month);
-    if (selection.machine) params.set("machine", selection.machine);
-    if (selection.component) params.set("component", selection.component);
-
-    fetch(`/api/critical-equipments/drilldown?${params.toString()}`)
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error("request failed");
-        }
-        return (await response.json()) as FamilyDrilldownResponse;
-      })
-      .then((result) => {
-        if (requestRef.current === requestId) {
-          setDrilldown(result);
-        }
-      })
-      .catch(() => {
-        if (requestRef.current === requestId) {
-          setError("Não foi possível carregar o detalhamento desta família.");
-        }
-      })
-      .finally(() => {
-        if (requestRef.current === requestId) {
-          setLoading(false);
-        }
-      });
-  }, [selection, filterQuery, pathname]);
-
-  function select(next: FamilyDrilldownSelection | null, scroll = false) {
-    setSelection(next);
-    if (next && scroll) {
-      requestAnimationFrame(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
-    }
-  }
-
   function selectPoint(family: string, monthIndex: number | null) {
     const month = monthIndex !== null ? data.months[monthIndex]?.period ?? null : null;
-    select({ family, month, machine: null, component: null }, true);
+    onSelect(family, month);
   }
 
   const chartRows = useMemo(
@@ -170,146 +105,116 @@ export function CriticalEquipmentFamilyEvolutionChart({ data, filterQuery, side 
     [data.months, visible, seriesByFamily, metric]
   );
 
-  const selectedMonthLabel = selection?.month
+  const selectedMonthLabel = selection.month
     ? data.months.find((month) => month.period === selection.month)?.label
     : undefined;
 
   const unit = metric === "orders" ? "OS" : "h";
 
   return (
-    <>
-      <article className="panel rounded-lg p-4 xl:col-span-8">
-        <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
-              Evolução mensal de ordens por família
-            </h3>
-            <p className="text-[11px] text-zinc-500">
-              Clique em uma família para identificar máquinas e repartimentos com maior concentração de OS.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <MetricToggle metric={metric} onChange={setMetric} />
-            <FamilyPicker
-              families={data.families}
-              visible={visible}
-              onChange={setVisible}
-              colorOf={colorOf}
-            />
-          </div>
+    <article className="panel rounded-lg p-4 xl:col-span-12">
+      <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
+            Evolução mensal de ordens por família
+          </h3>
+          <p className="text-[11px] text-zinc-500">
+            Clique em uma família ou num ponto do mês para recortar toda a análise abaixo.
+          </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <MetricToggle metric={metric} onChange={setMetric} />
+          <FamilyPicker families={data.families} visible={visible} onChange={setVisible} colorOf={colorOf} />
+        </div>
+      </div>
 
-        {data.families.length === 0 || data.months.length === 0 ? (
-          <EmptyState
-            title="Sem ordens no período"
-            description="Ajuste o período ou os filtros para visualizar a evolução por família."
+      {data.families.length === 0 || data.months.length === 0 ? (
+        <EmptyState
+          title="Sem ordens no período"
+          description="Ajuste o período ou os filtros para visualizar a evolução por família."
+        />
+      ) : (
+        <>
+          <FamilyLegend
+            visible={visible}
+            seriesByFamily={seriesByFamily}
+            colorOf={colorOf}
+            selectedFamily={selection.family}
+            onSelect={(family) => onSelect(family, null)}
           />
-        ) : (
-          <>
-            <FamilyLegend
-              visible={visible}
-              seriesByFamily={seriesByFamily}
-              colorOf={colorOf}
-              selectedFamily={selection?.family ?? null}
-              onSelect={(family) => select({ family, month: null, machine: null, component: null }, true)}
-            />
 
-            <div className="h-[260px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={chartRows}
-                  margin={{ left: 4, right: 16, top: 8, bottom: 4 }}
-                  onMouseMove={(state) => {
-                    hoverIndexRef.current =
-                      typeof state?.activeTooltipIndex === "number" ? state.activeTooltipIndex : null;
-                  }}
-                  onClick={(state) => {
-                    // Clique fora de um ponto: só é inequívoco com uma única família na tela.
-                    if (visible.length === 1 && typeof state?.activeTooltipIndex === "number") {
-                      selectPoint(visible[0], state.activeTooltipIndex);
-                    }
-                  }}
-                >
-                  <CartesianGrid stroke={CHART_CHROME.onLight.grid} strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: CHART_CHROME.onLight.axis }} />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: CHART_CHROME.onLight.axis }}
-                    allowDecimals={metric === "hours"}
-                    width={44}
-                  />
-                  {selectedMonthLabel ? (
-                    <ReferenceLine x={selectedMonthLabel} stroke={CHART_CHROME.onLight.label} strokeDasharray="4 3" />
-                  ) : null}
-                  <Tooltip
-                    content={
-                      <EvolutionTooltip
-                        data={data}
-                        visible={visible}
-                        metric={metric}
-                        colorOf={colorOf}
-                      />
-                    }
-                    cursor={{ stroke: CHART_CHROME.onLight.grid, strokeWidth: 1 }}
-                  />
-                  {visible.map((family) => {
-                    const color = colorOf(family);
-                    const isSelected = selection?.family === family;
-                    const isContext = color === FAMILY_CONTEXT_COLOR;
-                    return (
-                      <Line
-                        key={family}
-                        type="monotone"
-                        // Função, não string: nome de família com "." viraria caminho no lodash.get do Recharts.
-                        dataKey={(row: Record<string, number>) => row[family]}
-                        name={family}
-                        stroke={color}
-                        strokeWidth={isSelected ? 3 : isContext ? 1.25 : 2}
-                        strokeOpacity={selection && !isSelected ? 0.55 : 1}
-                        dot={{ r: 3, strokeWidth: 0, fill: color }}
-                        activeDot={{
-                          r: 7,
-                          stroke: "#fff",
-                          strokeWidth: 2,
-                          cursor: "pointer",
-                          onClick: () => selectPoint(family, hoverIndexRef.current)
-                        }}
-                        isAnimationActive={false}
-                      />
-                    );
-                  })}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+          <div className="h-[260px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={chartRows}
+                margin={{ left: 4, right: 16, top: 8, bottom: 4 }}
+                onMouseMove={(state) => {
+                  hoverIndexRef.current =
+                    typeof state?.activeTooltipIndex === "number" ? state.activeTooltipIndex : null;
+                }}
+                onClick={(state) => {
+                  // Clique fora de um ponto: só é inequívoco com uma única família na tela.
+                  if (visible.length === 1 && typeof state?.activeTooltipIndex === "number") {
+                    selectPoint(visible[0], state.activeTooltipIndex);
+                  }
+                }}
+              >
+                <CartesianGrid stroke={CHART_CHROME.onLight.grid} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: CHART_CHROME.onLight.axis }} />
+                <YAxis
+                  tick={{ fontSize: 11, fill: CHART_CHROME.onLight.axis }}
+                  allowDecimals={metric === "hours"}
+                  width={44}
+                />
+                {selectedMonthLabel ? (
+                  <ReferenceLine x={selectedMonthLabel} stroke={CHART_CHROME.onLight.label} strokeDasharray="4 3" />
+                ) : null}
+                <Tooltip
+                  content={<EvolutionTooltip data={data} visible={visible} metric={metric} colorOf={colorOf} />}
+                  cursor={{ stroke: CHART_CHROME.onLight.grid, strokeWidth: 1 }}
+                />
+                {visible.map((family) => {
+                  const color = colorOf(family);
+                  const isSelected = selection.family === family;
+                  const isContext = color === FAMILY_CONTEXT_COLOR;
+                  return (
+                    <Line
+                      key={family}
+                      type="monotone"
+                      // Função, não string: nome de família com "." viraria caminho no lodash.get do Recharts.
+                      dataKey={(row: Record<string, number>) => row[family]}
+                      name={family}
+                      stroke={color}
+                      strokeWidth={isSelected ? 3 : isContext ? 1.25 : 2}
+                      strokeOpacity={selection.family && !isSelected ? 0.55 : 1}
+                      dot={{ r: 3, strokeWidth: 0, fill: color }}
+                      activeDot={{
+                        r: 7,
+                        stroke: "#fff",
+                        strokeWidth: 2,
+                        cursor: "pointer",
+                        onClick: () => selectPoint(family, hoverIndexRef.current)
+                      }}
+                      isAnimationActive={false}
+                    />
+                  );
+                })}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
 
-            <EvolutionTable
-              data={data}
-              visible={visible}
-              metric={metric}
-              unit={unit}
-              colorOf={colorOf}
-              selection={selection}
-              onSelect={selectPoint}
-            />
-          </>
-        )}
-      </article>
-
-      {side}
-
-      {selection ? (
-        <div ref={panelRef} className="xl:col-span-12">
-          <CriticalEquipmentFamilyDrilldown
+          <EvolutionTable
+            data={data}
+            visible={visible}
+            metric={metric}
+            unit={unit}
+            colorOf={colorOf}
             selection={selection}
-            data={drilldown}
-            loading={loading}
-            error={error}
-            accentColor={colorOf(selection.family)}
-            onChange={(next) => select(next)}
-            onClose={() => select(null)}
+            onSelect={selectPoint}
           />
-        </div>
-      ) : null}
-    </>
+        </>
+      )}
+    </article>
   );
 }
 
@@ -608,7 +513,7 @@ function EvolutionTable({
   metric: FamilyEvolutionMetric;
   unit: string;
   colorOf: (family: string) => string;
-  selection: FamilyDrilldownSelection | null;
+  selection: ChartSelection;
   onSelect: (family: string, monthIndex: number | null) => void;
 }) {
   const rows = visible
@@ -707,24 +612,6 @@ function assignSlots(previous: Record<string, number>, visible: string[]): Recor
     used.add(free);
   }
   return next;
-}
-
-/** Espelha a seleção na URL sem refazer a consulta da página (history nativo). */
-function syncUrl(pathname: string, selection: FamilyDrilldownSelection | null) {
-  if (typeof window === "undefined") return;
-  const params = new URLSearchParams(window.location.search);
-  for (const key of ["family", "month", "machine", "rep"]) params.delete(key);
-  if (selection) {
-    params.set("family", selection.family);
-    if (selection.month) params.set("month", selection.month);
-    if (selection.machine) params.set("machine", selection.machine);
-    if (selection.component) params.set("rep", selection.component);
-  }
-  const query = params.toString();
-  const url = query ? `${pathname}?${query}` : pathname;
-  if (url !== `${window.location.pathname}${window.location.search}`) {
-    window.history.replaceState(window.history.state, "", url);
-  }
 }
 
 function fmtInt(value: number): string {

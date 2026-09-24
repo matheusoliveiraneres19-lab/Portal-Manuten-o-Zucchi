@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { ChevronRight, Columns3, Minus, TableProperties, TrendingDown, TrendingUp } from "lucide-react";
 import { CriticalityScoreBadge } from "@/components/critical-equipments/CriticalityScoreBadge";
+import { SCOPED_EMPTY_DESCRIPTION, ScopeCaption } from "@/components/critical-equipments/ScopeCaption";
 import type { CriticalEquipmentItem, TrendDirection } from "@/types/critical-equipments";
 
 type CriticalEquipmentTableProps = {
   items: CriticalEquipmentItem[];
   onSelect: (id: string) => void;
+  /** Recorte ativo (família/máquina/repartimento · mês) exibido sob o título. */
+  scopeLabel?: string | null;
 };
 
 /**
@@ -18,7 +21,7 @@ type CriticalEquipmentTableProps = {
  * O resumo mostra as sete que respondem "qual equipamento e quão grave"; o botão
  * traz o resto para quem vai analisar. Nada é removido, só sai do caminho por padrão.
  */
-export function CriticalEquipmentTable({ items, onSelect }: CriticalEquipmentTableProps) {
+export function CriticalEquipmentTable({ items, onSelect, scopeLabel }: CriticalEquipmentTableProps) {
   const [showAllColumns, setShowAllColumns] = useState(false);
 
   return (
@@ -26,6 +29,7 @@ export function CriticalEquipmentTable({ items, onSelect }: CriticalEquipmentTab
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
         <div>
           <h3 className="text-sm font-semibold text-zinc-900">Ranking de equipamentos críticos</h3>
+          <ScopeCaption label={scopeLabel} />
           <p className="mt-0.5 text-xs text-zinc-500">
             Ordens somadas por equipamento raiz (ramificações incluídas). Clique para o detalhe.
           </p>
@@ -88,6 +92,13 @@ export function CriticalEquipmentTable({ items, onSelect }: CriticalEquipmentTab
               alcançável por teclado, então o detalhe do equipamento ficava fora de
               alcance para quem navega por Tab. */}
           <tbody>
+            {items.length === 0 ? (
+              <tr>
+                <td colSpan={20} className="px-3 py-6 text-center text-zinc-500">
+                  {scopeLabel ? SCOPED_EMPTY_DESCRIPTION : "Sem equipamentos no período."}
+                </td>
+              </tr>
+            ) : null}
             {items.map((item) => (
               <tr
                 key={`${item.id}-${item.position}`}

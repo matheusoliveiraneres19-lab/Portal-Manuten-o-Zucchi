@@ -2,15 +2,22 @@
 
 import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
+import {
+  SCOPED_EMPTY_DESCRIPTION,
+  SCOPED_EMPTY_TITLE,
+  ScopeCaption
+} from "@/components/critical-equipments/ScopeCaption";
 import type { CriticalEquipmentHoursPoint } from "@/types/critical-equipments";
 import { CHART_SERIES } from "@/constants/theme";
 
 type CriticalEquipmentHoursChartProps = {
   items: CriticalEquipmentHoursPoint[];
   onSelect?: (id: string) => void;
+  /** Recorte ativo (família/máquina/repartimento · mês) exibido sob o título. */
+  scopeLabel?: string | null;
 };
 
-export function CriticalEquipmentHoursChart({ items, onSelect }: CriticalEquipmentHoursChartProps) {
+export function CriticalEquipmentHoursChart({ items, onSelect, scopeLabel }: CriticalEquipmentHoursChartProps) {
   const data = items.map((item) => ({
     id: item.id,
     name: item.equipmentName,
@@ -30,14 +37,15 @@ export function CriticalEquipmentHoursChart({ items, onSelect }: CriticalEquipme
       <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
         Esforço de manutenção por equipamento
       </h3>
+      <ScopeCaption label={scopeLabel} />
       <p className="mb-3 text-[11px] text-zinc-500">
         Horas apontadas no período (H). Clique para ver os responsáveis pelas horas.
       </p>
 
       {data.length === 0 ? (
         <EmptyState
-          title="Sem horas apontadas no período"
-          description="Os equipamentos ainda não possuem horas registradas no período."
+          title={scopeLabel ? SCOPED_EMPTY_TITLE : "Sem horas apontadas no período"}
+          description={scopeLabel ? SCOPED_EMPTY_DESCRIPTION : "Os equipamentos ainda não possuem horas registradas no período."}
         />
       ) : (
         <div style={{ height }} className="w-full">

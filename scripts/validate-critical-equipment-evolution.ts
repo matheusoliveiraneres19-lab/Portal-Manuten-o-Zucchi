@@ -1,168 +1,184 @@
 /**
- * VALIDAÇÃO da "Evolução mensal de ordens por família" + drill-down
- * (aba Equipamentos Críticos).
+ * VALIDAÇÃO da análise conectada de Equipamentos Críticos
+ * (evolução por família + seleção família → mês → máquina → repartimento).
  *
  *   npm run validate:critical-evolution
  *
- * Somente leitura. Prova, com os dados reais e pelo MESMO caminho da página/API:
- *   1. Σ famílias = total de OS consideradas no recorte (sem filtros de equipamento);
- *   2. Σ meses de cada família = total da família;
- *   3. Σ máquinas = OS da família no mês (drill-down nível 1);
- *   4. Σ repartimentos (inclui "Sem repartimento informado") = OS da máquina;
- *   5. OS listadas no repartimento = número exibido;
- *   6. casos de borda: família com várias máquinas, com uma máquina, máquina com e
- *      sem hierarquia, mês com muitas OS e mês sem OS.
- * E imprime a auditoria de hierarquia (famílias, máquinas com hierarquia, cobertura).
+ * Somente leitura. Pelo MESMO caminho da página e da API, prova que:
+ *   1. o gráfico de evolução soma o total do recorte (Σ famílias = OS consideradas);
+ *   2. em cada passo da navegação (Geral → Família → Máquina → Repartimento →
+ *      voltar → limpar), KPIs, grupo de planejamento, corretivas x planejadas,
+ *      tipo de atividade, status, ranking e lista de OS usam exatamente as mesmas X OS;
+ *   3. o drill-down bate com o recorte (Σ máquinas, Σ repartimentos);
+ *   4. filtros gerais continuam valendo (interseção com a seleção);
+ *   5. seleção sem dados devolve zero — nunca o total geral;
+ *   6. quantas consultas ao banco cada operação faz.
  */
-import { prisma } from "../src/lib/prisma";
-import {
-  getCriticalEquipmentFamilyDrilldown,
-  getCriticalEquipmentsPageData
-} from "../src/services/critical-equipments.service";
-import { ALL_ORDERS_KEY, NO_COMPONENT_KEY } from "../src/services/critical-equipment-evolution.service";
-import { getRootFunctionalLocation, resolveFirstLevelChild } from "../src/utils/functional-location-hierarchy";
-import { isInvalidTestEquipmentOrder } from "../src/utils/service-order-classification";
-import type { FamilyDrilldownSelection } from "../src/types/critical-equipments";
+import { PrismaClient } from "@prisma/client";
+import type { CriticalEquipmentScopedData, CriticalEquipmentSelection } from "../src/types/critical-equipments";
+
+// Client com contador de consultas, instalado ANTES de carregar os services
+// (src/lib/prisma reaproveita `globalThis.prisma` fora de produção).
+const counted = new PrismaClient({ log: [{ emit: "event", level: "query" }] });
+let queries = 0;
+counted.$on("query", (event) => {
+  if (process.env.LOG_QUERIES) console.log("    [sql]", event.query.slice(0, 110).replace(/\s+/g, " "));
+  if (event.query.trim() !== "SELECT 1") queries += 1;
+});
+(globalThis as unknown as { prisma: PrismaClient }).prisma = counted;
 
 let failures = 0;
 function check(label: string, actual: number, expected: number) {
   const ok = actual === expected;
   if (!ok) failures += 1;
-  console.log(`${ok ? "  OK " : "  FALHA"} ${label}: ${actual} ${ok ? "=" : "≠"} ${expected}`);
+  console.log(`${ok ? "  OK   " : "  FALHA"} ${label}: ${actual} ${ok ? "=" : "≠"} ${expected}`);
 }
 
-async function auditHierarchy() {
-  const locations = await prisma.functionalLocation.findMany({
-    select: { tag: true, description: true, costCenter: true, rootTag: true, rootDescription: true, equipmentFamily: true, parentTag: true }
-  });
-  const lookup = new Map(locations.map((location) => [location.tag, location]));
-  const children = new Map<string, number>();
-  for (const location of locations) {
-    if (location.parentTag) children.set(location.parentTag, (children.get(location.parentTag) ?? 0) + 1);
-  }
+const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
 
-  const rows = (
-    await prisma.serviceOrder.findMany({ select: { equipmentCode: true, equipmentName: true, technicalObjectRaw: true, title: true } })
-  ).filter((row) => !isInvalidTestEquipmentOrder(row));
-
-  const machines = new Set<string>();
-  const machineFamily = new Map<string, string>();
-  const withComponentOrders = new Set<string>();
-  const families = new Set<string>();
-  let atRoot = 0;
-  let registered = 0;
-  let unregistered = 0;
-  let noTag = 0;
-  for (const row of rows) {
-    const root = getRootFunctionalLocation(row, lookup);
-    if (root.dataQualityIssue) {
-      noTag += 1;
-      continue;
-    }
-    machines.add(root.rootTag);
-    machineFamily.set(root.rootTag, root.familyLabel);
-    families.add(root.familyLabel);
-    if (!root.componentTag) {
-      atRoot += 1;
-      continue;
-    }
-    withComponentOrders.add(root.rootTag);
-    if (resolveFirstLevelChild(root.componentTag, root.rootTag, lookup).registered) registered += 1;
-    else unregistered += 1;
-  }
-  const withHierarchy = Array.from(machines).filter((tag) => (children.get(tag) ?? 0) > 0).length;
-  const identified = registered + unregistered;
-
-  console.log("\n== Auditoria da hierarquia (base inteira, sem filtros) ==");
-  console.log(`Locais de instalação cadastrados: ${locations.length}`);
-  console.log(`OS válidas: ${rows.length} (sem TAG estruturado: ${noTag})`);
-  console.log(`Famílias com OS: ${families.size}`);
-  console.log(`Máquinas com OS: ${machines.size} · com subdivisões cadastradas: ${withHierarchy}`);
-  console.log(
-    `OS com repartimento: ${identified} (${((identified / Math.max(1, rows.length - noTag)) * 100).toFixed(1)}%) — ` +
-      `cadastrado: ${registered}, TAG fora do cadastro: ${unregistered} · direto na máquina: ${atRoot}`
-  );
-
-  // Candidata a "máquina sem hierarquia": sem filhos cadastrados e sem OS em componente.
-  const flat = Array.from(machines).find((tag) => !children.get(tag) && !withComponentOrders.has(tag));
-  return flat ? { rootTag: flat, family: machineFamily.get(flat)! } : null;
-}
-
-async function validateSelection(selection: FamilyDrilldownSelection, expectedFamilyOrders: number, label: string) {
-  console.log(`\n-- ${label}: ${selection.family} / ${selection.month ?? "período inteiro"}`);
-  const level1 = await getCriticalEquipmentFamilyDrilldown(selection);
-  check("OS da família (drill) = valor do gráfico", level1.family.totalOrders, expectedFamilyOrders);
-  check("Σ máquinas = OS da família", level1.machines.reduce((sum, m) => sum + m.totalOrders, 0), level1.family.totalOrders);
+/** Todas as visões recortadas precisam somar exatamente X = OS do recorte. */
+function checkScope(label: string, data: CriticalEquipmentScopedData): number {
+  const x = data.context.totalOrders;
+  console.log(`\n-- ${label}: ${data.context.label || "recorte geral"} → ${x} OS`);
+  check("KPI total de ordens", data.summary.totalOrdersInPeriod, x);
+  check("Σ grupo de planejamento", sum(data.planningGroupDistribution.map((slice) => slice.totalOrders)), x);
   check(
-    "corretivas + planejadas + não classif. = OS",
-    level1.family.correctiveOrders + level1.family.plannedOrders + level1.family.unclassifiedOrders,
-    level1.family.totalOrders
+    "corretivas + planejadas (+ não classificadas)",
+    data.correctivePlanned.correctiveOrders + data.correctivePlanned.plannedOrders + data.correctivePlanned.unclassifiedOrders,
+    x
   );
-  if (!level1.machines.length) {
-    console.log("  (sem máquinas neste recorte — painel mostra estado vazio)");
-    return;
-  }
-
-  const machine = level1.machines[0];
-  const level2 = await getCriticalEquipmentFamilyDrilldown({ ...selection, machine: machine.rootTag });
-  const detail = level2.machine!;
   console.log(
-    `  máquina: ${detail.name} (${detail.rootTag}) · hierarquia: ${detail.hasHierarchy ? "sim" : "não"} · cobertura ${detail.coverage.percent}%`
+    `         corretivas ${data.correctivePlanned.correctiveOrders} · planejadas ${data.correctivePlanned.plannedOrders} · não classificadas ${data.correctivePlanned.unclassifiedOrders}`
   );
-  check("Σ repartimentos = OS da máquina", detail.components.reduce((sum, c) => sum + c.totalOrders, 0), machine.totalOrders);
-  check("identificadas + sem repartimento = OS da máquina", detail.coverage.identified + detail.coverage.unidentified, machine.totalOrders);
-
-  const component = detail.components.find((current) => current.key !== NO_COMPONENT_KEY) ?? detail.components[0];
-  const level3 = await getCriticalEquipmentFamilyDrilldown({ ...selection, machine: machine.rootTag, component: component.key });
-  check(`OS listadas em "${component.label}" = número exibido`, level3.orders?.total ?? -1, component.totalOrders);
-
-  const all = await getCriticalEquipmentFamilyDrilldown({ ...selection, machine: machine.rootTag, component: ALL_ORDERS_KEY });
-  check("todas as OS da máquina = OS da máquina", all.orders?.total ?? -1, machine.totalOrders);
+  check("Σ tipo de atividade", sum(data.activityDistribution.map((slice) => slice.totalOrders)), x);
+  check("Σ status", sum(data.statusDistribution.map((slice) => slice.value)), x);
+  check("donut: total", data.correctivePlanned.totalOrders, x);
+  if (data.selection.family) {
+    check(
+      "ranking só com a família selecionada",
+      data.ranking.filter((item) => item.familyLabel !== data.selection.family).length,
+      0
+    );
+  }
+  if (data.selection.machine) {
+    check("ranking = só a máquina", data.ranking.length, x > 0 ? 1 : 0);
+    check("OS da máquina no ranking", data.ranking[0]?.totalOrders ?? 0, x);
+  }
+  return x;
 }
 
 async function main() {
-  const flatMachine = await auditHierarchy();
+  const service = await import("../src/services/critical-equipments.service");
+  const { NO_COMPONENT_KEY } = await import("../src/services/critical-equipment-evolution.service");
+  const empty: CriticalEquipmentSelection = { family: null, month: null, machine: null, partition: null };
 
-  console.log("\n== Gráfico (página sem filtros de equipamento) ==");
-  const page = await getCriticalEquipmentsPageData({});
-  const evolution = page.familyEvolution;
-  console.log(`Período: ${page.period.startDate} → ${page.period.endDate} · meses no eixo: ${evolution.months.length}`);
-  check("Σ famílias = OS consideradas na página", evolution.totalOrders, page.summary.totalOrdersInPeriod);
-  check("Σ séries = total do gráfico", evolution.families.reduce((sum, f) => sum + f.totalOrders, 0), evolution.totalOrders);
-  const monthMismatch = evolution.families.filter((f) => f.orders.reduce((a, b) => a + b, 0) !== f.totalOrders);
-  check("famílias cuja Σ meses ≠ total", monthMismatch.length, 0);
+  // Página completa (sem seleção) — também dá o período e o gráfico de evolução.
+  queries = 0;
+  const page = await service.getCriticalEquipmentsPageData({});
+  const pageQueries = queries;
+  const filters = { startDate: page.period.startDate, endDate: page.period.endDate };
+  console.log(`Período: ${filters.startDate} → ${filters.endDate}`);
 
-  const byMachines = [...evolution.families].sort((a, b) => b.machineCount - a.machineCount);
-  const many = byMachines[0];
-  const single = evolution.families.find((family) => family.machineCount === 1 && family.totalOrders >= 5) ?? byMachines[byMachines.length - 1];
-  const top = evolution.families[0];
+  console.log("\n== Gráfico de evolução ==");
+  check("Σ famílias = OS consideradas", page.familyEvolution.totalOrders, page.audit.consideredOrders);
+  check(
+    "famílias cuja Σ meses ≠ total",
+    page.familyEvolution.families.filter((family) => sum(family.orders) !== family.totalOrders).length,
+    0
+  );
 
-  const peakIndex = top.orders.indexOf(Math.max(...top.orders));
-  await validateSelection({ family: top.family, month: evolution.months[peakIndex].period, machine: null, component: null }, top.orders[peakIndex], "Mês com muitas OS");
+  const general = checkScope("GERAL (página)", page);
+  check("recorte geral = OS consideradas", general, page.audit.consideredOrders);
 
-  const manyPeak = many.orders.indexOf(Math.max(...many.orders));
-  await validateSelection({ family: many.family, month: evolution.months[manyPeak].period, machine: null, component: null }, many.orders[manyPeak], `Família com várias máquinas (${many.machineCount})`);
+  // Máquina conhecida: Multifio 04 BM. Se não existir no recorte, usa a maior máquina da maior família.
+  const MACHINE = "ZC-SR-G07-MF-0004";
+  const machineFamily =
+    page.familyEvolution.families.find((family) => family.family === "Multifio")?.family ?? page.familyEvolution.families[0].family;
 
-  await validateSelection({ family: single.family, month: null, machine: null, component: null }, single.totalOrders, "Família com uma máquina");
+  queries = 0;
+  const family = await service.getCriticalEquipmentDashboardData({ ...empty, family: machineFamily }, filters);
+  const apiQueries = queries;
+  const familyTotal = checkScope("FAMÍLIA", family);
+  check(
+    "família = série do gráfico",
+    familyTotal,
+    page.familyEvolution.families.find((entry) => entry.family === machineFamily)!.totalOrders
+  );
+  check("Σ máquinas do drill-down", sum(family.drilldown!.machines.map((machine) => machine.totalOrders)), familyTotal);
 
-  const zeroFamily = evolution.families.find((family) => family.orders.some((value) => value === 0));
-  if (zeroFamily) {
-    const zeroIndex = zeroFamily.orders.indexOf(0);
-    await validateSelection({ family: zeroFamily.family, month: evolution.months[zeroIndex].period, machine: null, component: null }, 0, "Mês sem OS");
+  const machineTag = family.drilldown!.machines.some((machine) => machine.rootTag === MACHINE)
+    ? MACHINE
+    : family.drilldown!.machines[0].rootTag;
+  const machine = await service.getCriticalEquipmentDashboardData({ ...empty, family: machineFamily, machine: machineTag }, filters);
+  const machineTotal = checkScope("FAMÍLIA + MÁQUINA", machine);
+  check(
+    "máquina = linha do drill-down da família",
+    machineTotal,
+    family.drilldown!.machines.find((entry) => entry.rootTag === machineTag)!.totalOrders
+  );
+  check("Σ repartimentos", sum(machine.drilldown!.machine!.components.map((component) => component.totalOrders)), machineTotal);
+
+  const component =
+    machine.drilldown!.machine!.components.find((entry) => entry.key !== NO_COMPONENT_KEY) ?? machine.drilldown!.machine!.components[0];
+  queries = 0;
+  const partition = await service.getCriticalEquipmentDashboardData(
+    { ...empty, family: machineFamily, machine: machineTag, partition: component.key },
+    filters
+  );
+  const partitionQueries = queries;
+  const partitionTotal = checkScope("FAMÍLIA + MÁQUINA + REPARTIMENTO", partition);
+  check("repartimento = linha do drill-down", partitionTotal, component.totalOrders);
+  check("lista de OS do repartimento", partition.drilldown!.orders?.total ?? -1, partitionTotal);
+
+  // Mês dentro da máquina (clique família + mês no gráfico).
+  const monthSeries = page.familyEvolution.families.find((entry) => entry.family === machineFamily)!;
+  const peak = page.familyEvolution.months[monthSeries.orders.indexOf(Math.max(...monthSeries.orders))].period;
+  const monthly = await service.getCriticalEquipmentDashboardData({ ...empty, family: machineFamily, month: peak, machine: machineTag }, filters);
+  checkScope(`FAMÍLIA + ${peak} + MÁQUINA`, monthly);
+
+  // Voltar e limpar.
+  check("voltar p/ máquina", checkScope("VOLTAR → MÁQUINA", await service.getCriticalEquipmentDashboardData({ ...empty, family: machineFamily, machine: machineTag }, filters)), machineTotal);
+  check("voltar p/ família", checkScope("VOLTAR → FAMÍLIA", await service.getCriticalEquipmentDashboardData({ ...empty, family: machineFamily }, filters)), familyTotal);
+  check("limpar seleção", checkScope("LIMPAR SELEÇÃO", await service.getCriticalEquipmentDashboardData(empty, filters)), general);
+
+  // Filtros gerais ∩ seleção.
+  const responsible = page.filterOptions.responsibles[0];
+  if (responsible) {
+    const filtered = await service.getCriticalEquipmentDashboardData(
+      { ...empty, family: machineFamily, machine: machineTag },
+      { ...filters, responsibleNames: [responsible] }
+    );
+    const x = checkScope(`FILTRO Responsável=${responsible} ∩ MÁQUINA`, filtered);
+    console.log(`         (${x} de ${machineTotal} OS da máquina são deste responsável)`);
+    if (x > machineTotal) {
+      failures += 1;
+      console.log("  FALHA interseção maior que a máquina");
+    }
   }
 
-  console.log("\n-- Máquina sem hierarquia");
-  if (flatMachine) {
-    const level2 = await getCriticalEquipmentFamilyDrilldown({ family: flatMachine.family, month: null, machine: flatMachine.rootTag, component: null });
-    const machine = level2.machines.find((current) => current.rootTag === flatMachine.rootTag);
-    console.log(`  ${level2.machine?.name} (${flatMachine.family}) · hierarquia: ${level2.machine?.hasHierarchy ? "sim" : "não"}`);
-    check("hasHierarchy = false", Number(level2.machine?.hasHierarchy ?? true), 0);
-    check("lista direta = OS da máquina", level2.orders?.total ?? -1, machine?.totalOrders ?? -2);
-  } else {
-    console.log("  nenhuma máquina sem hierarquia na base");
-  }
+  // Seleção sem dados: zero em tudo, nunca o total geral.
+  const none = await service.getCriticalEquipmentDashboardData({ ...empty, family: machineFamily, machine: "TAG-INEXISTENTE" }, filters);
+  check("SEM DADOS: total", checkScope("SELEÇÃO SEM DADOS", none), 0);
 
-  console.log(failures ? `\n${failures} verificação(ões) FALHARAM.` : "\nTodas as verificações de soma passaram.");
+  // Página aberta por link já com a seleção = mesma resposta da API.
+  queries = 0;
+  const pageScoped = await service.getCriticalEquipmentsPageData(filters, {
+    ...empty,
+    family: machineFamily,
+    machine: machineTag,
+    partition: component.key
+  });
+  const pageScopedQueries = queries;
+  check("página via URL = API (repartimento)", pageScoped.context.totalOrders, partitionTotal);
+  check("página via URL: gráfico de evolução NÃO recortado", pageScoped.familyEvolution.totalOrders, page.familyEvolution.totalOrders);
+
+  console.log("\n== Consultas ao banco ==");
+  console.log(`  Página inteira (sem seleção, sem datas na URL): ${pageQueries}`);
+  console.log(`  Página via link com seleção até repartimento:   ${pageScopedQueries}`);
+  console.log(`  Clique em família/máquina (API do recorte):     ${apiQueries}`);
+  console.log(`  Clique em repartimento (inclui lista de OS):    ${partitionQueries}`);
+
+  console.log(failures ? `\n${failures} verificação(ões) FALHARAM.` : "\nTodas as verificações passaram.");
   process.exitCode = failures ? 1 : 0;
 }
 
@@ -171,4 +187,4 @@ main()
     console.error(error);
     process.exitCode = 1;
   })
-  .finally(() => prisma.$disconnect());
+  .finally(() => counted.$disconnect());

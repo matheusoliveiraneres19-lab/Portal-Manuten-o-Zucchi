@@ -7,7 +7,13 @@ import { AlertTriangle, CalendarRange, PackageSearch, ShieldAlert } from "lucide
 import { formatPeriodRange } from "@/utils/period";
 import { CriticalEquipmentDetailsDrawer } from "@/components/critical-equipments/CriticalEquipmentDetailsDrawer";
 import { EquipmentHoursByResponsibleModal } from "@/components/critical-equipments/EquipmentHoursByResponsibleModal";
-import type { CriticalEquipmentDetails, EquipmentHoursByResponsible } from "@/types/critical-equipments";
+import type {
+  CriticalEquipmentDetails,
+  CriticalEquipmentScopedData,
+  CriticalEquipmentSelection,
+  EquipmentHoursByResponsible,
+  FamilyDrilldownSelection
+} from "@/types/critical-equipments";
 import {
   ActiveFilterChips,
   type ActiveFilterChip
@@ -16,7 +22,11 @@ import dynamic from "next/dynamic";
 import { CriticalEquipmentKpiCards } from "@/components/critical-equipments/CriticalEquipmentKpiCards";
 import { CriticalEquipmentFilters, AREA_LABELS } from "@/components/critical-equipments/CriticalEquipmentFilters";
 import { CriticalEquipmentTable } from "@/components/critical-equipments/CriticalEquipmentTable";
+import { CriticalEquipmentFamilyDrilldown } from "@/components/critical-equipments/CriticalEquipmentFamilyDrilldown";
+import { CriticalEquipmentSelectionBar } from "@/components/critical-equipments/CriticalEquipmentSelectionBar";
 import { ChartSkeleton } from "@/components/ChartSkeleton";
+import { EMPTY_SELECTION, writeSelectionParams } from "@/utils/critical-equipment-selection";
+import { GOLD } from "@/constants/theme";
 
 // Gráficos Recharts carregados sob demanda (mantém o JS inicial leve).
 const CriticalEquipmentRankingChart = dynamic(
@@ -36,7 +46,7 @@ const CriticalEquipmentFamilyEvolutionChart = dynamic(
     import("@/components/critical-equipments/CriticalEquipmentFamilyEvolutionChart").then(
       (m) => m.CriticalEquipmentFamilyEvolutionChart
     ),
-  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-8" /> }
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-12" /> }
 );
 const CriticalEquipmentPlanningGroupChart = dynamic(
   () =>
@@ -57,7 +67,7 @@ const CriticalEquipmentActivityChart = dynamic(
     import("@/components/critical-equipments/CriticalEquipmentActivityChart").then(
       (m) => m.CriticalEquipmentActivityChart
     ),
-  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-12" /> }
+  { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-8" /> }
 );
 import { ModuleEmptyState } from "@/components/ui/ModuleEmptyState";
 import { CriticalEquipmentFieldNotice } from "@/components/critical-equipments/CriticalEquipmentFieldNotice";
@@ -98,11 +108,40 @@ type CriticalEquipmentsPageProps = {
   appliedFilters: AppliedCriticalEquipmentFilters;
 };
 
+/** Parte dos dados da página que muda com a seleção da análise. */
+function pickScoped(data: CriticalEquipmentsPageData): CriticalEquipmentScopedData {
+  return {
+    selection: data.selection,
+    context: data.context,
+    summary: data.summary,
+    ranking: data.ranking,
+    hours: data.hours,
+    statusDistribution: data.statusDistribution,
+    planningGroupDistribution: data.planningGroupDistribution,
+    activityDistribution: data.activityDistribution,
+    correctivePlanned: data.correctivePlanned,
+    drilldown: data.drilldown
+  };
+}
+
 export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipmentsPageProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
   const [draft, setDraft] = useState<AppliedCriticalEquipmentFilters>(appliedFilters);
+
+  /*
+   * ESTADO ÚNICO da análise: família → mês → máquina → repartimento. Ele recorta
+   * KPIs, ranking, horas, status, grupo, corretivas x planejadas, tipo de atividade,
+   * tabela e drill-down — todos alimentados pela MESMA resposta (`scoped`).
+   */
+  const [selection, setSelection] = useState<CriticalEquipmentSelection>(data.selection);
+  const [scoped, setScoped] = useState<CriticalEquipmentScopedData>(() => pickScoped(data));
+  const [scopeLoading, setScopeLoading] = useState(false);
+  const [scopeError, setScopeError] = useState<string | null>(null);
+  const [pendingLabel, setPendingLabel] = useState<string | null>(null);
+  const scopeRequestRef = useRef(0);
+  const drilldownRef = useRef<HTMLDivElement>(null);
 
   // Drill-down: detalhes do equipamento selecionado (carregados via API, sem recarregar a página).
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -125,8 +164,84 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedSignature]);
 
+  // Nova renderização do servidor (filtros aplicados): ela já vem recortada pela seleção da URL.
+  useEffect(() => {
+    scopeRequestRef.current += 1;
+    setSelection(data.selection);
+    setScoped(pickScoped(data));
+    setScopeLoading(false);
+    setScopeError(null);
+  }, [data]);
+
+  const filterQuery = useMemo(
+    () => filtersToParams(appliedFilters).toString(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [appliedSignature]
+  );
+
+  /** Query dos filtros gerais + seleção atual — a mesma para todas as APIs da aba. */
+  function scopedParams(current: CriticalEquipmentSelection = selection): URLSearchParams {
+    return writeSelectionParams(new URLSearchParams(filterQuery), current);
+  }
+
+  /**
+   * Troca a seleção: UMA requisição traz todos os dashboards recortados. Sem reload
+   * da página; o que está na tela continua visível até a resposta chegar.
+   */
+  function changeSelection(next: CriticalEquipmentSelection, options: { scrollToDrilldown?: boolean } = {}) {
+    setSelection(next);
+    syncSelectionUrl(pathname, next);
+    setScopeError(null);
+    if (options.scrollToDrilldown && next.family) {
+      requestAnimationFrame(() => drilldownRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+    }
+
+    const requestId = scopeRequestRef.current + 1;
+    scopeRequestRef.current = requestId;
+
+    // Voltar ao recorte que o servidor já entregou não precisa de nova consulta.
+    if (sameSelection(next, data.selection)) {
+      setScoped(pickScoped(data));
+      setScopeLoading(false);
+      setPendingLabel(null);
+      return;
+    }
+
+    setPendingLabel(describeSelection(next, scoped));
+    setScopeLoading(true);
+    fetch(`/api/critical-equipments/dashboard?${scopedParams(next).toString()}`)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("request failed");
+        }
+        return (await response.json()) as CriticalEquipmentScopedData;
+      })
+      .then((result) => {
+        if (scopeRequestRef.current === requestId) {
+          setScoped(result);
+        }
+      })
+      .catch(() => {
+        if (scopeRequestRef.current === requestId) {
+          setScopeError("Não foi possível atualizar a análise para esta seleção.");
+          toast.error("Não foi possível atualizar a análise para esta seleção.");
+        }
+      })
+      .finally(() => {
+        if (scopeRequestRef.current === requestId) {
+          setScopeLoading(false);
+          setPendingLabel(null);
+        }
+      });
+  }
+
+  function clearSelection() {
+    changeSelection(EMPTY_SELECTION);
+  }
+
   function navigate(filters: AppliedCriticalEquipmentFilters) {
-    const params = filtersToParams(filters);
+    // Filtros gerais ∩ seleção: aplicar filtro não descarta a máquina analisada.
+    const params = writeSelectionParams(filtersToParams(filters), selection);
     const query = params.toString();
     startTransition(() => router.push(query ? `${pathname}?${query}` : pathname));
   }
@@ -156,7 +271,7 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
     setDetailsError(null);
     setDetailsLoading(true);
 
-    const params = filtersToParams(appliedFilters);
+    const params = scopedParams();
     params.set("id", id);
 
     fetch(`/api/critical-equipments/details?${params.toString()}`)
@@ -197,7 +312,7 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
     setHoursError(null);
     setHoursLoading(true);
 
-    const params = filtersToParams(appliedFilters);
+    const params = scopedParams();
     params.set("id", id);
 
     fetch(`/api/critical-equipments/hours-by-responsible?${params.toString()}`)
@@ -230,19 +345,29 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
     setHoursOpen(false);
   }
 
+  // Clique no ranking: a máquina (e a família dela) passa a recortar a página.
+  function selectMachine(id: string) {
+    const item = scoped.ranking.find((current) => current.id === id);
+    changeSelection({
+      family: item?.familyLabel ?? selection.family,
+      month: selection.month,
+      machine: id,
+      partition: null
+    });
+  }
+
   const chips = useMemo(
     () => buildChips(appliedFilters, (next) => navigate(next)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [appliedSignature]
+    [appliedSignature, selection]
   );
 
-  const isEmpty = data.source === "empty" || data.ranking.length === 0;
-  // Mesmo recorte da página no drill-down da evolução por família.
-  const filterQuery = useMemo(
-    () => filtersToParams(appliedFilters).toString(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [appliedSignature]
-  );
+  // Vazio = o PERÍODO não tem OS. Uma seleção sem dados não esvazia a página (cada gráfico avisa).
+  const isEmpty = data.source === "empty" || data.familyEvolution.totalOrders === 0;
+  const scopeLabel = scoped.context.active ? scoped.context.label : null;
+  const drilldownSelection: FamilyDrilldownSelection | null = selection.family
+    ? { family: selection.family, month: selection.month, machine: selection.machine, component: selection.partition }
+    : null;
 
   return (
     <section className={`space-y-4 text-champagne transition ${isPending ? "opacity-70" : ""}`}>
@@ -267,24 +392,24 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
             preventivas e lubrificações programadas <strong className="font-semibold text-champagne">PL/PV</strong>{" "}
             agora <strong className="font-semibold text-champagne">entram</strong> na análise — use o filtro
             &ldquo;Corretiva / Planejada&rdquo; para recortar
-            {data.summary.ignoredPreventiveOrders > 0 ? (
+            {data.audit.programmedPreventiveOrders > 0 ? (
               <>
                 {" "}(
                 <strong className="font-semibold text-champagne">
-                  {data.summary.ignoredPreventiveOrders.toLocaleString("pt-BR")}
+                  {data.audit.programmedPreventiveOrders.toLocaleString("pt-BR")}
                 </strong>{" "}
-                PL/PV inclusa{data.summary.ignoredPreventiveOrders === 1 ? "" : "s"} no recorte atual)
+                PL/PV inclusa{data.audit.programmedPreventiveOrders === 1 ? "" : "s"} no período)
               </>
             ) : null}
             .
           </p>
           {!isEmpty ? (
             <p className="mt-1.5 max-w-3xl text-[11px] leading-relaxed text-zinc-500">
-              Auditoria do período: <strong className="text-zinc-300">{fmt(data.summary.rawOrdersInPeriod)}</strong> OS
-              brutas · <strong className="text-zinc-300">{fmt(data.summary.ignoredInvalidEquipment)}</strong> equip. não
-              informado ignoradas · <strong className="text-zinc-300">{fmt(data.summary.totalOrdersInPeriod)}</strong>{" "}
-              consideradas (<strong className="text-zinc-300">{fmt(data.summary.ignoredPreventiveOrders)}</strong>{" "}
-              PL/PV inclusas) · <strong className="text-zinc-300">{fmt(data.summary.ordersWithoutTechnicalCode)}</strong>{" "}
+              Auditoria do período: <strong className="text-zinc-300">{fmt(data.audit.rawOrders)}</strong> OS
+              brutas · <strong className="text-zinc-300">{fmt(data.audit.ignoredInvalidEquipment)}</strong> equip. não
+              informado ignoradas · <strong className="text-zinc-300">{fmt(data.audit.consideredOrders)}</strong>{" "}
+              consideradas (<strong className="text-zinc-300">{fmt(data.audit.programmedPreventiveOrders)}</strong>{" "}
+              PL/PV inclusas) · <strong className="text-zinc-300">{fmt(data.audit.ordersWithoutTechnicalCode)}</strong>{" "}
               sem local raiz identificado. Com &ldquo;Todas as ordens&rdquo;, o total considerado bate com a aba Ordens
               de Manutenção no mesmo período.
             </p>
@@ -325,18 +450,16 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
         />
       ) : (
         <>
-          <CriticalEquipmentKpiCards summary={data.summary} />
-
           <CriticalEquipmentFieldNotice availability={data.fieldAvailability} />
           <DataQualityPanel quality={data.dataQuality} />
 
-          {data.summary.ordersWithoutTechnicalCode > 0 ? (
+          {data.audit.ordersWithoutTechnicalCode > 0 ? (
             <div className="flex items-start gap-2 rounded-lg border border-gold/30 bg-gold/5 px-3 py-2 text-[12px] text-champagne">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-gold" />
               <span>
                 Algumas ordens não possuem local de instalação estruturado (
                 <strong className="font-semibold text-white">
-                  {data.summary.ordersWithoutTechnicalCode.toLocaleString("pt-BR")}
+                  {data.audit.ordersWithoutTechnicalCode.toLocaleString("pt-BR")}
                 </strong>{" "}
                 ordem(ns) agrupadas pelo nome do equipamento). Preencha o objeto técnico/local de instalação na origem
                 para um agrupamento mais preciso.
@@ -344,31 +467,81 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
             </div>
           ) : null}
 
-          <p className="text-[11px] text-zinc-500">
-            <span className="font-semibold text-gold">Dica:</span> clique em um equipamento nos gráficos ou na tabela
-            para visualizar as ordens vinculadas.
-          </p>
-
+          {/* 1. Contexto: evolução por família (não recortada) + drill-down, que DEFINEM a seleção. */}
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-            <CriticalEquipmentRankingChart items={data.ranking} selectedId={selectedId} onSelect={openDetails} />
-            <CriticalEquipmentHoursChart items={data.hours} onSelect={openHoursByResponsible} />
-            {/* Evolução por família + drill-down; o card de status divide a linha com o gráfico. */}
             <CriticalEquipmentFamilyEvolutionChart
               data={data.familyEvolution}
-              filterQuery={filterQuery}
-              side={<CriticalEquipmentStatusChart slices={data.statusDistribution} />}
+              selection={{ family: selection.family, month: selection.month }}
+              onSelect={(family, month) =>
+                changeSelection({ family, month, machine: null, partition: null }, { scrollToDrilldown: true })
+              }
             />
-            {data.fieldAvailability.planningGroup ? (
-              <CriticalEquipmentPlanningGroupChart slices={data.planningGroupDistribution} />
+            {drilldownSelection ? (
+              <div ref={drilldownRef} className="xl:col-span-12">
+                <CriticalEquipmentFamilyDrilldown
+                  selection={drilldownSelection}
+                  data={scoped.drilldown}
+                  loading={scopeLoading}
+                  error={scopeError}
+                  accentColor={GOLD.DEFAULT}
+                  onChange={(next) =>
+                    changeSelection({
+                      family: next.family,
+                      month: next.month,
+                      machine: next.machine,
+                      partition: next.component
+                    })
+                  }
+                  onClose={clearSelection}
+                />
+              </div>
             ) : null}
-            <CriticalEquipmentCorrectivePlannedChart data={data.correctivePlanned} />
-            <CriticalEquipmentActivityChart
-              slices={data.activityDistribution}
-              fieldAvailable={data.fieldAvailability.planningActivityType}
-            />
           </section>
 
-          <CriticalEquipmentTable items={data.ranking} onSelect={openDetails} />
+          {/* 2. Faixa da análise atual — o recorte de TUDO que vem abaixo. */}
+          <CriticalEquipmentSelectionBar
+            context={scoped.context}
+            loading={scopeLoading}
+            pendingLabel={pendingLabel}
+            onNavigate={(level) => changeSelection(truncateSelection(selection, level))}
+            onClear={clearSelection}
+          />
+
+          {/* 3. Dashboards recortados: todos saem da MESMA resposta (`scoped`). */}
+          <div
+            aria-busy={scopeLoading}
+            className={`space-y-4 transition-opacity duration-200 ${scopeLoading ? "pointer-events-none opacity-60" : ""}`}
+          >
+            <CriticalEquipmentKpiCards summary={scoped.summary} />
+
+            <p className="text-[11px] text-zinc-500">
+              <span className="font-semibold text-gold">Dica:</span> clique numa família/mês no gráfico de evolução ou
+              numa máquina do ranking para recortar a página; clique numa linha da tabela para o detalhe da máquina.
+            </p>
+
+            <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
+              <CriticalEquipmentRankingChart
+                items={scoped.ranking}
+                selectedId={selection.machine}
+                onSelect={selectMachine}
+                scopeLabel={scopeLabel}
+              />
+              <CriticalEquipmentHoursChart items={scoped.hours} onSelect={openHoursByResponsible} scopeLabel={scopeLabel} />
+              {data.fieldAvailability.planningGroup ? (
+                <CriticalEquipmentPlanningGroupChart slices={scoped.planningGroupDistribution} scopeLabel={scopeLabel} />
+              ) : null}
+              <CriticalEquipmentStatusChart slices={scoped.statusDistribution} scopeLabel={scopeLabel} />
+              <CriticalEquipmentCorrectivePlannedChart data={scoped.correctivePlanned} scopeLabel={scopeLabel} />
+              <CriticalEquipmentActivityChart
+                slices={scoped.activityDistribution}
+                fieldAvailable={data.fieldAvailability.planningActivityType}
+                scopeLabel={scopeLabel}
+                className="xl:col-span-8"
+              />
+            </section>
+
+            <CriticalEquipmentTable items={scoped.ranking} onSelect={openDetails} scopeLabel={scopeLabel} />
+          </div>
         </>
       )}
 
@@ -389,6 +562,51 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
       />
     </section>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Seleção                                                            */
+/* ------------------------------------------------------------------ */
+
+function sameSelection(a: CriticalEquipmentSelection, b: CriticalEquipmentSelection): boolean {
+  return a.family === b.family && a.month === b.month && a.machine === b.machine && a.partition === b.partition;
+}
+
+/** Volta até o nível clicado na faixa de contexto (os níveis abaixo são descartados). */
+function truncateSelection(
+  selection: CriticalEquipmentSelection,
+  level: "family" | "month" | "machine" | "partition"
+): CriticalEquipmentSelection {
+  if (level === "family") return { ...EMPTY_SELECTION, family: selection.family };
+  if (level === "month") return { ...EMPTY_SELECTION, family: selection.family, month: selection.month };
+  if (level === "machine") return { ...selection, partition: null };
+  return selection;
+}
+
+/** Rótulo do alvo enquanto carrega ("Atualizando análise do MULTIFIO 04 BM…"). */
+function describeSelection(next: CriticalEquipmentSelection, current: CriticalEquipmentScopedData): string | null {
+  if (next.partition) {
+    const component = current.drilldown?.machine?.components.find((entry) => entry.key === next.partition);
+    if (component) return component.label;
+  }
+  if (next.machine) {
+    const machine =
+      current.drilldown?.machines.find((entry) => entry.rootTag === next.machine)?.name ??
+      current.ranking.find((entry) => entry.id === next.machine)?.equipmentName;
+    return machine ?? next.machine;
+  }
+  return next.family;
+}
+
+/** Espelha a seleção na URL sem refazer a consulta da página (history nativo). */
+function syncSelectionUrl(pathname: string, selection: CriticalEquipmentSelection) {
+  if (typeof window === "undefined") return;
+  const params = writeSelectionParams(new URLSearchParams(window.location.search), selection);
+  const query = params.toString();
+  const url = query ? `${pathname}?${query}` : pathname;
+  if (url !== `${window.location.pathname}${window.location.search}`) {
+    window.history.replaceState(window.history.state, "", url);
+  }
 }
 
 /* ------------------------------------------------------------------ */

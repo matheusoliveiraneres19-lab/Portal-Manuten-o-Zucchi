@@ -2,6 +2,11 @@
 
 import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
+import {
+  SCOPED_EMPTY_DESCRIPTION,
+  SCOPED_EMPTY_TITLE,
+  ScopeCaption
+} from "@/components/critical-equipments/ScopeCaption";
 import { CRITICALITY_COLORS } from "@/components/critical-equipments/criticality";
 import type { CriticalEquipmentItem } from "@/types/critical-equipments";
 import { INK } from "@/constants/theme";
@@ -10,9 +15,11 @@ type CriticalEquipmentRankingChartProps = {
   items: CriticalEquipmentItem[];
   selectedId?: string | null;
   onSelect?: (id: string) => void;
+  /** Recorte ativo (família/máquina/repartimento · mês) exibido sob o título. */
+  scopeLabel?: string | null;
 };
 
-export function CriticalEquipmentRankingChart({ items, selectedId, onSelect }: CriticalEquipmentRankingChartProps) {
+export function CriticalEquipmentRankingChart({ items, selectedId, onSelect, scopeLabel }: CriticalEquipmentRankingChartProps) {
   const data = items.map((item) => ({
     id: item.id,
     name: item.equipmentName,
@@ -38,14 +45,15 @@ export function CriticalEquipmentRankingChart({ items, selectedId, onSelect }: C
         </h3>
         <Legend />
       </div>
+      <ScopeCaption label={scopeLabel} />
       <p className="mb-3 text-[11px] text-zinc-500">
-        Quantidade de ordens no período (cor = criticidade). Clique para ver as ordens deste equipamento.
+        Quantidade de ordens no recorte (cor = criticidade). Clique para analisar a máquina em toda a página.
       </p>
 
       {data.length === 0 ? (
         <EmptyState
-          title="Sem equipamentos no período"
-          description="Importe ordens ou ajuste o filtro para visualizar o ranking."
+          title={scopeLabel ? SCOPED_EMPTY_TITLE : "Sem equipamentos no período"}
+          description={scopeLabel ? SCOPED_EMPTY_DESCRIPTION : "Importe ordens ou ajuste o filtro para visualizar o ranking."}
         />
       ) : (
         <div style={{ height }} className="w-full">

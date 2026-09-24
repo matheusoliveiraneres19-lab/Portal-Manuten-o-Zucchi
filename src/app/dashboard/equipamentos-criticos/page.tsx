@@ -8,6 +8,7 @@ import {
   type PlanningGroupKey
 } from "@/utils/service-order-planning";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
+import { parseCriticalEquipmentSelection } from "@/utils/critical-equipment-selection";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,8 @@ type CriticalEquipmentsRouteProps = {
 
 export default async function EquipamentosCriticosPage({ searchParams = {} }: CriticalEquipmentsRouteProps) {
   const params = parseParams(searchParams);
+  // Seleção da análise (família → mês → máquina → repartimento): link compartilhado abre já recortado.
+  const selection = parseCriticalEquipmentSelection({ get: (key) => firstParam(searchParams[key]) ?? null });
   const data = await getCriticalEquipmentsPageData({
     startDate: params.startDate || undefined,
     endDate: params.endDate || undefined,
@@ -37,7 +40,7 @@ export default async function EquipamentosCriticosPage({ searchParams = {} }: Cr
     onlyRecurrent: params.onlyRecurrent,
     onlyCritical: params.onlyCritical,
     limit: params.limit
-  });
+  }, selection);
 
   // Garante que o painel reflita o período efetivo (default resolvido no service).
   const appliedFilters: AppliedCriticalEquipmentFilters = {

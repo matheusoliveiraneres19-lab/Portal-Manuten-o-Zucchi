@@ -303,22 +303,19 @@ export type CriticalEquipmentFilterOptions = {
   sectors: string[];
 };
 
-export type CriticalEquipmentsPageData = {
+/**
+ * Dados da página. Os campos de `CriticalEquipmentScopedData` (summary, ranking,
+ * horas, status, grupo, tipo, corretivas x planejadas, drill-down) já vêm
+ * RECORTADOS pela seleção da análise; a evolução por família e a auditoria não.
+ */
+export type CriticalEquipmentsPageData = CriticalEquipmentScopedData & {
   /** Painel "Qualidade dos dados" da aba (FASE 6). */
   dataQuality: DataQualitySummary;
   period: { startDate: string; endDate: string };
-  summary: CriticalEquipmentSummary;
-  ranking: CriticalEquipmentItem[];
-  hours: CriticalEquipmentHoursPoint[];
-  statusDistribution: CriticalEquipmentStatusSlice[];
+  /** Auditoria do período (hero) — sem a seleção da análise. */
+  audit: CriticalEquipmentPeriodAudit;
   /** Evolução mensal de OS por FAMÍLIA (todas as máquinas do recorte, não só o Top N). */
   familyEvolution: FamilyEvolutionData;
-  /** Dashboard "Ordens por Grupo de Planejamento" (TAREFA 3). */
-  planningGroupDistribution: CriticalEquipmentPlanningGroupSlice[];
-  /** Dashboard "Ordens por Tipo de Atividade" (TAREFA 5). */
-  activityDistribution: CriticalEquipmentActivitySlice[];
-  /** Dashboard "Ordens Corretivas x Planejadas" (TAREFA 6). */
-  correctivePlanned: CriticalEquipmentCorrectivePlannedData;
   /** Campos do SAP presentes na base importada (TAREFA 15). */
   fieldAvailability: CriticalEquipmentFieldAvailability;
   filterOptions: CriticalEquipmentFilterOptions;
@@ -452,4 +449,57 @@ export type FamilyDrilldownResponse = {
   machines: FamilyDrilldownMachine[];
   machine: FamilyDrilldownMachineDetail | null;
   orders: FamilyDrilldownOrders | null;
+};
+
+/* ------------------------------------------------------------------ */
+/* Seleção da análise (estado único que recorta a página)             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Seleção FAMÍLIA → MÊS → MÁQUINA → REPARTIMENTO. Aplicada DEPOIS dos filtros
+ * gerais (interseção) e compartilhada por todos os dashboards abaixo do gráfico
+ * de evolução — KPIs, ranking, horas, status, grupo, corretivas x planejadas,
+ * tipo de atividade, tabela e drill-down.
+ */
+export type CriticalEquipmentSelection = {
+  family: string | null;
+  /** YYYY-MM */
+  month: string | null;
+  /** TAG da máquina raiz. */
+  machine: string | null;
+  /** TAG do repartimento, `NO_COMPONENT_KEY` ou `ALL_ORDERS_KEY` (= sem recorte). */
+  partition: string | null;
+};
+
+export type CriticalEquipmentSelectionContext = {
+  active: boolean;
+  /** Caminho legível: ["Multifio", "Agosto/2026", "MULTIFIO 04 BM", "CHUVEIRO (CH-04-01)"]. */
+  path: Array<{ level: "family" | "month" | "machine" | "partition"; label: string }>;
+  /** Rótulo curto para os títulos: "MULTIFIO 04 BM · Agosto/2026". */
+  label: string;
+  /** OS no recorte selecionado. */
+  totalOrders: number;
+};
+
+/** Auditoria do período (hero): independe da seleção da análise. */
+export type CriticalEquipmentPeriodAudit = {
+  rawOrders: number;
+  ignoredInvalidEquipment: number;
+  consideredOrders: number;
+  programmedPreventiveOrders: number;
+  ordersWithoutTechnicalCode: number;
+};
+
+/** Tudo o que muda com a seleção — devolvido de uma vez (página e API usam o mesmo builder). */
+export type CriticalEquipmentScopedData = {
+  selection: CriticalEquipmentSelection;
+  context: CriticalEquipmentSelectionContext;
+  summary: CriticalEquipmentSummary;
+  ranking: CriticalEquipmentItem[];
+  hours: CriticalEquipmentHoursPoint[];
+  statusDistribution: CriticalEquipmentStatusSlice[];
+  planningGroupDistribution: CriticalEquipmentPlanningGroupSlice[];
+  activityDistribution: CriticalEquipmentActivitySlice[];
+  correctivePlanned: CriticalEquipmentCorrectivePlannedData;
+  drilldown: FamilyDrilldownResponse | null;
 };

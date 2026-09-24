@@ -25,6 +25,8 @@ import {
 import { resolveOrderClass, type PlanningClassifiableOrder } from "@/utils/service-order-planning";
 import type {
   CriticalEquipmentItem,
+  CriticalEquipmentSelection,
+  CriticalEquipmentSelectionContext,
   FamilyDrilldownComponent,
   FamilyDrilldownMachine,
   FamilyDrilldownMachineDetail,
@@ -154,6 +156,79 @@ function resolveRows<Row extends EvolutionRow>(
     });
   }
   return resolved;
+}
+
+/* ------------------------------------------------------------------ */
+/* Seleção da análise — FONTE ÚNICA do recorte                        */
+/* ------------------------------------------------------------------ */
+
+export function isSelectionActive(selection: CriticalEquipmentSelection): boolean {
+  return Boolean(selection.family || selection.month || selection.machine || selection.partition);
+}
+
+/** `ALL_ORDERS_KEY` é "todas as OS da máquina" — não recorta repartimento. */
+function partitionFilter(selection: CriticalEquipmentSelection): string | null {
+  return selection.partition && selection.partition !== ALL_ORDERS_KEY ? selection.partition : null;
+}
+
+/**
+ * Recorte da página: filtros de equipamento (via `items`, que já aplicou família do
+ * filtro, setor, CC, abertas, reincidentes, críticos) ∩ seleção da análise.
+ *
+ * TODOS os dashboards abaixo do gráfico de evolução consomem o resultado desta
+ * função — é o "where" da seleção. Seleção sem correspondência devolve lista vazia
+ * (nunca cai silenciosamente para o total geral).
+ */
+export function filterRowsBySelection<Row extends EvolutionRow>(
+  rows: Row[],
+  items: CriticalEquipmentItem[],
+  lookup: Map<string, FunctionalLocationLite>,
+  selection: CriticalEquipmentSelection
+): Row[] {
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+  const partition = partitionFilter(selection);
+  return resolveRows(rows, itemsById, lookup, Boolean(partition))
+    .filter(
+      (entry) =>
+        (!selection.family || entry.family === selection.family) &&
+        (!selection.month || entry.month === selection.month) &&
+        (!selection.machine || entry.rootTag === selection.machine) &&
+        (!partition || entry.componentKey === partition)
+    )
+    .map((entry) => entry.row);
+}
+
+/** Caminho e rótulo legíveis da seleção, para a faixa "Análise atual" e os títulos. */
+export function buildSelectionContext(
+  selection: CriticalEquipmentSelection,
+  items: CriticalEquipmentItem[],
+  lookup: Map<string, FunctionalLocationLite>,
+  totalOrders: number
+): CriticalEquipmentSelectionContext {
+  const path: CriticalEquipmentSelectionContext["path"] = [];
+  if (selection.family) path.push({ level: "family", label: selection.family });
+  if (selection.month) path.push({ level: "month", label: formatMonthLong(selection.month) });
+  if (selection.machine) {
+    const item = items.find((current) => current.id === selection.machine);
+    path.push({ level: "machine", label: item?.equipmentName ?? selection.machine });
+  }
+  const partition = partitionFilter(selection);
+  if (partition) {
+    path.push({
+      level: "partition",
+      label:
+        partition === NO_COMPONENT_KEY || !selection.machine
+          ? NO_COMPONENT_LABEL
+          : describeComponent(partition, selection.machine, lookup).label
+    });
+  }
+
+  // Título: o nível mais específico (repartimento > máquina > família) + o mês.
+  const subject = [...path].reverse().find((entry) => entry.level !== "month");
+  const month = path.find((entry) => entry.level === "month");
+  const label = [subject?.label, month?.label].filter(Boolean).join(" · ");
+
+  return { active: path.length > 0, path, label, totalOrders };
 }
 
 /* ------------------------------------------------------------------ */

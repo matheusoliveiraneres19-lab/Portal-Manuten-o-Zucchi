@@ -2,19 +2,28 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
+import {
+  SCOPED_EMPTY_DESCRIPTION,
+  SCOPED_EMPTY_TITLE,
+  ScopeCaption
+} from "@/components/critical-equipments/ScopeCaption";
 import type { CriticalEquipmentActivitySlice } from "@/types/critical-equipments";
 
 type CriticalEquipmentActivityChartProps = {
   slices: CriticalEquipmentActivitySlice[];
   /** true quando o campo veio da planilha; false quando a classificação é derivada. */
   fieldAvailable: boolean;
+  /** Recorte ativo (família/máquina/repartimento · mês) exibido sob o título. */
+  scopeLabel?: string | null;
+  /** Largura no grid da página. */
+  className?: string;
 };
 
 /**
  * Dashboard "Ordens por Tipo de Atividade" (TAREFA 5) — responde qual tipo de
  * serviço está sendo mais executado pelas ordens no recorte atual.
  */
-export function CriticalEquipmentActivityChart({ slices, fieldAvailable }: CriticalEquipmentActivityChartProps) {
+export function CriticalEquipmentActivityChart({ slices, fieldAvailable, scopeLabel, className = "xl:col-span-12" }: CriticalEquipmentActivityChartProps) {
   const data = slices.map((slice) => ({
     name: slice.label,
     value: slice.totalOrders,
@@ -24,10 +33,11 @@ export function CriticalEquipmentActivityChart({ slices, fieldAvailable }: Criti
   }));
 
   return (
-    <article className="panel rounded-lg p-4 xl:col-span-12">
+    <article className={`panel rounded-lg p-4 ${className}`}>
       <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
         Ordens por Tipo de Atividade
       </h3>
+      <ScopeCaption label={scopeLabel} />
       <p className="mb-3 text-[11px] text-zinc-500">
         Corretiva, Preventiva, Melhoria, Inspeção, Lubrificação, Preditiva e Planejada.
         {fieldAvailable ? null : (
@@ -37,8 +47,8 @@ export function CriticalEquipmentActivityChart({ slices, fieldAvailable }: Criti
 
       {data.length === 0 ? (
         <EmptyState
-          title="Sem tipos de atividade no período"
-          description="Ajuste os filtros para visualizar a distribuição por tipo de atividade."
+          title={scopeLabel ? SCOPED_EMPTY_TITLE : "Sem tipos de atividade no período"}
+          description={scopeLabel ? SCOPED_EMPTY_DESCRIPTION : "Ajuste os filtros para visualizar a distribuição por tipo de atividade."}
         />
       ) : (
         <div className="h-[280px] w-full">

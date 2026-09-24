@@ -2,6 +2,11 @@
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
+import {
+  SCOPED_EMPTY_DESCRIPTION,
+  SCOPED_EMPTY_TITLE,
+  ScopeCaption
+} from "@/components/critical-equipments/ScopeCaption";
 import type { CriticalEquipmentCorrectivePlannedData } from "@/types/critical-equipments";
 import { CHART_CHROME, CHART_SERIES } from "@/constants/theme";
 
@@ -9,6 +14,8 @@ type CriticalEquipmentCorrectivePlannedChartProps = {
   data: CriticalEquipmentCorrectivePlannedData;
   /** Aplica o layout compacto usado dentro do drawer de drill-down. */
   compact?: boolean;
+  /** Recorte ativo (família/máquina/repartimento · mês) exibido sob o título. */
+  scopeLabel?: string | null;
 };
 
 const CORRECTIVE_COLOR = CHART_SERIES.corretiva;
@@ -20,7 +27,8 @@ const PLANNED_COLOR = CHART_SERIES.preventiva;
  */
 export function CriticalEquipmentCorrectivePlannedChart({
   data,
-  compact = false
+  compact = false,
+  scopeLabel
 }: CriticalEquipmentCorrectivePlannedChartProps) {
   const slices = [
     { name: "Corretivas", value: data.correctiveOrders, color: CORRECTIVE_COLOR, percent: data.correctivePercent },
@@ -47,8 +55,8 @@ export function CriticalEquipmentCorrectivePlannedChart({
 
       {slices.length === 0 ? (
         <EmptyState
-          title="Sem ordens classificadas"
-          description="Ajuste os filtros para comparar corretivas e planejadas."
+          title={scopeLabel ? SCOPED_EMPTY_TITLE : "Sem ordens classificadas"}
+          description={scopeLabel ? SCOPED_EMPTY_DESCRIPTION : "Ajuste os filtros para comparar corretivas e planejadas."}
         />
       ) : (
         <div className={compact ? "h-[180px] w-full" : "h-[220px] w-full"}>
@@ -110,6 +118,7 @@ export function CriticalEquipmentCorrectivePlannedChart({
       <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
         Ordens Corretivas x Planejadas
       </h3>
+      <ScopeCaption label={scopeLabel} />
       <p className="mb-3 text-[11px] text-zinc-500">
         Planejadas = preventiva, melhoria, inspeção, lubrificação, preditiva e planejada.
       </p>
