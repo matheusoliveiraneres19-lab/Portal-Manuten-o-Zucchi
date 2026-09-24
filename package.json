@@ -39,7 +39,8 @@
     "video:render": "remotion render remotion/index.ts PortalDemo out/portal-demo.mp4",
     "backup:pc-factory": "tsx scripts/backup-pc-factory.ts",
     "backfill:pc-factory-fingerprint": "tsx scripts/backfill-pcfactory-fingerprint.ts",
-    "validate:pc-factory-incremental": "tsx scripts/validate-pcfactory-incremental-import.ts"
+    "validate:pc-factory-incremental": "tsx scripts/validate-pcfactory-incremental-import.ts",
+    "validate:critical-evolution": "tsx scripts/validate-critical-equipment-evolution.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

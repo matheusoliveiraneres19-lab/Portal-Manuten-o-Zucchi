@@ -31,8 +31,11 @@ const CriticalEquipmentStatusChart = dynamic(
   () => import("@/components/critical-equipments/CriticalEquipmentStatusChart").then((m) => m.CriticalEquipmentStatusChart),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-4" /> }
 );
-const CriticalEquipmentTrendChart = dynamic(
-  () => import("@/components/critical-equipments/CriticalEquipmentTrendChart").then((m) => m.CriticalEquipmentTrendChart),
+const CriticalEquipmentFamilyEvolutionChart = dynamic(
+  () =>
+    import("@/components/critical-equipments/CriticalEquipmentFamilyEvolutionChart").then(
+      (m) => m.CriticalEquipmentFamilyEvolutionChart
+    ),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-8" /> }
 );
 const CriticalEquipmentPlanningGroupChart = dynamic(
@@ -234,6 +237,12 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
   );
 
   const isEmpty = data.source === "empty" || data.ranking.length === 0;
+  // Mesmo recorte da página no drill-down da evolução por família.
+  const filterQuery = useMemo(
+    () => filtersToParams(appliedFilters).toString(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [appliedSignature]
+  );
 
   return (
     <section className={`space-y-4 text-champagne transition ${isPending ? "opacity-70" : ""}`}>
@@ -343,8 +352,12 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
           <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
             <CriticalEquipmentRankingChart items={data.ranking} selectedId={selectedId} onSelect={openDetails} />
             <CriticalEquipmentHoursChart items={data.hours} onSelect={openHoursByResponsible} />
-            <CriticalEquipmentTrendChart points={data.trend} />
-            <CriticalEquipmentStatusChart slices={data.statusDistribution} />
+            {/* Evolução por família + drill-down; o card de status divide a linha com o gráfico. */}
+            <CriticalEquipmentFamilyEvolutionChart
+              data={data.familyEvolution}
+              filterQuery={filterQuery}
+              side={<CriticalEquipmentStatusChart slices={data.statusDistribution} />}
+            />
             {data.fieldAvailability.planningGroup ? (
               <CriticalEquipmentPlanningGroupChart slices={data.planningGroupDistribution} />
             ) : null}

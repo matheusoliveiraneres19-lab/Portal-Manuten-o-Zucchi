@@ -120,6 +120,8 @@ export type FunctionalLocationLite = {
   rootTag?: string | null;
   rootDescription?: string | null;
   equipmentFamily?: string | null;
+  /** TAG do local pai (um nível acima). Necessário para achar o repartimento. */
+  parentTag?: string | null;
 };
 
 /** Entrada mínima (subconjunto da Ordem de Manutenção) para resolver a raiz. */
@@ -319,6 +321,77 @@ export function getRootFunctionalLocation(
   }
 
   return result;
+}
+
+/** Repartimento = local filho DIRETO da máquina ao qual uma OS pertence. */
+export type FirstLevelChild = {
+  /** TAG do filho de 1º nível (ex.: ZC-SR-G07-MF-0004-CH-04-01). */
+  tag: string;
+  /** Parte do TAG abaixo da máquina (ex.: CH-04-01). */
+  code: string;
+  /** Descrição oficial do cadastro de locais; `null` quando o TAG não está cadastrado. */
+  description: string | null;
+  /** true quando o TAG existe no cadastro de locais (FunctionalLocation). */
+  registered: boolean;
+};
+
+/**
+ * REPARTIMENTO de uma OS: o local de 1º nível abaixo do equipamento raiz.
+ *
+ * Sobe a cadeia `parentTag` do cadastro de locais até o pai ser a própria raiz —
+ * assim uma OS num subnível (`...-MF-0004-SH-04-01-BH-01`) soma para o seu sistema
+ * de 1º nível. Quando o TAG não está cadastrado, tenta o maior prefixo cadastrado;
+ * sem nenhum, o próprio TAG é o repartimento, SEM descrição (nunca inventamos nome).
+ */
+export function resolveFirstLevelChild(
+  componentTag: string,
+  rootTag: string,
+  lookup?: Map<string, FunctionalLocationLite>
+): FirstLevelChild {
+  const codeOf = (tag: string) => (tag.startsWith(`${rootTag}-`) ? tag.slice(rootTag.length + 1) : tag);
+  const unregistered: FirstLevelChild = {
+    tag: componentTag,
+    code: codeOf(componentTag),
+    description: null,
+    registered: false
+  };
+  if (!lookup) {
+    return unregistered;
+  }
+
+  let current = lookup.has(componentTag) ? componentTag : "";
+  if (!current) {
+    const segments = componentTag.split("-");
+    const rootDepth = rootTag.split("-").length;
+    for (let cut = segments.length - 1; cut > rootDepth; cut -= 1) {
+      const candidate = segments.slice(0, cut).join("-");
+      if (lookup.has(candidate)) {
+        current = candidate;
+        break;
+      }
+    }
+  }
+  if (!current) {
+    return unregistered;
+  }
+
+  // Limite de passos: protege contra ciclo acidental no cadastro.
+  for (let step = 0; step < 12; step += 1) {
+    const entry = lookup.get(current);
+    const parent = entry?.parentTag ? normalizeTechnicalObjectCode(entry.parentTag) : "";
+    // Para na raiz, e também quando a cadeia sairia de baixo da máquina (cadastro
+    // com pai fora da raiz): nunca subimos para galpão/setor.
+    if (parent === rootTag || !parent.startsWith(`${rootTag}-`) || !lookup.has(parent)) {
+      return {
+        tag: current,
+        code: codeOf(current),
+        description: cleanDescription(entry?.description) || null,
+        registered: true
+      };
+    }
+    current = parent;
+  }
+  return unregistered;
 }
 
 function cleanDescription(value: string | null | undefined): string {

@@ -311,7 +311,8 @@ export type CriticalEquipmentsPageData = {
   ranking: CriticalEquipmentItem[];
   hours: CriticalEquipmentHoursPoint[];
   statusDistribution: CriticalEquipmentStatusSlice[];
-  trend: CriticalEquipmentTrendPoint[];
+  /** Evolução mensal de OS por FAMÍLIA (todas as máquinas do recorte, não só o Top N). */
+  familyEvolution: FamilyEvolutionData;
   /** Dashboard "Ordens por Grupo de Planejamento" (TAREFA 3). */
   planningGroupDistribution: CriticalEquipmentPlanningGroupSlice[];
   /** Dashboard "Ordens por Tipo de Atividade" (TAREFA 5). */
@@ -336,4 +337,119 @@ export type CriticalityScoreInput = {
   maxRecurrence: number;
   /** Tendência de piora: variação positiva de OS nos últimos meses (0–1). */
   worseningTrend: number;
+};
+
+/* ------------------------------------------------------------------ */
+/* Evolução mensal por família + drill-down                           */
+/* ------------------------------------------------------------------ */
+
+/** Métrica do gráfico de evolução. Custos ficam de fora até a fonte ser validada. */
+export type FamilyEvolutionMetric = "orders" | "hours";
+
+export type FamilyEvolutionMonth = {
+  /** YYYY-MM */
+  period: string;
+  /** MM/AAAA */
+  label: string;
+};
+
+/** Uma família = uma série. Arrays alinhados com `FamilyEvolutionData.months`. */
+export type FamilyEvolutionSeries = {
+  family: string;
+  totalOrders: number;
+  totalWorkedHours: number;
+  /** Máquinas distintas com OS no período. */
+  machineCount: number;
+  orders: number[];
+  hours: number[];
+  /** Máquinas distintas com OS em cada mês. */
+  machines: number[];
+};
+
+export type FamilyEvolutionData = {
+  /** Todos os meses do período filtrado, inclusive os sem OS. */
+  months: FamilyEvolutionMonth[];
+  /** TODAS as famílias do recorte, da maior para a menor em OS. */
+  families: FamilyEvolutionSeries[];
+  totalOrders: number;
+  totalWorkedHours: number;
+};
+
+/** Seleção do drill-down (espelhada na URL). */
+export type FamilyDrilldownSelection = {
+  family: string;
+  /** YYYY-MM; `null` = período inteiro. */
+  month: string | null;
+  /** TAG da máquina raiz. */
+  machine: string | null;
+  /** TAG do repartimento, `NO_COMPONENT_KEY` ou `ALL_ORDERS_KEY`. */
+  component: string | null;
+};
+
+/** Composição reutilizada em todos os níveis (mesma regra corretiva/planejada da aba). */
+export type FamilyDrilldownSplit = {
+  totalOrders: number;
+  correctiveOrders: number;
+  plannedOrders: number;
+  unclassifiedOrders: number;
+  totalWorkedHours: number;
+};
+
+export type FamilyDrilldownMachine = FamilyDrilldownSplit & {
+  rootTag: string;
+  name: string;
+  /** OS da máquina ÷ OS da família no recorte × 100. */
+  percentOfFamily: number;
+};
+
+export type FamilyDrilldownComponent = FamilyDrilldownSplit & {
+  /** TAG do repartimento ou `NO_COMPONENT_KEY`. */
+  key: string;
+  /** Código abaixo da máquina (ex.: CH-04-01); vazio para "sem repartimento". */
+  code: string;
+  /** Descrição do cadastro de locais; `null` quando não cadastrada. */
+  description: string | null;
+  /** Rótulo exibido: "Descrição (código)", só o código, ou "Sem repartimento informado". */
+  label: string;
+  registered: boolean;
+  /** OS do repartimento ÷ OS da máquina no recorte × 100. */
+  percentOfMachine: number;
+  /** OS na janela de recorrência (mês selecionado + 2 anteriores), `null` sem mês. */
+  recurrenceOrders: number | null;
+  /** Meses da janela com ao menos uma OS neste repartimento. */
+  recurrenceActiveMonths: number | null;
+};
+
+export type FamilyDrilldownMachineDetail = {
+  rootTag: string;
+  name: string;
+  split: FamilyDrilldownSplit;
+  /** Locais filhos diretos cadastrados para a máquina. */
+  registeredChildren: number;
+  /** false = nenhuma subdivisão técnica cadastrada nem usada pelas OS. */
+  hasHierarchy: boolean;
+  components: FamilyDrilldownComponent[];
+  coverage: { identified: number; unidentified: number; percent: number };
+  /** Janela de recorrência efetivamente usada (limitada ao período filtrado). */
+  recurrenceWindow: { months: FamilyEvolutionMonth[]; limitedByPeriod: boolean } | null;
+};
+
+export type FamilyDrilldownOrders = {
+  scopeLabel: string;
+  total: number;
+  /** true quando a lista foi cortada em `items.length` (o total segue correto). */
+  truncated: boolean;
+  items: CriticalEquipmentServiceOrder[];
+};
+
+export type FamilyDrilldownResponse = {
+  /** Seleção efetivamente aplicada (níveis inválidos voltam como `null`). */
+  selection: FamilyDrilldownSelection;
+  period: { startDate: string; endDate: string };
+  family: FamilyDrilldownSplit & { machineCount: number };
+  /** Variação vs. mês anterior (%). `null` quando não há base comparável. */
+  variationVsPreviousMonth: number | null;
+  machines: FamilyDrilldownMachine[];
+  machine: FamilyDrilldownMachineDetail | null;
+  orders: FamilyDrilldownOrders | null;
 };

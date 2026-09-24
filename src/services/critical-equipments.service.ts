@@ -59,8 +59,16 @@ import type {
   CriticalityLabel,
   CriticalityScoreInput,
   EquipmentHoursByResponsible,
+  FamilyDrilldownOrders,
+  FamilyDrilldownResponse,
+  FamilyDrilldownSelection,
   TrendDirection
 } from "@/types/critical-equipments";
+import {
+  DRILLDOWN_ORDERS_LIMIT,
+  buildFamilyDrilldown,
+  buildFamilyEvolution
+} from "@/services/critical-equipment-evolution.service";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
 import { GOLD, SEMANTIC } from "@/constants/theme";
 
@@ -88,6 +96,7 @@ const STATUS_ORDER: ServiceOrderStatusLabel[] = [
 ];
 
 type ServiceOrderRow = {
+  id: string;
   equipmentName: string | null;
   equipmentCode: string | null;
   technicalObjectRaw: string | null;
@@ -298,28 +307,7 @@ export async function getCriticalEquipmentDetails(
 
   const serviceOrders: CriticalEquipmentServiceOrder[] = [...groupRows]
     .sort((a, b) => (b.openedAt?.getTime() ?? 0) - (a.openedAt?.getTime() ?? 0))
-    .map((row) => ({
-      id: row.id,
-      osNumber: row.osNumber,
-      title: row.title,
-      description: row.description,
-      status: row.status as ServiceOrderStatusLabel,
-      openedAt: row.openedAt?.toISOString() ?? null,
-      closedAt: row.closedAt?.toISOString() ?? null,
-      workedHours: row.workedHours,
-      responsibleName: row.responsibleName,
-      planningGroup: row.planningGroup,
-      planningGroupLabel: PLANNING_GROUP_LABELS[resolvePlanningGroup(row)],
-      activityTypeLabel: PLANNING_ACTIVITY_LABELS[resolvePlanningActivityType(row)],
-      operation: row.operation,
-      equipmentName: row.equipmentName,
-      equipmentCode: row.equipmentCode,
-      technicalObjectRaw: row.technicalObjectRaw,
-      failureCause: row.failureCause,
-      solution: row.solution,
-      source: row.source,
-      importBatch: row.importBatch
-    }));
+    .map(toServiceOrderDto);
 
   return {
     item,
@@ -447,6 +435,77 @@ export async function getServiceOrderDetails(osNumber: string): Promise<Critical
   }
 }
 
+function toServiceOrderDto(row: ServiceOrderFullRow): CriticalEquipmentServiceOrder {
+  return {
+    id: row.id,
+    osNumber: row.osNumber,
+    title: row.title,
+    description: row.description,
+    status: row.status as ServiceOrderStatusLabel,
+    openedAt: row.openedAt?.toISOString() ?? null,
+    closedAt: row.closedAt?.toISOString() ?? null,
+    workedHours: row.workedHours,
+    responsibleName: row.responsibleName,
+    planningGroup: row.planningGroup,
+    planningGroupLabel: PLANNING_GROUP_LABELS[resolvePlanningGroup(row)],
+    activityTypeLabel: PLANNING_ACTIVITY_LABELS[resolvePlanningActivityType(row)],
+    operation: row.operation,
+    equipmentName: row.equipmentName,
+    equipmentCode: row.equipmentCode,
+    technicalObjectRaw: row.technicalObjectRaw,
+    failureCause: row.failureCause,
+    solution: row.solution,
+    source: row.source,
+    importBatch: row.importBatch
+  };
+}
+
+/**
+ * DRILL-DOWN da evolução por família: FAMÍLIA → MÊS → MÁQUINA → REPARTIMENTO → OS.
+ *
+ * Mesmo recorte da página (período, filtros de OS e filtros de equipamento), com
+ * UMA leitura leve das OS + o cadastro de locais, agregados em memória; a leitura
+ * dos campos completos só acontece para as OS do nível final, por ID. Nada de uma
+ * consulta por família/máquina, e o browser recebe só o nível pedido.
+ */
+export async function getCriticalEquipmentFamilyDrilldown(
+  selection: FamilyDrilldownSelection,
+  params: Partial<CriticalEquipmentFilters> = {}
+): Promise<FamilyDrilldownResponse> {
+  const period = await resolvePeriod(params);
+  const effective: Partial<CriticalEquipmentFilters> = { ...params, startDate: period.startDate, endDate: period.endDate };
+  const [rows, lookup] = await Promise.all([fetchRows(effective), loadFunctionalLocationLookup()]);
+  const items = analyzeEquipments(rows, effective, lookup);
+  const computed = buildFamilyDrilldown(rows, items, lookup, selection, period);
+
+  let orders: FamilyDrilldownOrders | null = null;
+  if (computed.orders) {
+    const ids = computed.orders.ids.slice(0, DRILLDOWN_ORDERS_LIMIT);
+    const fullRows = ids.length ? await fetchRowsFullByIds(ids) : [];
+    const byId = new Map(fullRows.map((row) => [row.id, row]));
+    orders = {
+      scopeLabel: computed.orders.scopeLabel,
+      total: computed.orders.ids.length,
+      truncated: computed.orders.ids.length > ids.length,
+      // Mantém a ordem do agregador (mais recente primeiro).
+      items: ids.flatMap((id) => {
+        const row = byId.get(id);
+        return row ? [toServiceOrderDto(row)] : [];
+      })
+    };
+  }
+
+  return {
+    selection: computed.selection,
+    period,
+    family: computed.family,
+    variationVsPreviousMonth: computed.variationVsPreviousMonth,
+    machines: computed.machines,
+    machine: computed.machine,
+    orders
+  };
+}
+
 /**
  * Busca os dados completos da página em uma única consulta ao banco.
  * Toda a agregação é feita aqui (não no componente).
@@ -527,7 +586,7 @@ export async function getCriticalEquipmentsPageData(
       ranking,
       hours,
       statusDistribution: buildStatusDistribution(rows),
-      trend: buildTrend(rows, items, limit, lookup),
+      familyEvolution: buildFamilyEvolution(rows, items, lookup, period),
       planningGroupDistribution: buildPlanningGroupDistribution(rows),
       activityDistribution: buildActivityDistribution(rows),
       correctivePlanned: buildCorrectivePlanned(rows),
@@ -1201,6 +1260,7 @@ async function fetchRowsRaw(params: Partial<CriticalEquipmentFilters>): Promise<
   return prisma.serviceOrder.findMany({
     where,
     select: {
+      id: true,
       equipmentName: true,
       equipmentCode: true,
       technicalObjectRaw: true,
@@ -1316,6 +1376,48 @@ async function fetchRowsFull(params: Partial<CriticalEquipmentFilters>): Promise
   return applyPlanningFilters(rows.filter((row) => !isInvalidTestEquipmentOrder(row)), params);
 }
 
+/** Campos completos de OS específicas (nível final do drill-down), em lotes por ID. */
+async function fetchRowsFullByIds(ids: string[]): Promise<ServiceOrderFullRow[]> {
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += 500) {
+    chunks.push(ids.slice(index, index + 500));
+  }
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      prisma.serviceOrder.findMany({
+        where: { id: { in: chunk } },
+        select: {
+          id: true,
+          equipmentName: true,
+          equipmentCode: true,
+          status: true,
+          workedHours: true,
+          openedAt: true,
+          closedAt: true,
+          responsibleName: true,
+          planningGroup: true,
+          planningGroupCode: true,
+          planningActivityType: true,
+          maintenanceType: true,
+          orderType: true,
+          type: true,
+          area: true,
+          title: true,
+          osNumber: true,
+          operation: true,
+          description: true,
+          technicalObjectRaw: true,
+          failureCause: true,
+          solution: true,
+          source: true,
+          importBatch: true
+        }
+      })
+    )
+  );
+  return results.flat() as ServiceOrderFullRow[];
+}
+
 function buildWhere(params: Partial<CriticalEquipmentFilters>): Prisma.ServiceOrderWhereInput {
   const and: Prisma.ServiceOrderWhereInput[] = [];
 
@@ -1381,7 +1483,8 @@ async function loadFunctionalLocationLookup(): Promise<Map<string, FunctionalLoc
         costCenter: true,
         rootTag: true,
         rootDescription: true,
-        equipmentFamily: true
+        equipmentFamily: true,
+        parentTag: true
       }
     });
     const map = new Map<string, FunctionalLocationLite>();
@@ -1530,7 +1633,7 @@ function emptyPageData(period: { startDate: string; endDate: string }): Critical
     ranking: [],
     hours: [],
     statusDistribution: [],
-    trend: [],
+    familyEvolution: { months: [], families: [], totalOrders: 0, totalWorkedHours: 0 },
     planningGroupDistribution: [],
     activityDistribution: [],
     correctivePlanned: {
