@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryTrendPoint } from "@/types/pc-factory";
 import { CHART_CHROME } from "@/constants/theme";
+import { classifyPhysicalAvailability } from "@/utils/pc-factory-physical-availability";
 
 type PcFactoryTrendChartProps = {
   points: PcFactoryTrendPoint[];
@@ -118,13 +119,11 @@ function TrendTooltip({ active, payload, selectedMachine }: TooltipProps<number,
         <span className="text-neutralized-strong">Disponibilidade estimada:</span>{" "}
         <strong
           className={`font-bold ${
-            point.availabilityPercent === null
-              ? "text-neutralized-strong"
-              : point.availabilityPercent >= 90
-                ? "text-success-strong"
-                : point.availabilityPercent >= 70
-                  ? "text-warning-strong"
-                  : "text-danger-strong"
+            {
+              boa: "text-success-strong",
+              critica: "text-danger-strong",
+              indefinida: "text-neutralized-strong"
+            }[classifyPhysicalAvailability(point.availabilityPercent)]
           }`}
         >
           {formatPercent(point.availabilityPercent)}

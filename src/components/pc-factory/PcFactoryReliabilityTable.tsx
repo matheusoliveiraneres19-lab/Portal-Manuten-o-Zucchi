@@ -462,12 +462,11 @@ function ReasonCell({
   if (!note) {
     return (
       <div className="flex flex-col items-start gap-1">
-        {/* Destaque discreto: só quando a disponibilidade está abaixo do MESMO
-            corte que o portal já usa para "baixa disponibilidade" (70%), e só
-            enquanto não houver justificativa. Nenhum limite novo foi inventado. */}
+        {/* Destaque discreto: só quando a disponibilidade está na faixa crítica
+            (abaixo de 90%), e só enquanto não houver justificativa. */}
         {critical ? (
           <span
-            title={`Disponibilidade abaixo de ${PHYSICAL_AVAILABILITY_BANDS.attention}% (mesmo corte de "baixa disponibilidade" já usado pelo portal) e sem justificativa registrada neste período.`}
+            title={`Disponibilidade abaixo de ${PHYSICAL_AVAILABILITY_BANDS.good}% (faixa crítica) e sem justificativa registrada neste período.`}
             className="inline-flex items-center gap-1 rounded-md border border-danger/40 bg-danger/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-danger-strong"
           >
             <AlertTriangle className="h-3 w-3" /> Justificativa pendente
@@ -910,20 +909,17 @@ function availabilityBreakdown(row: PcFactoryReliabilityRow): string {
 }
 
 /**
- * Verde ≥ 90%, âmbar 70-90%, vermelho < 70% — as MESMAS faixas que a tabela já
- * usava, agora vindas de `PHYSICAL_AVAILABILITY_BANDS` para que o badge de
- * "Justificativa pendente" use exatamente o mesmo corte de criticidade.
+ * Verde ≥ 90%, vermelho < 90% — a regra de `classifyPhysicalAvailability`, a
+ * mesma que decide o badge de "Justificativa pendente".
  *
- * O vermelho e o âmbar ganharam borda e peso: num fundo claro, só o preenchimento
- * a 15% deixava a faixa crítica com contraste parecido com o da faixa boa — que é
+ * O vermelho ganhou borda e peso: num fundo claro, só o preenchimento a 15%
+ * deixava a faixa crítica com contraste parecido com o da faixa boa — que é
  * justamente o oposto do que a tabela precisa comunicar de relance.
  */
 function availabilityClass(value: number | null): string {
   switch (classifyPhysicalAvailability(value)) {
     case "boa":
       return "border border-success/30 bg-success/15 text-success-strong";
-    case "atencao":
-      return "border border-gold/45 bg-gold/25 text-gold-deep";
     case "critica":
       return "border border-danger/50 bg-danger/20 font-extrabold text-danger";
     default:

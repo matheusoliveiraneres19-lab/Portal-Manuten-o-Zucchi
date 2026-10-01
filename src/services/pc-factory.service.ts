@@ -55,7 +55,8 @@ import {
   calculateFleetPhysicalAvailability,
   calculateMonthHoursWithinWindow,
   calculatePeriodHours,
-  calculatePhysicalAvailability
+  calculatePhysicalAvailability,
+  getAvailabilityStatus
 } from "@/utils/pc-factory-physical-availability";
 import { PC_FACTORY_DEFAULT_MODE } from "@/types/pc-factory";
 import { listAvailabilityNotesForPeriod } from "@/services/pc-factory-availability-notes.service";
@@ -1853,8 +1854,8 @@ function buildRecommendations(agg: HoursAggregate, availabilityPercent: number |
   if (agg.waitingHours > 0 && agg.waitingHours >= agg.maintenanceHours * 0.3) {
     recs.push({ tone: "warning", message: "Máquina aguardando manutenção por tempo elevado." });
   }
-  if (availabilityPercent !== null && availabilityPercent < 70) {
-    recs.push({ tone: "warning", message: "Máquina com baixa disponibilidade estimada." });
+  if (getAvailabilityStatus(availabilityPercent) === "CRITICAL") {
+    recs.push({ tone: "danger", message: "Máquina com baixa disponibilidade estimada." });
   }
   if (agg.maintenanceEvents >= 5) {
     recs.push({ tone: "info", message: "Priorizar análise de causa raiz para recorrência de manutenção." });

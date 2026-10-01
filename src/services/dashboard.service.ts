@@ -23,6 +23,7 @@ import {
 import { countPublishedProcedures } from "@/services/procedures.service";
 import { getPendingPurchases, getPendingPurchasesCount } from "@/services/purchases.service";
 import { OPEN_SERVICE_ORDER_STATUSES } from "@/services/shared/portal-rules";
+import { getAvailabilityStatus } from "@/utils/pc-factory-physical-availability";
 import type {
   CorrectivePreventiveChartData,
   CriticalAlertData,
@@ -526,7 +527,8 @@ function buildHomeAlerts(data: DatabaseDashboardData): AlertItem[] {
       text: `${int(pcf.count)} de ${int(pcf.totalMachines)} máquinas abaixo da média de disponibilidade (${pcf.averageAvailability.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%)${pior ? `; pior: ${pior.machineName} com ${pior.availability.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%` : ""}.`,
       time: "Disponibilidade",
       icon: Activity,
-      severity: pior && pior.availability < 50 ? "CRITICO" : "ATENCAO",
+      // Regra oficial: abaixo de 90% é crítico. Sem faixa de "atenção" para disponibilidade.
+      severity: pior && getAvailabilityStatus(pior.availability) === "CRITICAL" ? "CRITICO" : "INFORMATIVO",
       href: `/dashboard/pc-factory${periodQuery}`
     });
   }
