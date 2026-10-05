@@ -203,27 +203,35 @@ export type ServiceOrdersSummary = {
 /* Aderência de execução por área                                      */
 /* ------------------------------------------------------------------ */
 
-/** Uma área (grupo de planejamento normalizado) no gráfico de aderência. */
-export type ServiceOrderAreaAdherence = {
-  /** Chave do normalizador central (`resolvePlanningGroup`). */
-  key: PlanningGroupKey;
-  /** Rótulo gerencial (`PLANNING_GROUP_LABELS`). */
-  area: string;
+/**
+ * Contagens de uma área (ou do total), em ORDENS distintas. Duas dimensões
+ * independentes sobre o MESMO conjunto: STATUS (abertas + fechadas = total) e
+ * CLASSIFICAÇÃO (corretivas + planejadas = total).
+ */
+export type ServiceOrderAdherenceTotals = {
   total: number;
   open: number;
   closed: number;
   /** Fechadas ÷ total × 100, duas casas. `null` quando total = 0 — nunca 0%. */
   adherence: number | null;
+  corrective: number;
+  /** Plano programado PL/PV (`isProgrammedPreventiveOrder`). */
+  planned: number;
+  correctivePercent: number | null;
+  plannedPercent: number | null;
 };
 
-export type ServiceOrderAdherenceByArea = {
+/** Uma área (grupo de planejamento normalizado) no painel de aderência. */
+export type ServiceOrderAreaAdherence = ServiceOrderAdherenceTotals & {
+  /** Chave do normalizador central (`resolvePlanningGroup`). */
+  key: PlanningGroupKey;
+  /** Rótulo gerencial (`PLANNING_GROUP_LABELS`). */
+  area: string;
+};
+
+export type ServiceOrderAdherenceByArea = ServiceOrderAdherenceTotals & {
   /** Só as áreas com OS no recorte, na ordem oficial `PLANNING_GROUP_ORDER`. */
   areas: ServiceOrderAreaAdherence[];
-  /** Soma das áreas, em ORDENS distintas (osNumber) do recorte da tabela. */
-  total: number;
-  open: number;
-  closed: number;
-  adherence: number | null;
   /** Linhas (operações) que deram origem às ordens — é o "Total de OS" da tabela. */
   operationRows: number;
   /** O recorte inclui o dia de hoje: os números ainda podem mudar. */
@@ -232,28 +240,37 @@ export type ServiceOrderAdherenceByArea = {
   singleMonth: boolean;
 };
 
-/** ORDEM ainda não encerrada (uma linha por osNumber), listada no detalhe de uma área. */
-export type ServiceOrderOpenItem = {
+/** Filtros do detalhe de uma área — combináveis entre si. */
+export type ServiceOrderAreaStatusFilter = "all" | "open" | "closed";
+export type ServiceOrderAreaTypeFilter = "all" | "corrective" | "planned";
+
+/** Uma ORDEM (uma linha por osNumber) no detalhe de uma área. */
+export type ServiceOrderAreaOrderItem = {
   osNumber: string;
   title: string;
   technicalObject: string;
   responsibleName: string | null;
-  /** Status da primeira operação pendente — a que impede o encerramento. */
+  /** Status da primeira operação pendente (a que impede o encerramento), ou da primeira operação. */
   status: ServiceOrderStatusLabel;
   statusSapRaw: string | null;
+  closed: boolean;
+  /** "PL" / "PV" = planejada; `null` = corretiva. */
+  programmedType: "PL" | "PV" | null;
   openedAt: string | null;
-  /** Dias corridos desde a data-base até hoje; `null` sem data-base. */
+  /** Dias corridos desde a data-base até hoje, só para ordens abertas. */
   daysOpen: number | null;
   totalOperations: number;
   openOperations: number;
 };
 
-export type ServiceOrderOpenByAreaResult = {
+export type ServiceOrderAreaOrdersResult = {
   key: PlanningGroupKey;
   area: string;
-  /** Quantas OS abertas a área tem no recorte (pode ser maior que `items.length`). */
-  totalOpen: number;
-  /** As mais antigas primeiro, limitadas a `limit`. */
-  items: ServiceOrderOpenItem[];
+  status: ServiceOrderAreaStatusFilter;
+  type: ServiceOrderAreaTypeFilter;
+  /** Quantas ordens atendem aos filtros (pode ser maior que `items.length`). */
+  totalMatching: number;
+  /** Abertas primeiro; dentro de cada grupo, as mais antigas primeiro. Limitado a `limit`. */
+  items: ServiceOrderAreaOrderItem[];
   limit: number;
 };

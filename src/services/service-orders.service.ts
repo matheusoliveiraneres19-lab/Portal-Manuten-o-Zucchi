@@ -3,8 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
 import {
   excludeInvalidTestEquipmentWhere,
+  getProgrammedOrderType,
   isClosedServiceOrder,
-  isProgrammedPreventiveOrder
+  isProgrammedPreventiveOrder,
+  type ProgrammedOrderType
 } from "@/utils/service-order-classification";
 import {
   PLANNING_GROUP_LABELS,
@@ -19,8 +21,10 @@ import { buildDataQualitySummary } from "@/services/shared/data-quality";
 import type { DataQualityNotice, DataQualitySummary } from "@/types/data-quality";
 import type {
   ServiceOrderAdherenceByArea,
+  ServiceOrderAreaOrdersResult,
+  ServiceOrderAreaStatusFilter,
+  ServiceOrderAreaTypeFilter,
   ServiceOrderDashboard,
-  ServiceOrderOpenByAreaResult,
   ServiceOrderFilterOptions,
   ServiceOrderSlice,
   ServiceOrderListItem,
@@ -450,22 +454,29 @@ function getEmptyDashboard(): ServiceOrderDashboard {
 /* ------------------------------------------------------------------ */
 
 /**
- * Regras do gráfico "Aderência de execução por área" — nenhuma nova:
+ * Regras do painel "Aderência de execução por área" — nenhuma nova:
  *
  *  - UNIDADE = ORDEM DE MANUTENÇÃO (`osNumber` distinto), não a linha da tabela.
  *    Cada linha é uma OPERAÇÃO (chave [osNumber, operationCode]) e uma preventiva
  *    elétrica chega com ~13 delas: contar linhas inflaria a Elétrica e poluiria o
- *    gráfico. É a mesma unidade do relatório PDF (service-order-adherence-report).
- *  - FECHADA = TODAS as operações reconhecidas por `isClosedServiceOrder` (enum
- *    FECHADA, o "Tecnicamente encerrado" do SAP, mais a rede de segurança do texto
- *    cru). Uma operação pendente deixa a ordem em aberto — mesmo desempate do PDF.
- *    ABERTA = todo o resto, inclusive LIBERADA — por isso não existe terceira série.
+ *    painel. É a mesma unidade do relatório PDF (service-order-adherence-report).
+ *  - STATUS — FECHADA = TODAS as operações reconhecidas por `isClosedServiceOrder`
+ *    (enum FECHADA, o "Tecnicamente encerrado" do SAP, mais a rede de segurança do
+ *    texto cru). Uma operação pendente deixa a ordem em aberto — mesmo desempate do
+ *    PDF. ABERTA = todo o resto, inclusive LIBERADA.
+ *  - CLASSIFICAÇÃO — PLANEJADA = `isProgrammedPreventiveOrder` (prefixo "PL -" /
+ *    "PV -" no título), a regra da home, de Preventivas e de Equipamentos Críticos;
+ *    CORRETIVA = o resto. Avaliada no título da ordem: verificado na base, nenhuma
+ *    ordem tem título (nem classificação) divergente entre operações.
+ *  - Status e classificação são dimensões INDEPENDENTES sobre o MESMO conjunto de
+ *    ordens: abertas + fechadas = total = corretivas + planejadas, em cada área.
  *  - ÁREA = `resolvePlanningGroup` (normalizador central), o primeiro grupo
  *    reconhecido entre as operações. Vazio/não reconhecido cai em "Outros", que só
  *    aparece quando tem OS — nenhuma ordem do recorte some da soma.
  */
 type AdherenceRow = {
   osNumber: string;
+  title: string;
   status: ServiceOrderStatus;
   statusSapRaw: string | null;
   planningGroup: string | null;
@@ -476,6 +487,8 @@ type AdherenceRow = {
 type ConsolidatedOrder<Row extends AdherenceRow> = {
   area: PlanningGroupKey;
   closed: boolean;
+  /** Plano programado (PL/PV) ou `null` = corretiva. */
+  programmedType: ProgrammedOrderType | null;
   /** Operações da ordem, na ordem em que vieram do banco. */
   operations: Row[];
   /** Operações ainda não encerradas. */
@@ -492,7 +505,13 @@ function consolidateOrders<Row extends AdherenceRow>(rows: Row[]): Map<string, C
     const order = orders.get(row.osNumber);
 
     if (!order) {
-      orders.set(row.osNumber, { area, closed, operations: [row], openOperations: closed ? [] : [row] });
+      orders.set(row.osNumber, {
+        area,
+        closed,
+        programmedType: getProgrammedOrderType(row),
+        operations: [row],
+        openOperations: closed ? [] : [row]
+      });
       continue;
     }
 
@@ -507,9 +526,25 @@ function consolidateOrders<Row extends AdherenceRow>(rows: Row[]): Map<string, C
   return orders;
 }
 
-/** Fechadas ÷ total × 100 com duas casas; `null` sem denominador. */
-function adherencePercent(total: number, closed: number): number | null {
-  return total > 0 ? Math.round((closed / total) * 10_000) / 100 : null;
+/** Parte ÷ total × 100 com duas casas; `null` sem denominador. */
+function percentOf(part: number, total: number): number | null {
+  return total > 0 ? Math.round((part / total) * 10_000) / 100 : null;
+}
+
+type AdherenceCounter = { total: number; closed: number; planned: number };
+
+/** Os mesmos campos por área e para o total, a partir de (total, fechadas, planejadas). */
+function toAdherenceTotals({ total, closed, planned }: AdherenceCounter) {
+  return {
+    total,
+    open: total - closed,
+    closed,
+    adherence: percentOf(closed, total),
+    corrective: total - planned,
+    planned,
+    correctivePercent: percentOf(total - planned, total),
+    plannedPercent: percentOf(planned, total)
+  };
 }
 
 function createAdherenceAccumulator() {
@@ -520,38 +555,29 @@ function createAdherenceAccumulator() {
       rows.push(row);
     },
     result(params: ServiceOrdersQueryParams): ServiceOrderAdherenceByArea {
-      const porArea = new Map<PlanningGroupKey, { total: number; closed: number }>();
+      // UMA agregação: status e classificação saem do mesmo laço, sobre as mesmas ordens.
+      const porArea = new Map<PlanningGroupKey, AdherenceCounter>();
       consolidateOrders(rows).forEach((order) => {
-        const current = porArea.get(order.area) ?? { total: 0, closed: 0 };
+        const current = porArea.get(order.area) ?? { total: 0, closed: 0, planned: 0 };
         current.total += 1;
         if (order.closed) current.closed += 1;
+        if (order.programmedType) current.planned += 1;
         porArea.set(order.area, current);
       });
 
+      const geral: AdherenceCounter = { total: 0, closed: 0, planned: 0 };
       const areas = PLANNING_GROUP_ORDER.flatMap((key) => {
         const counter = porArea.get(key);
         if (!counter || counter.total === 0) return [];
-        return [
-          {
-            key,
-            area: PLANNING_GROUP_LABELS[key],
-            total: counter.total,
-            open: counter.total - counter.closed,
-            closed: counter.closed,
-            adherence: adherencePercent(counter.total, counter.closed)
-          }
-        ];
+        geral.total += counter.total;
+        geral.closed += counter.closed;
+        geral.planned += counter.planned;
+        return [{ key, area: PLANNING_GROUP_LABELS[key], ...toAdherenceTotals(counter) }];
       });
-
-      const total = areas.reduce((sum, area) => sum + area.total, 0);
-      const closed = areas.reduce((sum, area) => sum + area.closed, 0);
 
       return {
         areas,
-        total,
-        open: total - closed,
-        closed,
-        adherence: adherencePercent(total, closed),
+        ...toAdherenceTotals(geral),
         operationRows: rows.length,
         ...describeAdherencePeriod(params)
       };
@@ -581,10 +607,7 @@ function describeAdherencePeriod(params: ServiceOrdersQueryParams) {
 function emptyAdherenceByArea(): ServiceOrderAdherenceByArea {
   return {
     areas: [],
-    total: 0,
-    open: 0,
-    closed: 0,
-    adherence: null,
+    ...toAdherenceTotals({ total: 0, closed: 0, planned: 0 }),
     operationRows: 0,
     periodInProgress: false,
     singleMonth: false
@@ -593,6 +616,7 @@ function emptyAdherenceByArea(): ServiceOrderAdherenceByArea {
 
 const ADHERENCE_ROW_SELECT = {
   osNumber: true,
+  title: true,
   status: true,
   statusSapRaw: true,
   planningGroup: true,
@@ -602,7 +626,7 @@ const ADHERENCE_ROW_SELECT = {
 /**
  * Aderência por área do recorte, em UMA leitura. A página não usa esta função — ela
  * recebe o mesmo cálculo de dentro de `getServiceOrderDashboard`, sem consulta extra;
- * esta é a porta de entrada para quem precisa só do gráfico.
+ * esta é a porta de entrada para quem precisa só do painel.
  */
 export async function getServiceOrderAdherenceByArea(
   params: ServiceOrdersQueryParams = {}
@@ -621,61 +645,57 @@ export async function getServiceOrderAdherenceByArea(
   }
 }
 
-/** Teto de ordens devolvidas no detalhe de uma área (as mais antigas primeiro). */
-const OPEN_BY_AREA_LIMIT = 500;
+/** Teto de ordens devolvidas no detalhe de uma área. */
+const AREA_ORDERS_LIMIT = 500;
 
 /**
- * DETALHE de uma área: ORDENS ainda não encerradas do recorte, as mais antigas primeiro.
+ * DETALHE de uma área ("Análise — Mecânica"): as ORDENS da área no recorte, filtradas
+ * por status (abertas/fechadas) e classificação (corretivas/planejadas) — os dois
+ * filtros se combinam ("corretivas abertas da Mecânica").
  *
- * Duas consultas enxutas, só no clique:
- *  1. operações com `status != FECHADA` — superconjunto das pendentes, só para achar
- *     QUAIS ordens podem estar abertas;
- *  2. TODAS as operações dessas ordens no recorte, para consolidar com a mesma regra
- *     do gráfico (área + "fechada só se todas fecharam"). Assim o detalhe não tem
- *     como divergir do número da barra.
+ * UMA consulta, só no clique, sobre o mesmo `where` da página, consolidada com a
+ * mesma função do painel — o detalhe não tem como divergir do número da linha.
+ * Abertas primeiro, e dentro de cada grupo as mais antigas primeiro.
  */
-export async function getOpenServiceOrdersByArea(
+export async function getServiceOrdersByArea(
   params: ServiceOrdersQueryParams,
-  key: PlanningGroupKey
-): Promise<ServiceOrderOpenByAreaResult> {
-  const where = buildServiceOrderWhere(params);
-
-  const candidates = await prisma.serviceOrder.findMany({
-    where: { AND: [where, { status: { not: ServiceOrderStatus.FECHADA } }] },
-    select: { osNumber: true },
-    distinct: ["osNumber"]
+  key: PlanningGroupKey,
+  filters: { status: ServiceOrderAreaStatusFilter; type: ServiceOrderAreaTypeFilter }
+): Promise<ServiceOrderAreaOrdersResult> {
+  const rows = await prisma.serviceOrder.findMany({
+    where: buildServiceOrderWhere(params),
+    select: {
+      ...ADHERENCE_ROW_SELECT,
+      openedAt: true,
+      technicalObjectRaw: true,
+      equipmentName: true,
+      equipmentCode: true,
+      responsibleName: true,
+      responsible: true
+    },
+    orderBy: [{ openedAt: "asc" }, { osNumber: "asc" }, { operationCode: "asc" }]
   });
 
-  const rows = candidates.length
-    ? await prisma.serviceOrder.findMany({
-        where: { AND: [where, { osNumber: { in: candidates.map((row) => row.osNumber) } }] },
-        select: {
-          ...ADHERENCE_ROW_SELECT,
-          title: true,
-          openedAt: true,
-          technicalObjectRaw: true,
-          equipmentName: true,
-          equipmentCode: true,
-          responsibleName: true,
-          responsible: true
-        },
-        orderBy: [{ openedAt: "asc" }, { osNumber: "asc" }, { operationCode: "asc" }]
-      })
-    : [];
-
   const now = Date.now();
-  const open = Array.from(consolidateOrders(rows).entries()).filter(
-    ([, order]) => order.area === key && !order.closed
-  );
+  const matching = Array.from(consolidateOrders(rows).entries())
+    .filter(([, order]) => order.area === key)
+    .filter(([, order]) => filters.status === "all" || order.closed === (filters.status === "closed"))
+    .filter(([, order]) => filters.type === "all" || Boolean(order.programmedType) === (filters.type === "planned"))
+    // Estável: abertas antes de fechadas, preservando a ordem por data-base do banco.
+    .sort(([, a], [, b]) => Number(a.closed) - Number(b.closed));
 
   return {
     key,
     area: PLANNING_GROUP_LABELS[key],
-    totalOpen: open.length,
-    limit: OPEN_BY_AREA_LIMIT,
-    items: open.slice(0, OPEN_BY_AREA_LIMIT).map(([osNumber, order]) => {
+    status: filters.status,
+    type: filters.type,
+    totalMatching: matching.length,
+    limit: AREA_ORDERS_LIMIT,
+    items: matching.slice(0, AREA_ORDERS_LIMIT).map(([osNumber, order]) => {
       const first = order.operations[0];
-      const pending = order.openOperations[0];
+      // Status exibido: o da primeira operação pendente, que é a que impede o
+      // encerramento; ordem encerrada mostra o da primeira operação.
+      const shown = order.openOperations[0] ?? first;
       const openedAt = order.operations.find((op) => op.openedAt)?.openedAt ?? null;
       const equipment = order.operations.find((op) => op.technicalObjectRaw || op.equipmentName || op.equipmentCode);
       const responsible = order.operations.find((op) => op.responsibleName || op.responsible);
@@ -687,11 +707,13 @@ export async function getOpenServiceOrdersByArea(
           ? equipment.technicalObjectRaw ?? formatTechnicalObject(equipment.equipmentName, equipment.equipmentCode)
           : "-",
         responsibleName: responsible ? responsible.responsibleName ?? responsible.responsible : null,
-        // Status da primeira operação pendente: é ela que impede o encerramento.
-        status: pending.status as ServiceOrderStatusLabel,
-        statusSapRaw: pending.statusSapRaw,
+        status: shown.status as ServiceOrderStatusLabel,
+        statusSapRaw: shown.statusSapRaw,
+        closed: order.closed,
+        programmedType: order.programmedType,
         openedAt: openedAt?.toISOString() ?? null,
-        daysOpen: openedAt ? Math.max(0, Math.floor((now - openedAt.getTime()) / 86_400_000)) : null,
+        daysOpen:
+          !order.closed && openedAt ? Math.max(0, Math.floor((now - openedAt.getTime()) / 86_400_000)) : null,
         totalOperations: order.operations.length,
         openOperations: order.openOperations.length
       };

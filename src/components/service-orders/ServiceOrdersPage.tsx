@@ -324,7 +324,7 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
           {
             term: "Corretivas x planejadas",
             detail:
-              "PLANEJADA = ordem de plano programado, identificada pelo prefixo PL- ou PV- no título (isProgrammedPreventiveOrder). CORRETIVA = todas as demais ordens válidas do recorte. É a mesma regra da tela inicial, de Preventivas e de Equipamentos Críticos — não existe classificação própria desta aba."
+              "PLANEJADA = ordem de plano programado, identificada pelo prefixo PL- ou PV- no título (isProgrammedPreventiveOrder). CORRETIVA = todas as demais ordens válidas do recorte. É a mesma regra da tela inicial, de Preventivas e de Equipamentos Críticos — não existe classificação própria desta aba. Aparece por área no painel de Aderência, sobre as mesmas ordens do status: corretivas + planejadas = abertas + fechadas = total da área."
           },
           {
             term: "Tempo médio de execução",

@@ -1,15 +1,14 @@
 "use client";
 
-import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { ClipboardList, Clock, FolderOpen, Gauge, Timer, User, Wrench } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { ServiceOrderAreaAdherenceSection } from "@/components/service-orders/ServiceOrderAreaAdherence";
 import { RankingList } from "@/components/RankingList";
 import { KpiGrid, type KpiCardData } from "@/components/ui/KpiGrid";
 import { UnavailableIndicator } from "@/components/ui/FieldNotice";
-import { CHART_SERIES, TOOLTIP } from "@/constants/theme";
+import { CHART_SERIES } from "@/constants/theme";
 import { partialBaseNote } from "@/utils/partial-base";
-import type { ServiceOrderDashboard, ServiceOrderSlice } from "@/types/service-orders";
+import type { ServiceOrderDashboard } from "@/types/service-orders";
 
 /**
  * Cards e gráficos gerenciais da aba Ordens de Serviço (FASE 10).
@@ -102,43 +101,19 @@ export function ServiceOrderCharts({
 }) {
   return (
     <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-      <MonthlyCard className="xl:col-span-7" points={dashboard.openClosedByMonth} />
-
-      {/* Substitui "OS por status": abre o detalhe da área clicada em largura total logo abaixo. */}
+      {/* Painel único da análise por área: absorveu "OS por status", "OS por grupo de
+          planejamento" e "Corretivas x planejadas". A análise da área clicada abre em
+          largura total logo abaixo. */}
       <ServiceOrderAreaAdherenceSection
-        className="xl:col-span-5"
+        className="xl:col-span-12"
         adherence={dashboard.adherenceByArea}
         filterQuery={filterQuery}
       />
 
-      <DonutCard
-        className="xl:col-span-5"
-        title="Corretivas x planejadas"
-        subtitle="Planejada = plano programado (PL/PV no título), mesma regra da home."
-        slices={dashboard.correctiveVsPlanned}
-        palette={[CHART_SERIES.corretiva, CHART_SERIES.preventiva]}
-      />
-
-      {dashboard.fieldAvailability.planningGroup ? (
-        <RankingList
-          className="xl:col-span-7"
-          title="OS por grupo de planejamento"
-          items={dashboard.byPlanningGroup}
-          variant="bars"
-          emptyTitle="Sem grupo de planejamento no recorte"
-          emptyDescription="Ajuste o filtro ou reimporte as ordens com a coluna de grupo."
-        />
-      ) : (
-        <UnavailableIndicator
-          className="xl:col-span-7"
-          title="OS por grupo de planejamento"
-          message="Indicador indisponível: a base importada não possui o campo Grupo de Planejamento."
-          detail="Reimporte a planilha de Ordens com essa coluna para habilitar o gráfico."
-        />
-      )}
+      <MonthlyCard className="xl:col-span-4" points={dashboard.openClosedByMonth} />
 
       <RankingList
-        className="xl:col-span-6"
+        className="xl:col-span-4"
         title="Top equipamentos por OS"
         items={dashboard.topEquipments}
         variant="bars"
@@ -147,7 +122,7 @@ export function ServiceOrderCharts({
       />
 
       <RankingList
-        className="xl:col-span-6"
+        className="xl:col-span-4"
         title="Top responsáveis por OS"
         items={dashboard.topResponsibles}
         variant="bars"
@@ -247,58 +222,5 @@ function Bar({ value, max, color, label }: { value: number; max: number; color: 
         style={{ width: `${(value / max) * 100}%`, background: color }}
       />
     </div>
-  );
-}
-
-function DonutCard({
-  title,
-  subtitle,
-  slices,
-  palette,
-  className = ""
-}: {
-  title: string;
-  subtitle?: string;
-  slices: ServiceOrderSlice[];
-  palette: string[];
-  className?: string;
-}) {
-  const total = slices.reduce((sum, slice) => sum + slice.value, 0);
-
-  return (
-    <article className={`panel flex h-full flex-col rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">{title}</h3>
-      {subtitle ? <p className="mb-2 text-[11px] text-zinc-500">{subtitle}</p> : null}
-
-      {total === 0 ? (
-        <EmptyState title="Sem ordens no recorte" description="Ajuste os filtros para visualizar a distribuição." />
-      ) : (
-        <div className="mt-2 h-[220px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie data={slices} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="82%" paddingAngle={2}>
-                {slices.map((slice, index) => (
-                  <Cell key={slice.name} fill={palette[index % palette.length]} stroke="transparent" />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{
-                  background: TOOLTIP.background,
-                  border: `1px solid ${TOOLTIP.border}`,
-                  borderRadius: 8,
-                  color: TOOLTIP.text,
-                  fontSize: 12
-                }}
-                formatter={(value: number, name: string) => [
-                  `${value.toLocaleString("pt-BR")} (${((value / total) * 100).toFixed(1)}%)`,
-                  name
-                ]}
-              />
-              <Legend verticalAlign="bottom" height={28} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </article>
   );
 }

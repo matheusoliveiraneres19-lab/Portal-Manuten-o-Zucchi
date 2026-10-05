@@ -1,45 +1,44 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Loader2, X } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
-import { SEMANTIC, TOOLTIP } from "@/constants/theme";
+import { CHART_SERIES, SEMANTIC, TOOLTIP } from "@/constants/theme";
 import type { PlanningGroupKey } from "@/utils/service-order-planning";
 import type {
   ServiceOrderAdherenceByArea,
   ServiceOrderAreaAdherence,
-  ServiceOrderOpenByAreaResult,
+  ServiceOrderAreaOrdersResult,
+  ServiceOrderAreaStatusFilter,
+  ServiceOrderAreaTypeFilter,
   ServiceOrderStatusLabel
 } from "@/types/service-orders";
 
 /**
- * "ADERÊNCIA DE EXECUÇÃO POR ÁREA" — substitui o antigo "OS por status".
+ * "ADERÊNCIA DE EXECUÇÃO POR ÁREA" — painel único da análise por área.
  *
- * Nada é calculado aqui: abertas, fechadas e aderência chegam prontas de
- * `getServiceOrderDashboard` (mesma varredura da tabela). O clique numa área abre,
- * logo abaixo, as OS ainda não encerradas dela — buscadas sob os mesmos filtros.
+ * Concentra o que antes eram três painéis (OS por status / por grupo de
+ * planejamento / corretivas x planejadas). Nada é calculado aqui: tudo chega pronto
+ * de `getServiceOrderDashboard`, na mesma varredura da tabela.
  *
- * Vermelho x verde é o par semântico do portal; como os dois se aproximam para
- * daltônicos, a identidade nunca depende só da cor: ordem fixa (Abertas sempre à
- * esquerda), legenda e o número escrito sobre cada barra.
+ * Layout híbrido: uma linha por área, com DUAS barras 100% — uma por dimensão.
+ * Barras normalizadas evitam que o volume de Lubrificação (centenas de ordens por
+ * mês) achate Usinagem ou Terceiros; os números absolutos ficam escritos ao lado.
+ *
+ * Duas dimensões independentes sobre o mesmo conjunto de ordens:
+ *   STATUS          → abertas (vermelho) x fechadas (verde)
+ *   CLASSIFICAÇÃO   → corretivas (vermelho) x planejadas (azul)
+ * O vermelho aparece nas duas, então cada barra fica sob o cabeçalho da sua
+ * dimensão e com o rótulo escrito — a cor nunca é a única pista.
  */
 const OPEN_COLOR = SEMANTIC.danger.DEFAULT;
 const CLOSED_COLOR = SEMANTIC.success.DEFAULT;
+const CORRECTIVE_COLOR = CHART_SERIES.corretiva;
+const PLANNED_COLOR = CHART_SERIES.preventiva;
 
 /** Volume mínimo para uma área disputar "melhor" / "menor aderência". */
 const MIN_RANKED_VOLUME = 10;
 const RANKING_HINT = `Entre áreas com ${MIN_RANKED_VOLUME}+ OS`;
-
-/** Rótulo curto no eixo — o nome inteiro de "Serviço Terceiro" não cabe sobre as barras. */
-const AXIS_LABEL: Record<PlanningGroupKey, string> = {
-  MEC: "Mecânica",
-  ELE: "Elétrica",
-  SERVICO_TERCEIRO: "Terceiros",
-  LUB: "Lubrificação",
-  USINAGEM: "Usinagem",
-  OUTROS: "Outros"
-};
 
 const int = (value: number) => value.toLocaleString("pt-BR");
 const pct = (value: number | null) =>
@@ -67,12 +66,7 @@ export function ServiceOrderAreaAdherenceSection({
 
   return (
     <>
-      <AdherenceChartCard
-        className={className}
-        adherence={adherence}
-        selected={selected}
-        onSelect={toggle}
-      />
+      <AdherencePanel className={className} adherence={adherence} selected={selected} onSelect={toggle} />
       {selectedArea ? (
         <AreaDetailPanel
           key={`${selectedArea.key}|${filterQuery}`}
@@ -86,10 +80,10 @@ export function ServiceOrderAreaAdherenceSection({
 }
 
 /* ------------------------------------------------------------------ */
-/* Gráfico                                                            */
+/* Painel                                                             */
 /* ------------------------------------------------------------------ */
 
-function AdherenceChartCard({
+function AdherencePanel({
   adherence,
   selected,
   onSelect,
@@ -114,18 +108,21 @@ function AdherenceChartCard({
       <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
         Aderência de execução por área
       </h3>
-      <p className="text-[11px] text-zinc-500">
-        Ordens abertas x fechadas no período e percentual de aderência por área.
-      </p>
+      <p className="text-[11px] text-zinc-500">Abertas x fechadas e composição de corretivas x planejadas por área.</p>
 
       {areas.length === 0 ? (
         <EmptyState title="Sem OS no período" description="Ajuste os filtros para visualizar a aderência por área." />
       ) : (
         <>
-          <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
             <MiniStat label="Aderência geral" value={pct(adherence.adherence)} hint={`${int(adherence.total)} OS`} />
             <MiniStat
-              label="Melhor área"
+              label="Corretivas"
+              value={pct(adherence.correctivePercent)}
+              hint={`${int(adherence.corrective)} corretivas · ${int(adherence.planned)} planejadas`}
+            />
+            <MiniStat
+              label="Melhor aderência"
               value={best ? pct(best.adherence) : "—"}
               hint={best ? `${best.area} · ${int(best.total)} OS` : RANKING_HINT}
               title={RANKING_HINT}
@@ -138,84 +135,43 @@ function AdherenceChartCard({
             />
           </div>
 
-          <div className="mt-3 flex items-center gap-4 text-[11px] text-zinc-600">
-            <LegendSwatch color={OPEN_COLOR} label="Abertas (não encerradas)" />
-            <LegendSwatch color={CLOSED_COLOR} label="Fechadas (tecnicamente encerradas)" />
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-zinc-600">
+            <span className="flex items-center gap-2">
+              <span className="font-bold uppercase tracking-wide text-zinc-500">Status</span>
+              <LegendSwatch color={OPEN_COLOR} label="Abertas" />
+              <LegendSwatch color={CLOSED_COLOR} label="Fechadas" />
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="font-bold uppercase tracking-wide text-zinc-500">Classificação</span>
+              <LegendSwatch color={CORRECTIVE_COLOR} label="Corretivas" />
+              <LegendSwatch color={PLANNED_COLOR} label="Planejadas (PL/PV)" />
+            </span>
           </div>
 
-          <div className="mt-1 h-[260px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={areas} margin={{ top: 4, right: 4, bottom: 4, left: -16 }} barGap={2} barCategoryGap="22%">
-                <CartesianGrid vertical={false} stroke="rgba(62, 49, 29, 0.08)" />
-                {/* Eixo no TOPO: nome da área + aderência ficam acima de cada grupo de barras. */}
-                <XAxis
-                  dataKey="key"
-                  orientation="top"
-                  axisLine={false}
-                  tickLine={false}
-                  interval={0}
-                  height={44}
-                  tick={(props) => <AreaTick {...props} areas={areas} selected={selected} onSelect={onSelect} />}
-                />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 10, fill: "#71717a" }}
-                  allowDecimals={false}
-                  tickFormatter={(value: number) => int(value)}
-                />
-                <Tooltip cursor={{ fill: "rgba(214, 170, 58, 0.08)" }} content={<AdherenceTooltip />} />
-                <Bar
-                  dataKey="open"
-                  name="Abertas"
-                  fill={OPEN_COLOR}
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={36}
-                  cursor="pointer"
-                  onClick={(entry: { key?: PlanningGroupKey }) => entry.key && onSelect(entry.key)}
-                  fillOpacity={1}
-                >
-                  <LabelList dataKey="open" position="top" formatter={int} style={{ fontSize: 10, fill: "#52525b" }} />
-                </Bar>
-                <Bar
-                  dataKey="closed"
-                  name="Fechadas"
-                  fill={CLOSED_COLOR}
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={36}
-                  cursor="pointer"
-                  onClick={(entry: { key?: PlanningGroupKey }) => entry.key && onSelect(entry.key)}
-                >
-                  <LabelList dataKey="closed" position="top" formatter={int} style={{ fontSize: 10, fill: "#52525b" }} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="mt-3" role="table" aria-label="Aderência e composição por área">
+            <div
+              role="row"
+              className="hidden grid-cols-[minmax(120px,1fr)_minmax(0,2.2fr)_88px_minmax(0,2.2fr)] gap-4 border-b border-zinc-300/60 px-2 pb-1.5 text-[9px] font-bold uppercase tracking-wide text-zinc-500 md:grid"
+            >
+              <span role="columnheader">Área</span>
+              <span role="columnheader">Status · abertas x fechadas</span>
+              <span role="columnheader" className="text-right">
+                Aderência
+              </span>
+              <span role="columnheader">Classificação · corretivas x planejadas</span>
+            </div>
+            <div className="divide-y divide-zinc-200/80">
+              {areas.map((area) => (
+                <AreaRow key={area.key} area={area} active={selected === area.key} onSelect={onSelect} />
+              ))}
+            </div>
           </div>
 
-          {/* Visão em tabela + alvo de clique acessível por teclado. */}
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {areas.map((area) => (
-              <button
-                key={area.key}
-                type="button"
-                onClick={() => onSelect(area.key)}
-                aria-pressed={selected === area.key}
-                className={`rounded-md border px-2 py-1 text-[11px] tabular-nums transition ${
-                  selected === area.key
-                    ? "border-gold/60 bg-gold/15 text-zinc-900"
-                    : "border-zinc-300/70 text-zinc-600 hover:border-gold/50 hover:text-zinc-900"
-                }`}
-                title={`${area.area}: ${int(area.total)} OS · ${int(area.closed)} fechadas · ${int(area.open)} abertas · aderência ${pct(area.adherence)}`}
-              >
-                <strong className="font-semibold">{area.area}</strong> · {int(area.open)} abertas / {int(area.total)}
-              </button>
-            ))}
-          </div>
-
-          <p className="mt-2 text-[10px] leading-snug text-zinc-500">
-            Contagem por ordem de manutenção: a OS só conta como fechada quando todas as operações estão encerradas
-            ({int(adherence.total)} ordens; a tabela lista as {int(adherence.operationRows)} operações). Aderência =
-            fechadas ÷ total da área × 100. Clique em uma área para ver as OS ainda não encerradas.
+          <p className="mt-3 text-[10px] leading-snug text-zinc-500">
+            Contagem por ordem de manutenção ({int(adherence.total)} ordens; a tabela lista as{" "}
+            {int(adherence.operationRows)} operações). Fechada = todas as operações tecnicamente encerradas; aderência =
+            fechadas ÷ total da área. Planejada = plano programado (PL/PV no título), mesma regra da home. Clique em uma
+            área para analisar as ordens.
           </p>
 
           {adherence.periodInProgress ? (
@@ -230,56 +186,109 @@ function AdherenceChartCard({
   );
 }
 
-type TickProps = {
-  x?: number;
-  y?: number;
-  payload?: { value?: string };
-  areas: ServiceOrderAreaAdherence[];
-  selected: PlanningGroupKey | null;
+function AreaRow({
+  area,
+  active,
+  onSelect
+}: {
+  area: ServiceOrderAreaAdherence;
+  active: boolean;
   onSelect: (key: PlanningGroupKey) => void;
-};
-
-function AreaTick({ x = 0, y = 0, payload, areas, selected, onSelect }: TickProps) {
-  const area = areas.find((item) => item.key === payload?.value);
-  if (!area) return null;
-  const active = selected === area.key;
-
+}) {
   return (
-    <g transform={`translate(${x},${y})`} style={{ cursor: "pointer" }} onClick={() => onSelect(area.key)}>
-      <title>{area.area}</title>
-      <text textAnchor="middle" y={-26} fontSize={10} fontWeight={700} fill={active ? "#18181b" : "#52525b"}>
-        {AXIS_LABEL[area.key]}
-      </text>
-      <text textAnchor="middle" y={-9} fontSize={14} fontWeight={800} fill="#7B551F">
-        {pct(area.adherence)}
-      </text>
-    </g>
+    <div role="row" className="group relative">
+      <button
+        type="button"
+        onClick={() => onSelect(area.key)}
+        aria-pressed={active}
+        aria-label={`${area.area}: ${int(area.total)} OS, ${int(area.open)} abertas, ${int(area.closed)} fechadas, aderência ${pct(area.adherence)}, ${int(area.corrective)} corretivas, ${int(area.planned)} planejadas`}
+        className={`grid w-full grid-cols-1 gap-2 rounded-md px-2 py-2.5 text-left transition md:grid-cols-[minmax(120px,1fr)_minmax(0,2.2fr)_88px_minmax(0,2.2fr)] md:items-center md:gap-4 ${
+          active ? "bg-gold/[0.12] ring-1 ring-gold/50" : "hover:bg-gold/[0.06]"
+        }`}
+      >
+        <span role="cell" className="flex items-baseline justify-between gap-2 md:block">
+          <span className="block text-[13px] font-bold text-zinc-900">{area.area}</span>
+          <span className="block text-[11px] tabular-nums text-zinc-500">{int(area.total)} OS</span>
+        </span>
+
+        <span role="cell" className="block">
+          <SplitBar
+            segments={[
+              { value: area.open, color: OPEN_COLOR },
+              { value: area.closed, color: CLOSED_COLOR }
+            ]}
+            total={area.total}
+          />
+          <span className="mt-1 flex justify-between text-[10px] tabular-nums text-zinc-600">
+            <span>{int(area.open)} abertas</span>
+            <span>{int(area.closed)} fechadas</span>
+          </span>
+        </span>
+
+        <span role="cell" className="flex items-baseline justify-between md:block md:text-right">
+          <span className="text-[10px] uppercase tracking-wide text-zinc-500 md:hidden">Aderência</span>
+          <span className="text-[17px] font-extrabold tabular-nums text-gold-deep">{pct(area.adherence)}</span>
+        </span>
+
+        <span role="cell" className="block">
+          <SplitBar
+            segments={[
+              { value: area.corrective, color: CORRECTIVE_COLOR },
+              { value: area.planned, color: PLANNED_COLOR }
+            ]}
+            total={area.total}
+          />
+          <span className="mt-1 flex justify-between text-[10px] tabular-nums text-zinc-600">
+            <span>{pct(area.correctivePercent)} corretivas</span>
+            <span>{pct(area.plannedPercent)} planejadas</span>
+          </span>
+        </span>
+      </button>
+
+      <AreaTooltip area={area} />
+    </div>
   );
 }
 
-function AdherenceTooltip({
-  active,
-  payload
-}: {
-  active?: boolean;
-  payload?: Array<{ payload: ServiceOrderAreaAdherence }>;
-}) {
-  const area = active ? payload?.[0]?.payload : undefined;
-  if (!area) return null;
+/** Barra 100% com 2px de respiro entre os segmentos; segmento zero não é desenhado. */
+function SplitBar({ segments, total }: { segments: Array<{ value: number; color: string }>; total: number }) {
+  const visible = segments.filter((segment) => segment.value > 0);
+  return (
+    <span className="flex h-3 w-full gap-[2px] overflow-hidden rounded bg-black/[0.06]" aria-hidden>
+      {visible.map((segment, index) => (
+        <span
+          key={index}
+          className="block h-full first:rounded-l last:rounded-r"
+          style={{ width: `${(segment.value / total) * 100}%`, minWidth: 3, background: segment.color }}
+        />
+      ))}
+    </span>
+  );
+}
 
+function AreaTooltip({ area }: { area: ServiceOrderAreaAdherence }) {
   return (
     <div
-      className="rounded-lg px-3 py-2 text-xs shadow-lg"
+      role="tooltip"
+      className="pointer-events-none absolute left-1/2 top-full z-30 hidden w-60 -translate-x-1/2 rounded-lg px-3 py-2 text-xs shadow-lg group-hover:block md:left-[38%]"
       style={{ background: TOOLTIP.background, border: `1px solid ${TOOLTIP.border}`, color: TOOLTIP.text }}
     >
-      <p className="mb-1 font-bold" style={{ color: TOOLTIP.title }}>
+      <p className="font-bold uppercase" style={{ color: TOOLTIP.title }}>
         {area.area}
       </p>
-      <p>Total de OS: {int(area.total)}</p>
-      <p>Fechadas: {int(area.closed)}</p>
+      <p className="mb-1.5">Total de OS: {int(area.total)}</p>
+      <p className="text-[10px] font-bold uppercase opacity-70">Status</p>
       <p>Abertas: {int(area.open)}</p>
-      <p className="mt-1 font-semibold">Aderência: {pct(area.adherence)}</p>
-      <p className="mt-1 text-[10px] opacity-70">Clique para ver as OS abertas</p>
+      <p>Fechadas: {int(area.closed)}</p>
+      <p className="mb-1.5 font-semibold">Aderência: {pct(area.adherence)}</p>
+      <p className="text-[10px] font-bold uppercase opacity-70">Classificação</p>
+      <p>
+        Corretivas: {int(area.corrective)} ({pct(area.correctivePercent)})
+      </p>
+      <p>
+        Planejadas: {int(area.planned)} ({pct(area.plannedPercent)})
+      </p>
+      <p className="mt-1.5 text-[10px] opacity-70">Clique para analisar as ordens</p>
     </div>
   );
 }
@@ -318,10 +327,22 @@ const STATUS_TEXT: Record<ServiceOrderStatusLabel, string> = {
   CANCELADA: "Cancelada"
 };
 
+const STATUS_FILTER_OPTIONS: Array<{ value: ServiceOrderAreaStatusFilter; label: string }> = [
+  { value: "all", label: "Todas" },
+  { value: "open", label: "Abertas" },
+  { value: "closed", label: "Fechadas" }
+];
+
+const TYPE_FILTER_OPTIONS: Array<{ value: ServiceOrderAreaTypeFilter; label: string }> = [
+  { value: "all", label: "Todas" },
+  { value: "corrective", label: "Corretivas" },
+  { value: "planned", label: "Planejadas" }
+];
+
 type DetailState =
   | { phase: "loading" }
   | { phase: "error"; message: string }
-  | { phase: "ready"; data: ServiceOrderOpenByAreaResult };
+  | { phase: "ready"; data: ServiceOrderAreaOrdersResult };
 
 function AreaDetailPanel({
   area,
@@ -332,22 +353,27 @@ function AreaDetailPanel({
   filterQuery: string;
   onClose: () => void;
 }) {
+  // O gestor chega aqui para saber o que falta encerrar: abre em "Abertas".
+  const [status, setStatus] = useState<ServiceOrderAreaStatusFilter>(area.open > 0 ? "open" : "all");
+  const [type, setType] = useState<ServiceOrderAreaTypeFilter>("all");
   const [state, setState] = useState<DetailState>({ phase: "loading" });
 
   useEffect(() => {
-    if (area.open === 0) return;
     const controller = new AbortController();
     const query = new URLSearchParams(filterQuery);
     query.set("area", area.key);
+    query.set("detailStatus", status);
+    query.set("detailType", type);
+    setState({ phase: "loading" });
 
     fetch(`/api/service-orders/adherence-by-area?${query.toString()}`, { signal: controller.signal })
       .then(async (response) => {
         const body = (await response.json().catch(() => null)) as
-          | { ok: true; data: ServiceOrderOpenByAreaResult }
+          | { ok: true; data: ServiceOrderAreaOrdersResult }
           | { ok: false; message?: string }
           | null;
         if (!response.ok || !body || !body.ok) {
-          throw new Error((body && !body.ok && body.message) || "Falha ao carregar as OS abertas da área.");
+          throw new Error((body && !body.ok && body.message) || "Falha ao carregar as OS da área.");
         }
         setState({ phase: "ready", data: body.data });
       })
@@ -357,64 +383,105 @@ function AreaDetailPanel({
       });
 
     return () => controller.abort();
-  }, [area.key, area.open, filterQuery]);
+  }, [area.key, filterQuery, status, type]);
 
   return (
-    <article className="panel flex flex-col rounded-lg p-4 xl:col-span-12" aria-label={`Detalhe — ${area.area}`}>
+    <article className="panel flex flex-col rounded-lg p-4 xl:col-span-12" aria-label={`Análise — ${area.area}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
-            Detalhe — {area.area}
-          </h3>
+          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Análise — {area.area}</h3>
           <p className="text-[11px] text-zinc-500">
-            Ordens ainda não encerradas no recorte (uma linha por OS), das mais antigas para as mais novas.
+            Uma linha por ordem de manutenção. Abertas primeiro, das mais antigas para as mais novas.
           </p>
         </div>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Fechar detalhe"
+          aria-label="Fechar análise"
           className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-zinc-300/70 text-zinc-600 transition hover:border-gold/50 hover:text-zinc-900"
         >
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <MiniStat label="Total" value={int(area.total)} hint="Ordens da área no recorte" />
-        <MiniStat label="Abertas" value={int(area.open)} hint="Não encerradas" />
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <MiniStat label="Total de OS" value={int(area.total)} hint="Ordens da área no recorte" />
+        <MiniStat label="Abertas" value={int(area.open)} hint="Alguma operação pendente" />
         <MiniStat label="Fechadas" value={int(area.closed)} hint="Tecnicamente encerradas" />
         <MiniStat label="Aderência" value={pct(area.adherence)} hint="Fechadas ÷ total" />
+        <MiniStat label="Corretivas" value={int(area.corrective)} hint={pct(area.correctivePercent)} />
+        <MiniStat label="Planejadas" value={int(area.planned)} hint={pct(area.plannedPercent)} />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+        <Segmented label="Status" options={STATUS_FILTER_OPTIONS} value={status} onChange={setStatus} />
+        <Segmented label="Tipo" options={TYPE_FILTER_OPTIONS} value={type} onChange={setType} />
+        {state.phase === "ready" ? (
+          <span className="text-[11px] tabular-nums text-zinc-500">{int(state.data.totalMatching)} ordens</span>
+        ) : null}
       </div>
 
       <div className="mt-3">
-        {area.open === 0 ? (
-          <EmptyState title="Nenhuma OS pendente" description="Todas as OS desta área no recorte estão encerradas." />
-        ) : state.phase === "loading" ? (
+        {state.phase === "loading" ? (
           <p className="flex items-center gap-2 py-6 text-xs text-zinc-500">
-            <Loader2 className="h-4 w-4 animate-spin" /> Carregando OS abertas…
+            <Loader2 className="h-4 w-4 animate-spin" /> Carregando ordens…
           </p>
         ) : state.phase === "error" ? (
           <p className="py-6 text-xs text-rose-700">{state.message}</p>
+        ) : state.data.totalMatching === 0 ? (
+          <EmptyState title="Nenhuma ordem nessa combinação" description="Troque os filtros de status ou tipo acima." />
         ) : (
-          <OpenOrdersTable data={state.data} />
+          <AreaOrdersTable data={state.data} />
         )}
       </div>
     </article>
   );
 }
 
-function OpenOrdersTable({ data }: { data: ServiceOrderOpenByAreaResult }) {
+function Segmented<T extends string>({
+  label,
+  options,
+  value,
+  onChange
+}: {
+  label: string;
+  options: Array<{ value: T; label: string }>;
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2" role="group" aria-label={label}>
+      <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">{label}</span>
+      <div className="inline-flex rounded-md border border-zinc-300/70 bg-white/50 p-0.5">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={value === option.value}
+            onClick={() => onChange(option.value)}
+            className={`rounded px-2.5 py-1 text-[11px] font-semibold transition ${
+              value === option.value ? "bg-gold/20 text-zinc-900" : "text-zinc-600 hover:text-zinc-900"
+            }`}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AreaOrdersTable({ data }: { data: ServiceOrderAreaOrdersResult }) {
   return (
     <>
-      {data.totalOpen > data.items.length ? (
+      {data.totalMatching > data.items.length ? (
         <p className="mb-2 text-[11px] text-zinc-500">
-          Exibindo as {int(data.items.length)} mais antigas de {int(data.totalOpen)} OS abertas. Use os filtros da página
+          Exibindo as primeiras {int(data.items.length)} de {int(data.totalMatching)} ordens. Use os filtros da página
           para refinar.
         </p>
       ) : null}
       <div className="max-h-[420px] overflow-auto rounded-md border border-zinc-300/60">
-        <table className="w-full min-w-[820px] text-left text-[11px]">
+        <table className="w-full min-w-[900px] text-left text-[11px]">
           <thead className="sticky top-0 bg-[#F4EEDF] text-[10px] uppercase tracking-wide text-zinc-600">
             <tr>
               <th className="px-2.5 py-2 font-semibold">OS</th>
@@ -422,6 +489,7 @@ function OpenOrdersTable({ data }: { data: ServiceOrderOpenByAreaResult }) {
               <th className="px-2.5 py-2 font-semibold">Equipamento</th>
               <th className="px-2.5 py-2 font-semibold">Responsável</th>
               <th className="px-2.5 py-2 font-semibold">Status</th>
+              <th className="px-2.5 py-2 font-semibold">Tipo</th>
               <th className="px-2.5 py-2 font-semibold">Data-base</th>
               <th className="px-2.5 py-2 text-right font-semibold">Dias em aberto</th>
             </tr>
@@ -434,7 +502,7 @@ function OpenOrdersTable({ data }: { data: ServiceOrderOpenByAreaResult }) {
                   <span className="line-clamp-1" title={order.title}>
                     {order.title}
                   </span>
-                  {order.totalOperations > 1 ? (
+                  {order.totalOperations > 1 && order.openOperations > 0 ? (
                     <span className="text-[10px] text-zinc-500">
                       {int(order.openOperations)} de {int(order.totalOperations)} operações pendentes
                     </span>
@@ -447,13 +515,18 @@ function OpenOrdersTable({ data }: { data: ServiceOrderOpenByAreaResult }) {
                 </td>
                 <td className="whitespace-nowrap px-2.5 py-1.5">{order.responsibleName || "SEM RESPONSÁVEL"}</td>
                 <td className="whitespace-nowrap px-2.5 py-1.5" title={order.statusSapRaw ?? undefined}>
-                  {STATUS_TEXT[order.status] ?? order.status}
+                  <StatusDot color={order.closed ? CLOSED_COLOR : OPEN_COLOR} />
+                  {order.closed ? "Fechada" : STATUS_TEXT[order.status] ?? order.status}
+                </td>
+                <td className="whitespace-nowrap px-2.5 py-1.5">
+                  <StatusDot color={order.programmedType ? PLANNED_COLOR : CORRECTIVE_COLOR} />
+                  {order.programmedType ? `Planejada (${order.programmedType})` : "Corretiva"}
                 </td>
                 <td className="whitespace-nowrap px-2.5 py-1.5 tabular-nums">
                   {order.openedAt ? new Date(order.openedAt).toLocaleDateString("pt-BR", { timeZone: "UTC" }) : "-"}
                 </td>
                 <td className="whitespace-nowrap px-2.5 py-1.5 text-right font-semibold tabular-nums">
-                  {order.daysOpen === null ? "-" : int(order.daysOpen)}
+                  {order.closed ? <span className="font-normal text-zinc-400">encerrada</span> : order.daysOpen === null ? "-" : int(order.daysOpen)}
                 </td>
               </tr>
             ))}
@@ -462,4 +535,8 @@ function OpenOrdersTable({ data }: { data: ServiceOrderOpenByAreaResult }) {
       </div>
     </>
   );
+}
+
+function StatusDot({ color }: { color: string }) {
+  return <span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ background: color }} aria-hidden />;
 }
