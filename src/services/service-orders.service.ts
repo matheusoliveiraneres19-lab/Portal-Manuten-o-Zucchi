@@ -779,7 +779,7 @@ function realResponsible(row: { responsibleName: string | null; responsible?: st
  * Pré-filtro SQL das operações que PODEM pertencer à máquina. É um superconjunto:
  * a decisão final é a mesma resolução de raiz do ranking, em memória.
  */
-function equipmentCandidateWhere(
+export function equipmentCandidateWhere(
   key: string,
   lookup: Map<string, FunctionalLocationLite>
 ): Prisma.ServiceOrderWhereInput {

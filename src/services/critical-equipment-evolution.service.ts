@@ -503,7 +503,7 @@ export function buildFamilyDrilldown<Row extends EvolutionRow>(
 /* ------------------------------------------------------------------ */
 
 /** Rótulo do repartimento: "Descrição (código)" quando há descrição; senão só o código. */
-function describeComponent(tag: string, rootTag: string, lookup: Map<string, FunctionalLocationLite>) {
+export function describeComponent(tag: string, rootTag: string, lookup: Map<string, FunctionalLocationLite>) {
   const child = resolveFirstLevelChild(tag, rootTag, lookup);
   return {
     code: child.code,

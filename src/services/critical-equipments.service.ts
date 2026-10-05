@@ -101,7 +101,7 @@ const STATUS_ORDER: ServiceOrderStatusLabel[] = [
   "CANCELADA"
 ];
 
-type ServiceOrderRow = {
+export type ServiceOrderRow = {
   id: string;
   equipmentName: string | null;
   equipmentCode: string | null;
@@ -123,14 +123,14 @@ type ServiceOrderRow = {
 };
 
 /** Status considerados "em aberto" (backlog) em toda a aba. */
-const OPEN_STATUSES = new Set<ServiceOrderStatusLabel>([
+export const OPEN_STATUSES = new Set<ServiceOrderStatusLabel>([
   "ABERTA",
   "LIBERADA",
   "EM_ANDAMENTO",
   "AGUARDANDO_MATERIAL"
 ]);
 
-type ServiceOrderFullRow = ServiceOrderRow & {
+export type ServiceOrderFullRow = ServiceOrderRow & {
   id: string;
   description: string | null;
   closedAt: Date | null;
@@ -446,7 +446,7 @@ export async function getServiceOrderDetails(osNumber: string): Promise<Critical
   }
 }
 
-function toServiceOrderDto(row: ServiceOrderFullRow): CriticalEquipmentServiceOrder {
+export function toServiceOrderDto(row: ServiceOrderFullRow): CriticalEquipmentServiceOrder {
   return {
     id: row.id,
     osNumber: row.osNumber,
@@ -1447,7 +1447,7 @@ async function fetchRowsWithoutProgrammed(
  * atividade e classe corretiva/planejada). Ficam fora do SQL porque dependem da
  * normalização central — fonte única da regra, sem cálculo paralelo.
  */
-function applyPlanningFilters<T extends ServiceOrderRow>(
+export function applyPlanningFilters<T extends ServiceOrderRow>(
   rows: T[],
   params: Partial<CriticalEquipmentFilters>
 ): T[] {
@@ -1509,7 +1509,7 @@ async function fetchRowsFull(params: Partial<CriticalEquipmentFilters>): Promise
 }
 
 /** Campos completos de OS específicas (nível final do drill-down), em lotes por ID. */
-async function fetchRowsFullByIds(ids: string[]): Promise<ServiceOrderFullRow[]> {
+export async function fetchRowsFullByIds(ids: string[]): Promise<ServiceOrderFullRow[]> {
   const chunks: string[][] = [];
   for (let index = 0; index < ids.length; index += 500) {
     chunks.push(ids.slice(index, index + 500));
@@ -1550,7 +1550,7 @@ async function fetchRowsFullByIds(ids: string[]): Promise<ServiceOrderFullRow[]>
   return results.flat() as ServiceOrderFullRow[];
 }
 
-function buildWhere(params: Partial<CriticalEquipmentFilters>): Prisma.ServiceOrderWhereInput {
+export function buildWhere(params: Partial<CriticalEquipmentFilters>): Prisma.ServiceOrderWhereInput {
   const and: Prisma.ServiceOrderWhereInput[] = [];
 
   if (params.startDate || params.endDate) {
@@ -1606,7 +1606,7 @@ function buildResponsibleClause(value: string): Prisma.ServiceOrderWhereInput {
  * tabela estiver vazia ou indisponível, retorna Map vazio e o resolvedor usa o
  * padrão estrutural do TAG (funciona sem a planilha).
  */
-async function loadFunctionalLocationLookup(): Promise<Map<string, FunctionalLocationLite>> {
+export async function loadFunctionalLocationLookup(): Promise<Map<string, FunctionalLocationLite>> {
   try {
     const rows = await prisma.functionalLocation.findMany({
       select: {

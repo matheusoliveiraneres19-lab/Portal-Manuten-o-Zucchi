@@ -25,7 +25,15 @@ import { CriticalEquipmentTable } from "@/components/critical-equipments/Critica
 import { CriticalEquipmentFamilyDrilldown } from "@/components/critical-equipments/CriticalEquipmentFamilyDrilldown";
 import { CriticalEquipmentSelectionBar } from "@/components/critical-equipments/CriticalEquipmentSelectionBar";
 import { ChartSkeleton } from "@/components/ChartSkeleton";
-import { EMPTY_SELECTION, writeSelectionParams } from "@/utils/critical-equipment-selection";
+import {
+  DEFAULT_MACHINE_ANALYSIS,
+  EMPTY_SELECTION,
+  writeMachineAnalysisParams,
+  writeSelectionParams,
+  type MachineAnalysisState
+} from "@/utils/critical-equipment-selection";
+import { isSelectionActive } from "@/services/critical-equipment-evolution.service";
+import { CriticalEquipmentMachineAnalysis } from "@/components/critical-equipments/CriticalEquipmentMachineAnalysis";
 import { GOLD } from "@/constants/theme";
 
 // Gráficos Recharts carregados sob demanda (mantém o JS inicial leve).
@@ -106,6 +114,8 @@ export type AppliedCriticalEquipmentFilters = {
 type CriticalEquipmentsPageProps = {
   data: CriticalEquipmentsPageData;
   appliedFilters: AppliedCriticalEquipmentFilters;
+  /** Modo do bloco de evolução (Família x Máquina), lido da URL. */
+  machineAnalysis?: MachineAnalysisState;
 };
 
 /** Parte dos dados da página que muda com a seleção da análise. */
@@ -124,10 +134,17 @@ function pickScoped(data: CriticalEquipmentsPageData): CriticalEquipmentScopedDa
   };
 }
 
-export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipmentsPageProps) {
+export function CriticalEquipmentsPage({
+  data,
+  appliedFilters,
+  machineAnalysis: initialMachineAnalysis = DEFAULT_MACHINE_ANALYSIS
+}: CriticalEquipmentsPageProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
+  // Modo do bloco de evolução. Família e Máquina são caminhos INDEPENDENTES: um não
+  // recorta o outro, e trocar de modo limpa a seleção analítica do modo anterior.
+  const [machineAnalysis, setMachineAnalysis] = useState<MachineAnalysisState>(initialMachineAnalysis);
   const [draft, setDraft] = useState<AppliedCriticalEquipmentFilters>(appliedFilters);
 
   /*
@@ -142,6 +159,7 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
   const [pendingLabel, setPendingLabel] = useState<string | null>(null);
   const scopeRequestRef = useRef(0);
   const drilldownRef = useRef<HTMLDivElement>(null);
+  const evolutionRef = useRef<HTMLElement>(null);
 
   // Drill-down: detalhes do equipamento selecionado (carregados via API, sem recarregar a página).
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -240,10 +258,29 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
   }
 
   function navigate(filters: AppliedCriticalEquipmentFilters) {
-    // Filtros gerais ∩ seleção: aplicar filtro não descarta a máquina analisada.
-    const params = writeSelectionParams(filtersToParams(filters), selection);
+    // Filtros gerais ∩ seleção: aplicar filtro não descarta a máquina analisada
+    // (nem o modo Máquina, com o equipamento e o ano escolhidos).
+    const params = writeMachineAnalysisParams(writeSelectionParams(filtersToParams(filters), selection), machineAnalysis);
     const query = params.toString();
     startTransition(() => router.push(query ? `${pathname}?${query}` : pathname));
+  }
+
+  /** Atualiza o modo Máquina (equipamento/ano) e espelha na URL, sem refazer a página. */
+  function updateMachineAnalysis(next: MachineAnalysisState) {
+    setMachineAnalysis(next);
+    syncMachineAnalysisUrl(pathname, next);
+  }
+
+  function changeMode(mode: MachineAnalysisState["mode"]) {
+    if (mode === machineAnalysis.mode) return;
+    if (mode === "MACHINE") {
+      // Entrar no modo Máquina limpa a seleção por família: ela não recorta a máquina.
+      if (isSelectionActive(selection)) changeSelection(EMPTY_SELECTION);
+      updateMachineAnalysis({ ...machineAnalysis, mode: "MACHINE" });
+    } else {
+      // Voltar à Família descarta a máquina analisada (nada de máquina "pendurada").
+      updateMachineAnalysis(DEFAULT_MACHINE_ANALYSIS);
+    }
   }
 
   function updateDraft<Key extends keyof AppliedCriticalEquipmentFilters>(
@@ -259,7 +296,9 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
   }
 
   function clearFilters() {
-    startTransition(() => router.push(pathname));
+    // Limpar filtros não troca de modo: o modo Máquina continua na máquina escolhida.
+    const query = writeMachineAnalysisParams(new URLSearchParams(), machineAnalysis).toString();
+    startTransition(() => router.push(query ? `${pathname}?${query}` : pathname));
     toast("Filtros limpos");
   }
 
@@ -347,6 +386,12 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
 
   // Clique no ranking: a máquina (e a família dela) passa a recortar a página.
   function selectMachine(id: string) {
+    // Modo Máquina: o clique escolhe a máquina analisada — não entra no caminho por família.
+    if (machineAnalysis.mode === "MACHINE") {
+      updateMachineAnalysis({ ...machineAnalysis, machineId: id });
+      requestAnimationFrame(() => evolutionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      return;
+    }
     const item = scoped.ranking.find((current) => current.id === id);
     changeSelection({
       family: item?.familyLabel ?? selection.family,
@@ -370,7 +415,9 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
     : null;
 
   return (
-    <section className={`space-y-4 text-champagne transition ${isPending ? "opacity-70" : ""}`}>
+    // overflow-x-clip: o tooltip do Recharts, posicionado fora do gráfico em telas
+    // estreitas (390 px), gerava rolagem horizontal na página inteira.
+    <section className={`space-y-4 overflow-x-clip text-champagne transition ${isPending ? "opacity-70" : ""}`}>
       {/* Hero */}
       <header className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-5 shadow-premium sm:p-6">
         <div className="login-marble-bg absolute inset-0 opacity-80" />
@@ -467,16 +514,29 @@ export function CriticalEquipmentsPage({ data, appliedFilters }: CriticalEquipme
             </div>
           ) : null}
 
-          {/* 1. Contexto: evolução por família (não recortada) + drill-down, que DEFINEM a seleção. */}
-          <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
-            <CriticalEquipmentFamilyEvolutionChart
-              data={data.familyEvolution}
-              selection={{ family: selection.family, month: selection.month }}
-              onSelect={(family, month) =>
-                changeSelection({ family, month, machine: null, partition: null }, { scrollToDrilldown: true })
-              }
-            />
-            {drilldownSelection ? (
+          {/* 1. Contexto: dois caminhos analíticos independentes.
+                 Família → mês → máquina → repartimento → OS (recorta os painéis abaixo);
+                 Máquina → ano → mês → repartimento → OS (painel próprio). */}
+          <section ref={evolutionRef} className="grid grid-cols-1 gap-3 xl:grid-cols-12">
+            <AnalysisModeToggle mode={machineAnalysis.mode} onChange={changeMode} />
+
+            {machineAnalysis.mode === "MACHINE" ? (
+              <CriticalEquipmentMachineAnalysis
+                state={machineAnalysis}
+                filterQuery={filterQuery}
+                defaultYear={Number(data.period.endDate.slice(0, 4)) || null}
+                onChange={updateMachineAnalysis}
+              />
+            ) : (
+              <CriticalEquipmentFamilyEvolutionChart
+                data={data.familyEvolution}
+                selection={{ family: selection.family, month: selection.month }}
+                onSelect={(family, month) =>
+                  changeSelection({ family, month, machine: null, partition: null }, { scrollToDrilldown: true })
+                }
+              />
+            )}
+            {machineAnalysis.mode === "FAMILY" && drilldownSelection ? (
               <div ref={drilldownRef} className="xl:col-span-12">
                 <CriticalEquipmentFamilyDrilldown
                   selection={drilldownSelection}
@@ -596,6 +656,57 @@ function describeSelection(next: CriticalEquipmentSelection, current: CriticalEq
     return machine ?? next.machine;
   }
   return next.family;
+}
+
+/** "ANALISAR POR [Família] [Máquina]" — escolhe o caminho analítico do bloco de evolução. */
+function AnalysisModeToggle({
+  mode,
+  onChange
+}: {
+  mode: MachineAnalysisState["mode"];
+  onChange: (mode: MachineAnalysisState["mode"]) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 xl:col-span-12">
+      <span className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-gold">Analisar por</span>
+      <div className="inline-flex rounded-lg border border-gold/30 bg-black/30 p-0.5" role="group" aria-label="Modo de análise">
+        {(
+          [
+            ["FAMILY", "Família"],
+            ["MACHINE", "Máquina"]
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={mode === value}
+            onClick={() => onChange(value)}
+            className={`rounded-md px-4 py-1.5 text-xs font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/70 ${
+              mode === value ? "bg-gold/25 text-white" : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <span className="text-[11px] text-zinc-500">
+        {mode === "FAMILY"
+          ? "Família → mês → máquina → repartimento → OS. A seleção recorta os painéis abaixo."
+          : "Máquina → ano → mês → repartimento → OS. Qualquer máquina válida, independente da família e do Top N."}
+      </span>
+    </div>
+  );
+}
+
+/** Espelha o modo Máquina na URL (history nativo), para a análise poder ser compartilhada. */
+function syncMachineAnalysisUrl(pathname: string, state: MachineAnalysisState) {
+  if (typeof window === "undefined") return;
+  const params = writeMachineAnalysisParams(new URLSearchParams(window.location.search), state);
+  const query = params.toString();
+  const url = query ? `${pathname}?${query}` : pathname;
+  if (url !== `${window.location.pathname}${window.location.search}`) {
+    window.history.replaceState(window.history.state, "", url);
+  }
 }
 
 /** Espelha a seleção na URL sem refazer a consulta da página (history nativo). */
