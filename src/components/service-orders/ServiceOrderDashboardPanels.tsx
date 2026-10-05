@@ -1,13 +1,11 @@
 "use client";
 
 import { ClipboardList, Clock, FolderOpen, Gauge, Timer, User, Wrench } from "lucide-react";
-import { EmptyState } from "@/components/EmptyState";
 import { ServiceOrderAreaAdherenceSection } from "@/components/service-orders/ServiceOrderAreaAdherence";
+import { ServiceOrderEquipmentRanking } from "@/components/service-orders/ServiceOrderEquipmentRanking";
 import { RankingList } from "@/components/RankingList";
 import { KpiGrid, type KpiCardData } from "@/components/ui/KpiGrid";
 import { UnavailableIndicator } from "@/components/ui/FieldNotice";
-import { CHART_SERIES } from "@/constants/theme";
-import { partialBaseNote } from "@/utils/partial-base";
 import type { ServiceOrderDashboard } from "@/types/service-orders";
 
 /**
@@ -93,11 +91,14 @@ export function ServiceOrderKpis({ dashboard }: { dashboard: ServiceOrderDashboa
 
 export function ServiceOrderCharts({
   dashboard,
-  filterQuery
+  filterQuery,
+  periodLabel
 }: {
   dashboard: ServiceOrderDashboard;
-  /** Query string dos filtros aplicados — o detalhe por área usa o mesmo recorte. */
+  /** Query string dos filtros aplicados — os detalhes (área, máquina) usam o mesmo recorte. */
   filterQuery: string;
+  /** Período dos filtros, formatado para o cabeçalho do detalhe da máquina. */
+  periodLabel: string;
 }) {
   return (
     <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
@@ -110,24 +111,13 @@ export function ServiceOrderCharts({
         filterQuery={filterQuery}
       />
 
-      <MonthlyCard className="xl:col-span-4" points={dashboard.openClosedByMonth} />
-
-      <RankingList
-        className="xl:col-span-4"
-        title="Top equipamentos por OS"
-        items={dashboard.topEquipments}
-        variant="bars"
-        emptyTitle="Sem equipamentos no recorte"
-        emptyDescription="Ajuste os filtros para visualizar o ranking."
-      />
-
-      <RankingList
-        className="xl:col-span-4"
-        title="Top responsáveis por OS"
-        items={dashboard.topResponsibles}
-        variant="bars"
-        emptyTitle="Sem responsáveis no recorte"
-        emptyDescription="Ajuste os filtros para visualizar o ranking."
+      {/* Absorveu "Top equipamentos por OS"; "OS abertas x fechadas (por mês)" e "Top
+          responsáveis por OS" saíram — responsáveis agora vivem no detalhe de cada máquina. */}
+      <ServiceOrderEquipmentRanking
+        className="xl:col-span-12"
+        items={dashboard.equipmentRanking}
+        filterQuery={filterQuery}
+        periodLabel={periodLabel}
       />
 
       {/* Tipo de atividade está 100% nulo nas 19.780 ordens importadas. Por decisão
@@ -149,78 +139,5 @@ export function ServiceOrderCharts({
         />
       )}
     </section>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-
-function MonthlyCard({ points, className = "" }: { points: ServiceOrderDashboard["openClosedByMonth"]; className?: string }) {
-  const max = Math.max(...points.flatMap((p) => [p.abertas, p.fechadas]), 0) || 1;
-
-  return (
-    <article className={`panel flex h-full flex-col rounded-lg p-4 ${className}`}>
-      <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">OS abertas x fechadas (por mês)</h3>
-      <p className="mb-3 text-[11px] text-zinc-500">
-        Abertas pelo mês de abertura; fechadas pelo mês de fechamento.
-      </p>
-
-      {points.length === 0 ? (
-        <EmptyState title="Sem ordens no período" description="Ajuste o filtro de período para visualizar a série." />
-      ) : (
-        <div className="flex-1 space-y-1.5 overflow-y-auto pr-1">
-          {points.map((point) => (
-            <div
-              key={point.name}
-              className={`flex items-center gap-2 text-[11px] ${point.partialBase ? "opacity-70" : ""}`}
-              title={
-                point.partialBase
-                  ? `${point.name}: volume muito abaixo da mediana do histórico — período de implantação da base. Os registros são reais, mas a comparação com os demais meses não é direta.`
-                  : undefined
-              }
-            >
-              <span className="flex w-14 shrink-0 items-center gap-1 tabular-nums text-zinc-500">
-                {point.name}
-                {point.partialBase ? (
-                  <span
-                    aria-label="Período com base parcial"
-                    className="rounded-sm border border-amber-500/50 bg-amber-500/15 px-1 text-[8px] font-bold uppercase text-amber-700"
-                  >
-                    parcial
-                  </span>
-                ) : null}
-              </span>
-              <div className="flex flex-1 flex-col gap-0.5">
-                <Bar value={point.abertas} max={max} color={CHART_SERIES.corretiva} label="abertas" />
-                <Bar value={point.fechadas} max={max} color={CHART_SERIES.preventiva} label="fechadas" />
-              </div>
-              <span className="w-24 shrink-0 text-right tabular-nums text-zinc-600">
-                {point.abertas.toLocaleString("pt-BR")} / {point.fechadas.toLocaleString("pt-BR")}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {points.some((point) => point.partialBase) ? (
-        <p className="mt-3 border-t border-zinc-200 pt-2 text-[10px] leading-snug text-zinc-500">
-          <strong className="font-semibold text-amber-700">Período com base parcial / implantação:</strong>{" "}
-          {partialBaseNote(points.filter((point) => point.partialBase).map((point) => point.name))}
-        </p>
-      ) : null}
-    </article>
-  );
-}
-
-function Bar({ value, max, color, label }: { value: number; max: number; color: string; label: string }) {
-  return (
-    <div
-      className="h-2 w-full overflow-hidden rounded-full bg-black/[0.06]"
-      title={`${value.toLocaleString("pt-BR")} ${label}`}
-    >
-      <div
-        className="h-full rounded-full transition-[width] duration-500 ease-premium"
-        style={{ width: `${(value / max) * 100}%`, background: color }}
-      />
-    </div>
   );
 }

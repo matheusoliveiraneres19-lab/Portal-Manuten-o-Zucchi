@@ -9,15 +9,25 @@ import {
   type ProgrammedOrderType
 } from "@/utils/service-order-classification";
 import {
+  PLANNING_ACTIVITY_LABELS,
+  PLANNING_ACTIVITY_ORDER,
   PLANNING_GROUP_LABELS,
   PLANNING_GROUP_ORDER,
+  resolvePlanningActivityType,
   resolvePlanningGroup,
+  type PlanningActivityTypeKey,
   type PlanningGroupKey
 } from "@/utils/service-order-planning";
+import {
+  getRootFunctionalLocation,
+  resolveFirstLevelChild,
+  type FunctionalLocationLite,
+  type RootResolvableOrder
+} from "@/utils/functional-location-hierarchy";
 import { hiddenFilterLabels, optionsFromGroups } from "@/utils/filter-options";
-import { formatTechnicalObject } from "@/utils/technical-object-normalizer";
-import { detectPartialBaseMonths } from "@/utils/partial-base";
+import { formatTechnicalObject, normalizeTechnicalObjectCode } from "@/utils/technical-object-normalizer";
 import { buildDataQualitySummary } from "@/services/shared/data-quality";
+import { getFunctionalLocationLookup } from "@/services/shared/functional-location-lookup";
 import type { DataQualityNotice, DataQualitySummary } from "@/types/data-quality";
 import type {
   ServiceOrderAdherenceByArea,
@@ -25,13 +35,16 @@ import type {
   ServiceOrderAreaStatusFilter,
   ServiceOrderAreaTypeFilter,
   ServiceOrderDashboard,
+  ServiceOrderEquipmentAnalysis,
+  ServiceOrderEquipmentRankingItem,
+  ServiceOrderEquipmentRepartimento,
+  ServiceOrderEquipmentSlice,
   ServiceOrderFilterOptions,
   ServiceOrderSlice,
   ServiceOrderListItem,
   ServiceOrdersPageData,
   ServiceOrdersQueryParams,
   ServiceOrdersResult,
-  ServiceOrdersSummary,
   ServiceOrderStatusLabel
 } from "@/types/service-orders";
 
@@ -168,58 +181,13 @@ export async function getServiceOrderFilterOptions(
   }
 }
 
-/**
- * Resumo por status do RECORTE FILTRADO.
- *
- * Recebia `()` e contava a base inteira, enquanto a tabela logo abaixo mostrava o
- * filtro: com um período aplicado, os cards falavam de 19.780 ordens e a tabela de
- * algumas centenas. Agora usa o MESMO where da tabela.
- */
-export async function getServiceOrdersSummary(params: ServiceOrdersQueryParams = {}): Promise<ServiceOrdersSummary> {
-  const base = buildServiceOrderWhere(params);
-  try {
-    const [
-      total,
-      abertas,
-      liberadas,
-      emAndamento,
-      aguardandoMaterial,
-      fechadas,
-      semResponsavel
-    ] = await Promise.all([
-      prisma.serviceOrder.count({ where: base }),
-      prisma.serviceOrder.count({ where: { ...base, status: ServiceOrderStatus.ABERTA } }),
-      prisma.serviceOrder.count({ where: { ...base, status: ServiceOrderStatus.LIBERADA } }),
-      prisma.serviceOrder.count({ where: { ...base, status: ServiceOrderStatus.EM_ANDAMENTO } }),
-      prisma.serviceOrder.count({ where: { ...base, status: ServiceOrderStatus.AGUARDANDO_MATERIAL } }),
-      prisma.serviceOrder.count({ where: { ...base, status: ServiceOrderStatus.FECHADA } }),
-      prisma.serviceOrder.count({
-        where: {
-          ...base,
-          OR: [
-            { responsibleName: null },
-            { responsibleName: "" },
-            { responsibleName: "SEM RESPONSÁVEL" },
-            { responsible: null },
-            { responsible: "" }
-          ]
-        }
-      })
-    ]);
-
-    return { total, abertas, liberadas, emAndamento, aguardandoMaterial, fechadas, semResponsavel };
-  } catch (error) {
-    console.error("Falha ao carregar resumo de OS. Exibindo resumo zerado.", error);
-    return getEmptySummary();
-  }
-}
-
 export async function getServiceOrdersPageData(params: ServiceOrdersQueryParams = {}): Promise<ServiceOrdersPageData> {
-  const [orders, filterOptions, summary, lastImportAt] = await Promise.all([
+  // O antigo `getServiceOrdersSummary` (7 `count` por navegação) saiu: usava o mesmo
+  // `where` da tabela e a tela só lia o total, que já vem de `getServiceOrders`.
+  const [orders, filterOptions, lastImportAt] = await Promise.all([
     getServiceOrders(params),
     // Os MESMOS params da tela: as opções saem do recorte, não da tabela inteira.
     getServiceOrderFilterOptions(params),
-    getServiceOrdersSummary(params),
     getLastServiceOrderImportAt()
   ]);
 
@@ -232,7 +200,6 @@ export async function getServiceOrdersPageData(params: ServiceOrdersQueryParams 
     pageSize: orders.pageSize,
     totalPages: orders.totalPages,
     filterOptions,
-    summary,
     dashboard,
     dataQuality: await buildServiceOrderDataQuality(dashboard, filterOptions),
     source: orders.source,
@@ -244,7 +211,7 @@ export async function getServiceOrdersPageData(params: ServiceOrdersQueryParams 
 /* Dashboard gerencial (FASE 10)                                      */
 /* ------------------------------------------------------------------ */
 
-/** Quantos itens entram nos rankings de equipamento/responsável. */
+/** Quantos itens entram nas listas de grupo/tipo de atividade. */
 const RANKING_SIZE = 10;
 
 /** Status que contam como "em aberto" na aba. */
@@ -253,6 +220,35 @@ const OPEN_STATUSES: ServiceOrderStatus[] = [
   ServiceOrderStatus.LIBERADA,
   ServiceOrderStatus.EM_ANDAMENTO,
   ServiceOrderStatus.AGUARDANDO_MATERIAL
+];
+
+/** Colunas lidas pela varredura do dashboard (e pelo ranking isolado). */
+const DASHBOARD_ROW_SELECT = {
+  osNumber: true,
+  status: true,
+  statusSapRaw: true,
+  title: true,
+  openedAt: true,
+  closedAt: true,
+  workedHours: true,
+  equipmentName: true,
+  equipmentCode: true,
+  technicalObjectRaw: true,
+  responsibleName: true,
+  responsibleId: true,
+  planningGroup: true,
+  planningGroupCode: true,
+  planningActivityType: true
+} satisfies Prisma.ServiceOrderSelect;
+
+/**
+ * Ordem de leitura das operações. Fixa a "1ª operação" de cada ordem — de onde saem
+ * título e local de instalação — para o ranking e o detalhe da máquina escolherem
+ * sempre a mesma.
+ */
+const OPERATION_ORDER_BY: Prisma.ServiceOrderOrderByWithRelationInput[] = [
+  { osNumber: "asc" },
+  { operationCode: "asc" }
 ];
 
 /**
@@ -273,27 +269,18 @@ export async function getServiceOrderDashboard(
   params: ServiceOrdersQueryParams = {}
 ): Promise<ServiceOrderDashboard> {
   try {
-    const orders = await prisma.serviceOrder.findMany({
-      where: buildServiceOrderWhere(params),
-      select: {
-        osNumber: true,
-        status: true,
-        statusSapRaw: true,
-        title: true,
-        openedAt: true,
-        closedAt: true,
-        workedHours: true,
-        equipmentName: true,
-        equipmentCode: true,
-        responsibleName: true,
-        responsibleId: true,
-        planningGroup: true,
-        planningGroupCode: true,
-        planningActivityType: true
-      }
-    });
+    const [orders, lookup] = await Promise.all([
+      prisma.serviceOrder.findMany({
+        where: buildServiceOrderWhere(params),
+        select: DASHBOARD_ROW_SELECT,
+        orderBy: OPERATION_ORDER_BY
+      }),
+      // Cache de 10 min: em regime, não é uma consulta por navegação.
+      getFunctionalLocationLookup()
+    ]);
 
-    // Mesma lista da varredura: a aderência por área não custa consulta extra.
+    // Mesma lista da varredura: aderência por área e ranking de máquinas não custam
+    // consulta extra.
     const adherence = createAdherenceAccumulator();
 
     let abertas = 0;
@@ -306,19 +293,9 @@ export async function getServiceOrderDashboard(
     let temGrupo = false;
     let temTipoAtividade = false;
 
-    const porMes = new Map<string, { abertas: number; fechadas: number }>();
     const porGrupo = new Map<string, number>();
     const porTipoAtividade = new Map<string, number>();
-    const porEquipamento = new Map<string, number>();
     const porResponsavel = new Map<string, number>();
-
-    const bucket = (chave: string) => {
-      const atual = porMes.get(chave);
-      if (atual) return atual;
-      const novo = { abertas: 0, fechadas: 0 };
-      porMes.set(chave, novo);
-      return novo;
-    };
 
     for (const order of orders) {
       adherence.add(order);
@@ -326,11 +303,6 @@ export async function getServiceOrderDashboard(
       if (order.status === ServiceOrderStatus.FECHADA) fechadas += 1;
 
       workedHours += order.workedHours ?? 0;
-
-      // Abertas pelo mês de ABERTURA, fechadas pelo mês de FECHAMENTO — é assim que a
-      // home já publica a série, e as duas telas precisam contar a mesma coisa.
-      if (order.openedAt) bucket(monthKey(order.openedAt)).abertas += 1;
-      if (order.closedAt) bucket(monthKey(order.closedAt)).fechadas += 1;
 
       if (order.openedAt && order.closedAt && order.closedAt >= order.openedAt) {
         execucaoDias += (order.closedAt.getTime() - order.openedAt.getTime()) / 86_400_000;
@@ -352,15 +324,12 @@ export async function getServiceOrderDashboard(
         porTipoAtividade.set(tipo, (porTipoAtividade.get(tipo) ?? 0) + 1);
       }
 
-      const equipamento = formatTechnicalObject(order.equipmentName, order.equipmentCode);
-      if (equipamento !== "-") porEquipamento.set(equipamento, (porEquipamento.get(equipamento) ?? 0) + 1);
-
       const responsavel = order.responsibleName?.trim() || "SEM RESPONSÁVEL";
       porResponsavel.set(responsavel, (porResponsavel.get(responsavel) ?? 0) + 1);
     }
 
-    const topEquipments = topSlices(porEquipamento, RANKING_SIZE);
-    const topResponsibles = topSlices(porResponsavel, RANKING_SIZE);
+    const equipmentRanking = buildEquipmentRanking(orders, lookup);
+    const topResponsibles = topSlices(porResponsavel, 1);
 
     return {
       total: orders.length,
@@ -369,19 +338,11 @@ export async function getServiceOrderDashboard(
       workedHours: Math.round(workedHours * 10) / 10,
       averageExecutionDays: execucaoAmostra > 0 ? Math.round((execucaoDias / execucaoAmostra) * 10) / 10 : null,
       executionSampleSize: execucaoAmostra,
-      topEquipment: topEquipments[0] ?? null,
+      // O card "Equipamento com mais OS" lê o MESMO ranking do painel de máquinas —
+      // os dois não podem apontar máquinas (ou totais) diferentes.
+      topEquipment: equipmentRanking[0] ? { name: equipmentRanking[0].name, value: equipmentRanking[0].total } : null,
       topResponsible: topResponsibles[0] ?? null,
 
-      openClosedByMonth: (() => {
-        // A marcação usa as ABERTURAS do mês, que é o volume que mede a cobertura da
-        // base; fechamentos podem cair em outro mês por natureza do processo.
-        const parciais = detectPartialBaseMonths(
-          new Map(Array.from(porMes.entries()).map(([chave, valores]) => [chave, valores.abertas]))
-        );
-        return Array.from(porMes.entries())
-          .sort((a, b) => a[0].localeCompare(b[0]))
-          .map(([chave, valores]) => ({ name: monthLabel(chave), ...valores, partialBase: parciais.has(chave) }));
-      })(),
       adherenceByArea: adherence.result(params),
       byPlanningGroup: topSlices(porGrupo, RANKING_SIZE),
       byActivityType: topSlices(porTipoAtividade, RANKING_SIZE),
@@ -389,8 +350,7 @@ export async function getServiceOrderDashboard(
         { name: "Corretivas", value: corretivas },
         { name: "Planejadas (PL/PV)", value: planejadas }
       ],
-      topEquipments,
-      topResponsibles,
+      equipmentRanking,
 
       fieldAvailability: {
         planningActivityType: temTipoAtividade,
@@ -404,20 +364,6 @@ export async function getServiceOrderDashboard(
     console.error("Falha ao montar o dashboard de Ordens de Serviço.", error);
     return getEmptyDashboard();
   }
-}
-
-/** Chave YYYY-MM (UTC) para agrupar por mês. */
-function monthKey(date: Date): string {
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
-/** "2026-08" → "ago/26". */
-function monthLabel(key: string): string {
-  const [ano, mes] = key.split("-").map(Number);
-  const rotulo = new Date(Date.UTC(ano, mes - 1, 1))
-    .toLocaleDateString("pt-BR", { month: "short", timeZone: "UTC" })
-    .replace(".", "");
-  return `${rotulo}/${String(ano).slice(2)}`;
 }
 
 /** Maiores contagens de um mapa, já no formato dos gráficos. */
@@ -438,13 +384,11 @@ function getEmptyDashboard(): ServiceOrderDashboard {
     executionSampleSize: 0,
     topEquipment: null,
     topResponsible: null,
-    openClosedByMonth: [],
     adherenceByArea: emptyAdherenceByArea(),
     byPlanningGroup: [],
     byActivityType: [],
     correctiveVsPlanned: [],
-    topEquipments: [],
-    topResponsibles: [],
+    equipmentRanking: [],
     fieldAvailability: { planningActivityType: false, planningGroup: false, dueDate: false }
   };
 }
@@ -721,6 +665,380 @@ export async function getServiceOrdersByArea(
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Análise de ordens por equipamento                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Regras do painel "Análise de ordens por equipamento" — nenhuma nova:
+ *
+ *  - MÁQUINA = equipamento RAIZ do local de instalação (`getRootFunctionalLocation`
+ *    + cadastro de locais), a mesma resolução de Equipamentos Críticos. A chave é o
+ *    TAG da raiz, nunca o nome: duas máquinas com nomes parecidos não se misturam,
+ *    e OS abertas em componentes (forno, jot, politriz…) somam para a máquina.
+ *  - REPARTIMENTO = filho de 1º nível da máquina (`resolveFirstLevelChild`), com a
+ *    descrição oficial do cadastro; sem cadastro, só o código — nunca um nome inventado.
+ *  - UNIDADE = ORDEM (`osNumber`), consolidada por `consolidateOrders` — status,
+ *    corretiva/planejada e grupo saem exatamente como no painel de aderência. HORAS =
+ *    soma de `workedHours` de TODAS as operações da ordem.
+ *  - Título e local de cada ordem vêm da 1ª operação (menor `operationCode`), lida
+ *    na mesma ordem no ranking e no detalhe — os dois não podem divergir.
+ */
+type EquipmentRow = AdherenceRow &
+  RootResolvableOrder & {
+    openedAt: Date | null;
+    workedHours: number | null;
+    responsibleName: string | null;
+  };
+
+/** Raiz da ordem a partir da 1ª operação que tem local de instalação. */
+function resolveOrderRoot<Row extends EquipmentRow>(
+  order: ConsolidatedOrder<Row>,
+  lookup: Map<string, FunctionalLocationLite>
+) {
+  const located = order.operations.find((op) => op.equipmentCode || op.technicalObjectRaw) ?? order.operations[0];
+  return getRootFunctionalLocation(located, lookup);
+}
+
+function sumHours(rows: Array<{ workedHours: number | null }>): number {
+  return rows.reduce((sum, row) => sum + (row.workedHours ?? 0), 0);
+}
+
+const round1 = (value: number) => Math.round(value * 10) / 10;
+
+/** TODAS as máquinas do recorte, mais OS primeiro (desempate: horas, depois nome). */
+function buildEquipmentRanking<Row extends EquipmentRow>(
+  rows: Row[],
+  lookup: Map<string, FunctionalLocationLite>
+): ServiceOrderEquipmentRankingItem[] {
+  const byRoot = new Map<string, ServiceOrderEquipmentRankingItem>();
+
+  consolidateOrders(rows).forEach((order) => {
+    const root = resolveOrderRoot(order, lookup);
+    const item = byRoot.get(root.rootTag) ?? {
+      key: root.rootTag,
+      name: root.rootDescription,
+      familyLabel: root.familyLabel,
+      total: 0,
+      open: 0,
+      closed: 0,
+      corrective: 0,
+      planned: 0,
+      hours: 0
+    };
+    item.total += 1;
+    if (order.closed) item.closed += 1;
+    else item.open += 1;
+    if (order.programmedType) item.planned += 1;
+    else item.corrective += 1;
+    item.hours += sumHours(order.operations);
+    byRoot.set(root.rootTag, item);
+  });
+
+  return Array.from(byRoot.values())
+    .map((item) => ({ ...item, hours: round1(item.hours) }))
+    .sort((a, b) => b.total - a.total || b.hours - a.hours || a.name.localeCompare(b.name, "pt-BR"));
+}
+
+/**
+ * Ranking de máquinas do recorte em UMA leitura. A página não usa esta função — o
+ * mesmo cálculo vem de dentro de `getServiceOrderDashboard`, sem consulta extra.
+ */
+export async function getServiceOrderEquipmentRanking(
+  params: ServiceOrdersQueryParams = {}
+): Promise<ServiceOrderEquipmentRankingItem[]> {
+  const [rows, lookup] = await Promise.all([
+    prisma.serviceOrder.findMany({
+      where: buildServiceOrderWhere(params),
+      select: DASHBOARD_ROW_SELECT,
+      orderBy: OPERATION_ORDER_BY
+    }),
+    getFunctionalLocationLookup()
+  ]);
+  return buildEquipmentRanking(rows, lookup);
+}
+
+const EQUIPMENT_STATUS_LABEL: Record<ServiceOrderStatus, string> = {
+  ABERTA: "Aberta",
+  LIBERADA: "Liberada",
+  EM_ANDAMENTO: "Em andamento",
+  AGUARDANDO_MATERIAL: "Aguardando material",
+  FECHADA: "Fechada",
+  CANCELADA: "Cancelada"
+};
+
+const SEM_RESPONSAVEL = "SEM RESPONSÁVEL";
+
+/** Nome de colaborador real; `null` para vazio ou "SEM RESPONSÁVEL" (falha de cadastro). */
+function realResponsible(row: { responsibleName: string | null; responsible?: string | null }): string | null {
+  const name = (row.responsibleName ?? row.responsible ?? "").trim();
+  return name && name.toUpperCase() !== SEM_RESPONSAVEL ? name : null;
+}
+
+/**
+ * Pré-filtro SQL das operações que PODEM pertencer à máquina. É um superconjunto:
+ * a decisão final é a mesma resolução de raiz do ranking, em memória.
+ */
+function equipmentCandidateWhere(
+  key: string,
+  lookup: Map<string, FunctionalLocationLite>
+): Prisma.ServiceOrderWhereInput {
+  // Fallback do resolvedor para OS sem TAG estruturado: raiz = "NOME:<nome>".
+  if (key.startsWith("NOME:")) {
+    return { equipmentName: { equals: key.slice(5), mode: "insensitive" } };
+  }
+  // Locais cuja raiz AUTORITATIVA no cadastro é esta máquina, mas cujo TAG não
+  // começa pelo TAG dela.
+  const extraTags = Array.from(lookup.values())
+    .filter((entry) => entry.rootTag && normalizeTechnicalObjectCode(entry.rootTag) === key && !entry.tag.startsWith(key))
+    .map((entry) => entry.tag);
+
+  return {
+    OR: [
+      { equipmentCode: { startsWith: key, mode: "insensitive" } },
+      { technicalObjectRaw: { contains: key, mode: "insensitive" } },
+      ...(extraTags.length ? [{ equipmentCode: { in: extraTags } }] : [])
+    ]
+  };
+}
+
+/**
+ * ANÁLISE DE UMA MÁQUINA sob os MESMOS filtros da página (o período da tela, nunca o
+ * histórico inteiro por conta própria). Só é chamada no clique.
+ *
+ * Duas leituras + cadastro de locais em cache:
+ *  1. quais ordens têm alguma operação na máquina (pré-filtro por TAG);
+ *  2. TODAS as operações dessas ordens no recorte — sem isso as horas e o status de
+ *     uma ordem com operação fora do pré-filtro sairiam incompletos.
+ * Tudo o mais (grupos, tipos, status, evolução, repartimentos, responsáveis, lista)
+ * deriva desse mesmo conjunto, em memória.
+ *
+ * `null` = a máquina não tem ordens no recorte. Não há fallback para dados gerais.
+ */
+export async function getServiceOrderEquipmentAnalysis(
+  equipmentKey: string,
+  params: ServiceOrdersQueryParams = {}
+): Promise<ServiceOrderEquipmentAnalysis | null> {
+  const key = equipmentKey.trim();
+  if (!key) return null;
+
+  const lookup = await getFunctionalLocationLookup();
+  const where = buildServiceOrderWhere(params);
+
+  const candidates = await prisma.serviceOrder.findMany({
+    where: { AND: [where, equipmentCandidateWhere(key, lookup)] },
+    select: { osNumber: true },
+    distinct: ["osNumber"]
+  });
+  if (!candidates.length) return null;
+
+  const rows = await prisma.serviceOrder.findMany({
+    where: { AND: [where, { osNumber: { in: candidates.map((row) => row.osNumber) } }] },
+    select: {
+      ...DASHBOARD_ROW_SELECT,
+      responsible: true,
+      operation: true,
+      description: true,
+      maintenanceType: true,
+      orderType: true,
+      type: true
+    },
+    orderBy: OPERATION_ORDER_BY
+  });
+
+  const entries = Array.from(consolidateOrders(rows).entries())
+    .map(([osNumber, order]) => ({ osNumber, order, root: resolveOrderRoot(order, lookup) }))
+    .filter((entry) => entry.root.rootTag === key);
+  if (!entries.length) return null;
+
+  const now = Date.now();
+  const singleMonth = Boolean(
+    params.startDate && params.endDate && params.startDate.slice(0, 7) === params.endDate.slice(0, 7)
+  );
+  const granularity: "month" | "day" = singleMonth ? "day" : "month";
+
+  const byGroup = new Map<PlanningGroupKey, number>();
+  const byActivity = new Map<PlanningActivityTypeKey, number>();
+  const byStatus = new Map<ServiceOrderStatus, number>();
+  const byResponsible = new Map<string, number>();
+  const byRepartimento = new Map<string, ServiceOrderEquipmentRepartimento>();
+  const byPeriod = new Map<string, { orders: number; hours: number }>();
+  const bump = <K>(map: Map<K, number>, mapKey: K) => map.set(mapKey, (map.get(mapKey) ?? 0) + 1);
+
+  let open = 0;
+  let closed = 0;
+  let planned = 0;
+  let hours = 0;
+  let withoutResponsible = 0;
+  let withoutStructuredActivityType = 0;
+  let withoutRepartimento = 0;
+  let unregisteredRepartimento = 0;
+  let lastOrder: ServiceOrderEquipmentAnalysis["lastOrder"] = null;
+
+  const orders = entries.map(({ osNumber, order, root }) => {
+    const first = order.operations[0];
+    const orderHours = sumHours(order.operations);
+    hours += orderHours;
+
+    if (order.closed) closed += 1;
+    else open += 1;
+    if (order.programmedType) planned += 1;
+
+    bump(byGroup, order.area);
+
+    // Tipo pela regra central; com `planningActivityType` vazio ele é DERIVADO
+    // (título/plano/grupo) — contado em qualidade, para a tela dizer isso.
+    const activity = resolvePlanningActivityType(first);
+    bump(byActivity, activity);
+    if (!order.operations.some((op) => op.planningActivityType?.trim())) withoutStructuredActivityType += 1;
+
+    // Status da ordem: fechada só com todas as operações encerradas; senão o da 1ª
+    // operação pendente, que é a que segura o encerramento.
+    const status = order.closed ? ServiceOrderStatus.FECHADA : order.openOperations[0].status;
+    bump(byStatus, status);
+
+    const responsibleOp = order.operations.find((op) => realResponsible(op));
+    const responsibleName = responsibleOp ? realResponsible(responsibleOp) : null;
+    if (responsibleName) bump(byResponsible, responsibleName);
+    else withoutResponsible += 1;
+
+    let repartimentoTag: string | null = null;
+    let repartimento: ServiceOrderEquipmentRepartimento;
+    if (root.componentTag) {
+      const child = resolveFirstLevelChild(root.componentTag, key, lookup);
+      if (!child.registered) unregisteredRepartimento += 1;
+      repartimentoTag = child.tag;
+      repartimento = byRepartimento.get(child.tag) ?? {
+        tag: child.tag,
+        code: child.code,
+        description: child.description,
+        orders: 0,
+        open: 0,
+        hours: 0
+      };
+    } else {
+      withoutRepartimento += 1;
+      repartimento = byRepartimento.get("") ?? { tag: null, code: null, description: null, orders: 0, open: 0, hours: 0 };
+    }
+    repartimento.orders += 1;
+    if (!order.closed) repartimento.open += 1;
+    repartimento.hours += orderHours;
+    byRepartimento.set(repartimentoTag ?? "", repartimento);
+
+    const openedAt = order.operations.find((op) => op.openedAt)?.openedAt ?? null;
+    if (openedAt) {
+      const iso = openedAt.toISOString();
+      const periodKey = granularity === "day" ? iso.slice(0, 10) : iso.slice(0, 7);
+      const point = byPeriod.get(periodKey) ?? { orders: 0, hours: 0 };
+      point.orders += 1;
+      point.hours += orderHours;
+      byPeriod.set(periodKey, point);
+      if (!lastOrder || iso > lastOrder.openedAt) lastOrder = { osNumber, openedAt: iso, title: first.title };
+    }
+
+    return {
+      osNumber,
+      title: first.title,
+      openedAt: openedAt?.toISOString() ?? null,
+      status: status as ServiceOrderStatusLabel,
+      closed: order.closed,
+      planningGroupKey: order.area,
+      planningGroupLabel: PLANNING_GROUP_LABELS[order.area],
+      activityTypeLabel: PLANNING_ACTIVITY_LABELS[activity],
+      programmedType: order.programmedType,
+      responsibleName,
+      hours: round1(orderHours),
+      locationTag: root.componentTag ?? root.rootTag,
+      repartimentoTag,
+      daysOpen: !order.closed && openedAt ? Math.max(0, Math.floor((now - openedAt.getTime()) / 86_400_000)) : null,
+      totalOperations: order.operations.length
+    };
+  });
+
+  const total = entries.length;
+  const slices = <K extends string>(map: Map<K, number>, label: (k: K) => string, order?: K[]) => {
+    const list = Array.from(map.entries()).map(([sliceKey, count]) => ({ key: sliceKey, label: label(sliceKey), count }));
+    return order
+      ? list.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+      : list.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "pt-BR"));
+  };
+  const top = (list: ServiceOrderEquipmentSlice[]) =>
+    list.length ? list.reduce((best, item) => (item.count > best.count ? item : best)) : null;
+
+  const byPlanningGroup = slices(byGroup, (k) => PLANNING_GROUP_LABELS[k], PLANNING_GROUP_ORDER);
+  const byActivityType = slices(byActivity, (k) => PLANNING_ACTIVITY_LABELS[k], PLANNING_ACTIVITY_ORDER);
+  const responsibles = slices(byResponsible, (k) => k);
+
+  return {
+    key,
+    name: entries[0].root.rootDescription,
+    familyLabel: entries[0].root.familyLabel,
+    period: { from: params.startDate ?? null, to: params.endDate ?? null },
+    totals: {
+      total,
+      open,
+      closed,
+      hours: round1(hours),
+      hoursPerOrder: total > 0 ? round1(hours / total) : null,
+      corrective: total - planned,
+      planned,
+      correctivePercent: percentOf(total - planned, total),
+      plannedPercent: percentOf(planned, total)
+    },
+    lastOrder,
+    mostFrequent: {
+      planningGroup: top(byPlanningGroup),
+      activityType: top(byActivityType),
+      responsible: responsibles[0] ?? null
+    },
+    byPlanningGroup,
+    byActivityType,
+    byStatus: slices(byStatus, (k) => EQUIPMENT_STATUS_LABEL[k]),
+    evolution: { granularity, points: fillEvolution(byPeriod, granularity) },
+    repartimentos: Array.from(byRepartimento.values())
+      .map((item) => ({ ...item, hours: round1(item.hours) }))
+      // Sem repartimento por último: é falta de informação, não um local.
+      .sort((a, b) => Number(a.tag === null) - Number(b.tag === null) || b.orders - a.orders),
+    responsibles,
+    quality: { withoutResponsible, withoutStructuredActivityType, withoutRepartimento, unregisteredRepartimento },
+    // Abertas primeiro; dentro de cada grupo, as mais recentes primeiro.
+    orders: orders.sort(
+      (a, b) => Number(a.closed) - Number(b.closed) || (b.openedAt ?? "").localeCompare(a.openedAt ?? "")
+    )
+  };
+}
+
+const MONTH_SHORT_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+/** Série contínua entre o primeiro e o último ponto com OS: um mês sem OS aparece como zero. */
+function fillEvolution(points: Map<string, { orders: number; hours: number }>, granularity: "month" | "day") {
+  const keys = Array.from(points.keys()).sort();
+  if (!keys.length) return [];
+
+  const out: Array<{ key: string; label: string; orders: number; hours: number }> = [];
+  const cursor = new Date(`${granularity === "day" ? keys[0] : `${keys[0]}-01`}T00:00:00.000Z`);
+  const lastKey = keys[keys.length - 1];
+
+  for (let guard = 0; guard < 1000; guard += 1) {
+    const iso = cursor.toISOString();
+    const pointKey = granularity === "day" ? iso.slice(0, 10) : iso.slice(0, 7);
+    if (pointKey > lastKey) break;
+    const point = points.get(pointKey) ?? { orders: 0, hours: 0 };
+    out.push({
+      key: pointKey,
+      label:
+        granularity === "day"
+          ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+          : `${MONTH_SHORT_PT[cursor.getUTCMonth()]}/${String(cursor.getUTCFullYear()).slice(2)}`,
+      orders: point.orders,
+      hours: round1(point.hours)
+    });
+    if (granularity === "day") cursor.setUTCDate(cursor.getUTCDate() + 1);
+    else cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return out;
+}
+
 /** Painel "Qualidade dos dados" da aba. */
 async function buildServiceOrderDataQuality(
   dashboard: ServiceOrderDashboard,
@@ -973,18 +1291,6 @@ function getEmptyFilterOptions(): ServiceOrderFilterOptions {
     responsibles: [],
     equipments: [],
     counts: { areas: {}, planningGroups: {}, responsibles: {}, equipments: {}, statuses: {} }
-  };
-}
-
-function getEmptySummary(): ServiceOrdersSummary {
-  return {
-    total: 0,
-    abertas: 0,
-    liberadas: 0,
-    emAndamento: 0,
-    aguardandoMaterial: 0,
-    fechadas: 0,
-    semResponsavel: 0
   };
 }
 

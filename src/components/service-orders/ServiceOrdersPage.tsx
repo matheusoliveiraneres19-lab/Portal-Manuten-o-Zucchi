@@ -292,6 +292,7 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
           <ServiceOrderCharts
             dashboard={data.dashboard}
             filterQuery={filtersToSearchParams(appliedFilters, 1).toString()}
+            periodLabel={describePeriod(appliedFilters)}
           />
         </>
       ) : null}
@@ -471,16 +472,19 @@ function buildChips(
   return chips;
 }
 
+/** Período dos filtros para o cabeçalho do detalhe da máquina — sem filtro, diz que é o histórico. */
+function describePeriod(filters: AppliedServiceOrderFilters): string {
+  const br = (iso: string) => formatPeriodRange(iso, iso).split(" - ")[0];
+  if (filters.startDate && filters.endDate) return `${br(filters.startDate)} → ${br(filters.endDate)}`;
+  if (filters.startDate) return `a partir de ${br(filters.startDate)}`;
+  if (filters.endDate) return `até ${br(filters.endDate)}`;
+  return "Todo o histórico disponível";
+}
+
 function buildTotalsLabel(data: ServiceOrdersPageData): string {
-  const general = data.summary.total.toLocaleString("pt-BR");
-  const filtered = data.total.toLocaleString("pt-BR");
-  const displayed = data.orders.length.toLocaleString("pt-BR");
-
-  if (data.total === data.summary.total) {
-    return `Exibindo ${displayed} de ${general} ordens`;
-  }
-
-  return `Exibindo ${displayed} de ${filtered} filtradas (${general} no total)`;
+  // O "total geral" vinha de um resumo com o MESMO where da tabela — era sempre
+  // igual a `data.total`, então a segunda forma da frase nunca aparecia.
+  return `Exibindo ${data.orders.length.toLocaleString("pt-BR")} de ${data.total.toLocaleString("pt-BR")} ordens`;
 }
 
 /* ------------------------------------------------------------------ */

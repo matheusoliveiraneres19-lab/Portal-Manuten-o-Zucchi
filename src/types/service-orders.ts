@@ -35,7 +35,6 @@ export type ServiceOrdersPageData = {
   pageSize: number;
   totalPages: number;
   filterOptions: ServiceOrderFilterOptions;
-  summary: ServiceOrdersSummary;
   /** Cards e gráficos gerenciais do recorte filtrado (FASE 10). */
   dashboard: ServiceOrderDashboard;
   /** Painel "Qualidade dos dados" da aba. */
@@ -121,20 +120,6 @@ export type ServiceOrderSlice = {
   value: number;
 };
 
-/** Um ponto da série mensal de abertas x fechadas. */
-export type ServiceOrderMonthlyPoint = {
-  /** Rótulo curto do mês (ex.: "ago/26"). */
-  name: string;
-  abertas: number;
-  fechadas: number;
-  /**
-   * Mês com volume muito abaixo da mediana do histórico — período de implantação da
-   * base, não queda de manutenção. Marcado, nunca removido: esconder o mês apagaria
-   * registros reais; exibi-lo sem ressalva induz a ler uma queda que não houve.
-   */
-  partialBase: boolean;
-};
-
 /**
  * Campos do SAP que o dashboard precisa e que podem não vir na planilha.
  * Quando false, o indicador correspondente NÃO é renderizado — vira aviso.
@@ -173,30 +158,20 @@ export type ServiceOrderDashboard = {
   averageExecutionDays: number | null;
   /** Quantas OS fechadas entraram na média acima (transparência do denominador). */
   executionSampleSize: number;
+  /** Máquina com mais ORDENS no recorte — o 1º do `equipmentRanking`. */
   topEquipment: ServiceOrderSlice | null;
   topResponsible: ServiceOrderSlice | null;
 
-  openClosedByMonth: ServiceOrderMonthlyPoint[];
   /** Aderência de execução por área (grupo de planejamento) — substitui "OS por status". */
   adherenceByArea: ServiceOrderAdherenceByArea;
   byPlanningGroup: ServiceOrderSlice[];
   byActivityType: ServiceOrderSlice[];
   /** Corretivas x planejadas pela regra oficial do portal (PL-/PV- no título). */
   correctiveVsPlanned: ServiceOrderSlice[];
-  topEquipments: ServiceOrderSlice[];
-  topResponsibles: ServiceOrderSlice[];
+  /** TODAS as máquinas do recorte (não só o top 10), já ordenadas por mais OS. */
+  equipmentRanking: ServiceOrderEquipmentRankingItem[];
 
   fieldAvailability: ServiceOrderFieldAvailability;
-};
-
-export type ServiceOrdersSummary = {
-  total: number;
-  abertas: number;
-  liberadas: number;
-  emAndamento: number;
-  aguardandoMaterial: number;
-  fechadas: number;
-  semResponsavel: number;
 };
 
 /* ------------------------------------------------------------------ */
@@ -273,4 +248,124 @@ export type ServiceOrderAreaOrdersResult = {
   /** Abertas primeiro; dentro de cada grupo, as mais antigas primeiro. Limitado a `limit`. */
   items: ServiceOrderAreaOrderItem[];
   limit: number;
+};
+
+/* ------------------------------------------------------------------ */
+/* Análise de ordens por equipamento                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Uma MÁQUINA no ranking "Análise de ordens por equipamento".
+ *
+ * Máquina = equipamento RAIZ do local de instalação (`getRootFunctionalLocation`,
+ * a mesma resolução de Equipamentos Críticos): OS abertas em componentes somam para
+ * a máquina. Contagens em ORDENS distintas (osNumber); horas = soma das operações.
+ */
+export type ServiceOrderEquipmentRankingItem = {
+  /** TAG da máquina raiz — a chave técnica (nunca o nome). */
+  key: string;
+  name: string;
+  familyLabel: string;
+  total: number;
+  open: number;
+  closed: number;
+  corrective: number;
+  planned: number;
+  hours: number;
+};
+
+/** Barra nomeada (grupo, tipo, status, responsável) no detalhe da máquina. */
+export type ServiceOrderEquipmentSlice = {
+  key: string;
+  label: string;
+  count: number;
+};
+
+export type ServiceOrderEquipmentEvolutionPoint = {
+  /** "2026-09" (mês) ou "2026-09-14" (dia). */
+  key: string;
+  label: string;
+  orders: number;
+  hours: number;
+};
+
+export type ServiceOrderEquipmentRepartimento = {
+  /** TAG do filho de 1º nível; `null` = OS registrada na própria máquina. */
+  tag: string | null;
+  /** Parte do TAG abaixo da máquina (ex.: "FR-03-01"). */
+  code: string | null;
+  /** Descrição oficial do cadastro de locais; `null` quando não cadastrado (nunca inventada). */
+  description: string | null;
+  orders: number;
+  open: number;
+  hours: number;
+};
+
+/** Uma ORDEM da máquina (uma linha por osNumber). */
+export type ServiceOrderEquipmentOrder = {
+  osNumber: string;
+  title: string;
+  openedAt: string | null;
+  /** Status da 1ª operação pendente (a que impede o encerramento), ou da 1ª operação. */
+  status: ServiceOrderStatusLabel;
+  closed: boolean;
+  planningGroupKey: PlanningGroupKey;
+  planningGroupLabel: string;
+  activityTypeLabel: string;
+  /** "PL" / "PV" = planejada; `null` = corretiva. */
+  programmedType: "PL" | "PV" | null;
+  responsibleName: string | null;
+  hours: number;
+  /** TAG do local de instalação da ordem. */
+  locationTag: string;
+  /** TAG do repartimento (filho de 1º nível); `null` = na própria máquina. */
+  repartimentoTag: string | null;
+  daysOpen: number | null;
+  totalOperations: number;
+};
+
+export type ServiceOrderEquipmentAnalysis = {
+  key: string;
+  name: string;
+  familyLabel: string;
+  /** Período dos filtros da página; `null` nas pontas = sem limite. */
+  period: { from: string | null; to: string | null };
+  totals: {
+    total: number;
+    open: number;
+    closed: number;
+    hours: number;
+    /** Horas ÷ ordens; `null` sem ordens. */
+    hoursPerOrder: number | null;
+    corrective: number;
+    planned: number;
+    correctivePercent: number | null;
+    plannedPercent: number | null;
+  };
+  lastOrder: { osNumber: string; openedAt: string; title: string } | null;
+  /** Mais recorrente de cada dimensão; `null` quando não há dado confiável. */
+  mostFrequent: {
+    planningGroup: ServiceOrderEquipmentSlice | null;
+    activityType: ServiceOrderEquipmentSlice | null;
+    /** Nunca "SEM RESPONSÁVEL" — ausência de cadastro não é colaborador. */
+    responsible: ServiceOrderEquipmentSlice | null;
+  };
+  byPlanningGroup: ServiceOrderEquipmentSlice[];
+  byActivityType: ServiceOrderEquipmentSlice[];
+  byStatus: ServiceOrderEquipmentSlice[];
+  /** Mensal quando o recorte cobre mais de um mês; diária dentro de um mês. */
+  evolution: { granularity: "month" | "day"; points: ServiceOrderEquipmentEvolutionPoint[] };
+  repartimentos: ServiceOrderEquipmentRepartimento[];
+  /** Colaboradores reais, mais OS primeiro. "SEM RESPONSÁVEL" fica em `quality`. */
+  responsibles: ServiceOrderEquipmentSlice[];
+  quality: {
+    withoutResponsible: number;
+    /** `planningActivityType` vazio: o tipo exibido foi DERIVADO pela regra central. */
+    withoutStructuredActivityType: number;
+    /** Registradas na própria máquina, sem componente. */
+    withoutRepartimento: number;
+    /** Repartimento cujo TAG não está no cadastro de locais (sem descrição oficial). */
+    unregisteredRepartimento: number;
+  };
+  orders: ServiceOrderEquipmentOrder[];
 };

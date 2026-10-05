@@ -19,6 +19,7 @@
     "import:functional-locations": "tsx scripts/import-functional-locations.ts",
     "test:adherence": "tsx scripts/test-adherence-report.ts",
     "test:adherence-area": "tsx scripts/test-adherence-by-area.ts",
+    "test:equipment-analysis": "tsx scripts/test-equipment-analysis.ts",
     "test:purchases": "tsx scripts/test-purchase-classification.ts",
     "test:purchases-v31": "tsx scripts/test-purchase-classification-v31.ts",
     "test:purchases-key": "tsx scripts/test-purchase-technical-key.ts",
