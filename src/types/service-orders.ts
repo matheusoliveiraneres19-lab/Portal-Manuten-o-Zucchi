@@ -1,4 +1,5 @@
 import type { DataQualitySummary } from "@/types/data-quality";
+import type { PlanningGroupKey } from "@/utils/service-order-planning";
 export type ServiceOrderStatusLabel =
   | "ABERTA"
   | "LIBERADA"
@@ -176,7 +177,8 @@ export type ServiceOrderDashboard = {
   topResponsible: ServiceOrderSlice | null;
 
   openClosedByMonth: ServiceOrderMonthlyPoint[];
-  byStatus: ServiceOrderSlice[];
+  /** Aderência de execução por área (grupo de planejamento) — substitui "OS por status". */
+  adherenceByArea: ServiceOrderAdherenceByArea;
   byPlanningGroup: ServiceOrderSlice[];
   byActivityType: ServiceOrderSlice[];
   /** Corretivas x planejadas pela regra oficial do portal (PL-/PV- no título). */
@@ -195,4 +197,63 @@ export type ServiceOrdersSummary = {
   aguardandoMaterial: number;
   fechadas: number;
   semResponsavel: number;
+};
+
+/* ------------------------------------------------------------------ */
+/* Aderência de execução por área                                      */
+/* ------------------------------------------------------------------ */
+
+/** Uma área (grupo de planejamento normalizado) no gráfico de aderência. */
+export type ServiceOrderAreaAdherence = {
+  /** Chave do normalizador central (`resolvePlanningGroup`). */
+  key: PlanningGroupKey;
+  /** Rótulo gerencial (`PLANNING_GROUP_LABELS`). */
+  area: string;
+  total: number;
+  open: number;
+  closed: number;
+  /** Fechadas ÷ total × 100, duas casas. `null` quando total = 0 — nunca 0%. */
+  adherence: number | null;
+};
+
+export type ServiceOrderAdherenceByArea = {
+  /** Só as áreas com OS no recorte, na ordem oficial `PLANNING_GROUP_ORDER`. */
+  areas: ServiceOrderAreaAdherence[];
+  /** Soma das áreas, em ORDENS distintas (osNumber) do recorte da tabela. */
+  total: number;
+  open: number;
+  closed: number;
+  adherence: number | null;
+  /** Linhas (operações) que deram origem às ordens — é o "Total de OS" da tabela. */
+  operationRows: number;
+  /** O recorte inclui o dia de hoje: os números ainda podem mudar. */
+  periodInProgress: boolean;
+  /** O recorte cabe em um único mês (decide o texto da nota de período em andamento). */
+  singleMonth: boolean;
+};
+
+/** ORDEM ainda não encerrada (uma linha por osNumber), listada no detalhe de uma área. */
+export type ServiceOrderOpenItem = {
+  osNumber: string;
+  title: string;
+  technicalObject: string;
+  responsibleName: string | null;
+  /** Status da primeira operação pendente — a que impede o encerramento. */
+  status: ServiceOrderStatusLabel;
+  statusSapRaw: string | null;
+  openedAt: string | null;
+  /** Dias corridos desde a data-base até hoje; `null` sem data-base. */
+  daysOpen: number | null;
+  totalOperations: number;
+  openOperations: number;
+};
+
+export type ServiceOrderOpenByAreaResult = {
+  key: PlanningGroupKey;
+  area: string;
+  /** Quantas OS abertas a área tem no recorte (pode ser maior que `items.length`). */
+  totalOpen: number;
+  /** As mais antigas primeiro, limitadas a `limit`. */
+  items: ServiceOrderOpenItem[];
+  limit: number;
 };

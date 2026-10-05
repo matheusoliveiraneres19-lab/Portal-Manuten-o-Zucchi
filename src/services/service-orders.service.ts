@@ -1,14 +1,26 @@
 import { ImportType, MaintenanceArea, Prisma, ServiceOrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { toEndOfDay, toStartOfDay } from "@/utils/date-range";
-import { excludeInvalidTestEquipmentWhere, isProgrammedPreventiveOrder } from "@/utils/service-order-classification";
+import {
+  excludeInvalidTestEquipmentWhere,
+  isClosedServiceOrder,
+  isProgrammedPreventiveOrder
+} from "@/utils/service-order-classification";
+import {
+  PLANNING_GROUP_LABELS,
+  PLANNING_GROUP_ORDER,
+  resolvePlanningGroup,
+  type PlanningGroupKey
+} from "@/utils/service-order-planning";
 import { hiddenFilterLabels, optionsFromGroups } from "@/utils/filter-options";
 import { formatTechnicalObject } from "@/utils/technical-object-normalizer";
 import { detectPartialBaseMonths } from "@/utils/partial-base";
 import { buildDataQualitySummary } from "@/services/shared/data-quality";
 import type { DataQualityNotice, DataQualitySummary } from "@/types/data-quality";
 import type {
+  ServiceOrderAdherenceByArea,
   ServiceOrderDashboard,
+  ServiceOrderOpenByAreaResult,
   ServiceOrderFilterOptions,
   ServiceOrderSlice,
   ServiceOrderListItem,
@@ -239,15 +251,6 @@ const OPEN_STATUSES: ServiceOrderStatus[] = [
   ServiceOrderStatus.AGUARDANDO_MATERIAL
 ];
 
-const STATUS_LABEL: Record<ServiceOrderStatus, string> = {
-  ABERTA: "Aberta",
-  LIBERADA: "Liberada",
-  EM_ANDAMENTO: "Em andamento",
-  AGUARDANDO_MATERIAL: "Aguardando material",
-  FECHADA: "Fechada",
-  CANCELADA: "Cancelada"
-};
-
 /**
  * CARDS E GRÁFICOS da aba Ordens de Serviço, sobre o recorte filtrado.
  *
@@ -269,7 +272,9 @@ export async function getServiceOrderDashboard(
     const orders = await prisma.serviceOrder.findMany({
       where: buildServiceOrderWhere(params),
       select: {
+        osNumber: true,
         status: true,
+        statusSapRaw: true,
         title: true,
         openedAt: true,
         closedAt: true,
@@ -279,9 +284,13 @@ export async function getServiceOrderDashboard(
         responsibleName: true,
         responsibleId: true,
         planningGroup: true,
+        planningGroupCode: true,
         planningActivityType: true
       }
     });
+
+    // Mesma lista da varredura: a aderência por área não custa consulta extra.
+    const adherence = createAdherenceAccumulator();
 
     let abertas = 0;
     let fechadas = 0;
@@ -293,7 +302,6 @@ export async function getServiceOrderDashboard(
     let temGrupo = false;
     let temTipoAtividade = false;
 
-    const porStatus = new Map<ServiceOrderStatus, number>();
     const porMes = new Map<string, { abertas: number; fechadas: number }>();
     const porGrupo = new Map<string, number>();
     const porTipoAtividade = new Map<string, number>();
@@ -309,7 +317,7 @@ export async function getServiceOrderDashboard(
     };
 
     for (const order of orders) {
-      porStatus.set(order.status, (porStatus.get(order.status) ?? 0) + 1);
+      adherence.add(order);
       if (OPEN_STATUSES.includes(order.status)) abertas += 1;
       if (order.status === ServiceOrderStatus.FECHADA) fechadas += 1;
 
@@ -370,9 +378,7 @@ export async function getServiceOrderDashboard(
           .sort((a, b) => a[0].localeCompare(b[0]))
           .map(([chave, valores]) => ({ name: monthLabel(chave), ...valores, partialBase: parciais.has(chave) }));
       })(),
-      byStatus: Array.from(porStatus.entries())
-        .map(([status, value]) => ({ name: STATUS_LABEL[status] ?? status, value }))
-        .sort((a, b) => b.value - a.value),
+      adherenceByArea: adherence.result(params),
       byPlanningGroup: topSlices(porGrupo, RANKING_SIZE),
       byActivityType: topSlices(porTipoAtividade, RANKING_SIZE),
       correctiveVsPlanned: [
@@ -429,13 +435,267 @@ function getEmptyDashboard(): ServiceOrderDashboard {
     topEquipment: null,
     topResponsible: null,
     openClosedByMonth: [],
-    byStatus: [],
+    adherenceByArea: emptyAdherenceByArea(),
     byPlanningGroup: [],
     byActivityType: [],
     correctiveVsPlanned: [],
     topEquipments: [],
     topResponsibles: [],
     fieldAvailability: { planningActivityType: false, planningGroup: false, dueDate: false }
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Aderência de execução por área                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Regras do gráfico "Aderência de execução por área" — nenhuma nova:
+ *
+ *  - UNIDADE = ORDEM DE MANUTENÇÃO (`osNumber` distinto), não a linha da tabela.
+ *    Cada linha é uma OPERAÇÃO (chave [osNumber, operationCode]) e uma preventiva
+ *    elétrica chega com ~13 delas: contar linhas inflaria a Elétrica e poluiria o
+ *    gráfico. É a mesma unidade do relatório PDF (service-order-adherence-report).
+ *  - FECHADA = TODAS as operações reconhecidas por `isClosedServiceOrder` (enum
+ *    FECHADA, o "Tecnicamente encerrado" do SAP, mais a rede de segurança do texto
+ *    cru). Uma operação pendente deixa a ordem em aberto — mesmo desempate do PDF.
+ *    ABERTA = todo o resto, inclusive LIBERADA — por isso não existe terceira série.
+ *  - ÁREA = `resolvePlanningGroup` (normalizador central), o primeiro grupo
+ *    reconhecido entre as operações. Vazio/não reconhecido cai em "Outros", que só
+ *    aparece quando tem OS — nenhuma ordem do recorte some da soma.
+ */
+type AdherenceRow = {
+  osNumber: string;
+  status: ServiceOrderStatus;
+  statusSapRaw: string | null;
+  planningGroup: string | null;
+  planningGroupCode: string | null;
+};
+
+/** Uma ordem consolidada a partir das suas operações. */
+type ConsolidatedOrder<Row extends AdherenceRow> = {
+  area: PlanningGroupKey;
+  closed: boolean;
+  /** Operações da ordem, na ordem em que vieram do banco. */
+  operations: Row[];
+  /** Operações ainda não encerradas. */
+  openOperations: Row[];
+};
+
+/** Colapsa linhas de operação em uma entrada por `osNumber` (ver regras acima). */
+function consolidateOrders<Row extends AdherenceRow>(rows: Row[]): Map<string, ConsolidatedOrder<Row>> {
+  const orders = new Map<string, ConsolidatedOrder<Row>>();
+
+  for (const row of rows) {
+    const closed = isClosedServiceOrder(row);
+    const area = resolvePlanningGroup(row);
+    const order = orders.get(row.osNumber);
+
+    if (!order) {
+      orders.set(row.osNumber, { area, closed, operations: [row], openOperations: closed ? [] : [row] });
+      continue;
+    }
+
+    order.operations.push(row);
+    if (!closed) {
+      order.closed = false;
+      order.openOperations.push(row);
+    }
+    if (order.area === "OUTROS") order.area = area;
+  }
+
+  return orders;
+}
+
+/** Fechadas ÷ total × 100 com duas casas; `null` sem denominador. */
+function adherencePercent(total: number, closed: number): number | null {
+  return total > 0 ? Math.round((closed / total) * 10_000) / 100 : null;
+}
+
+function createAdherenceAccumulator() {
+  const rows: AdherenceRow[] = [];
+
+  return {
+    add(row: AdherenceRow) {
+      rows.push(row);
+    },
+    result(params: ServiceOrdersQueryParams): ServiceOrderAdherenceByArea {
+      const porArea = new Map<PlanningGroupKey, { total: number; closed: number }>();
+      consolidateOrders(rows).forEach((order) => {
+        const current = porArea.get(order.area) ?? { total: 0, closed: 0 };
+        current.total += 1;
+        if (order.closed) current.closed += 1;
+        porArea.set(order.area, current);
+      });
+
+      const areas = PLANNING_GROUP_ORDER.flatMap((key) => {
+        const counter = porArea.get(key);
+        if (!counter || counter.total === 0) return [];
+        return [
+          {
+            key,
+            area: PLANNING_GROUP_LABELS[key],
+            total: counter.total,
+            open: counter.total - counter.closed,
+            closed: counter.closed,
+            adherence: adherencePercent(counter.total, counter.closed)
+          }
+        ];
+      });
+
+      const total = areas.reduce((sum, area) => sum + area.total, 0);
+      const closed = areas.reduce((sum, area) => sum + area.closed, 0);
+
+      return {
+        areas,
+        total,
+        open: total - closed,
+        closed,
+        adherence: adherencePercent(total, closed),
+        operationRows: rows.length,
+        ...describeAdherencePeriod(params)
+      };
+    }
+  };
+}
+
+/** "AAAA-MM-DD" de hoje no fuso da fábrica — é o "hoje" de quem lê o painel. */
+function todayIsoInPlant(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+}
+
+/**
+ * Recorte em andamento = inclui hoje. Sem data final o recorte é "até agora", e
+ * portanto também está em andamento.
+ */
+function describeAdherencePeriod(params: ServiceOrdersQueryParams) {
+  const today = todayIsoInPlant();
+  const start = params.startDate?.slice(0, 10);
+  const end = params.endDate?.slice(0, 10);
+  return {
+    periodInProgress: (!start || start <= today) && (!end || end >= today),
+    singleMonth: Boolean(start && end && start.slice(0, 7) === end.slice(0, 7))
+  };
+}
+
+function emptyAdherenceByArea(): ServiceOrderAdherenceByArea {
+  return {
+    areas: [],
+    total: 0,
+    open: 0,
+    closed: 0,
+    adherence: null,
+    operationRows: 0,
+    periodInProgress: false,
+    singleMonth: false
+  };
+}
+
+const ADHERENCE_ROW_SELECT = {
+  osNumber: true,
+  status: true,
+  statusSapRaw: true,
+  planningGroup: true,
+  planningGroupCode: true
+} satisfies Prisma.ServiceOrderSelect;
+
+/**
+ * Aderência por área do recorte, em UMA leitura. A página não usa esta função — ela
+ * recebe o mesmo cálculo de dentro de `getServiceOrderDashboard`, sem consulta extra;
+ * esta é a porta de entrada para quem precisa só do gráfico.
+ */
+export async function getServiceOrderAdherenceByArea(
+  params: ServiceOrdersQueryParams = {}
+): Promise<ServiceOrderAdherenceByArea> {
+  try {
+    const rows = await prisma.serviceOrder.findMany({
+      where: buildServiceOrderWhere(params),
+      select: ADHERENCE_ROW_SELECT
+    });
+    const adherence = createAdherenceAccumulator();
+    rows.forEach((row) => adherence.add(row));
+    return adherence.result(params);
+  } catch (error) {
+    console.error("Falha ao calcular a aderência por área das OS.", error);
+    return emptyAdherenceByArea();
+  }
+}
+
+/** Teto de ordens devolvidas no detalhe de uma área (as mais antigas primeiro). */
+const OPEN_BY_AREA_LIMIT = 500;
+
+/**
+ * DETALHE de uma área: ORDENS ainda não encerradas do recorte, as mais antigas primeiro.
+ *
+ * Duas consultas enxutas, só no clique:
+ *  1. operações com `status != FECHADA` — superconjunto das pendentes, só para achar
+ *     QUAIS ordens podem estar abertas;
+ *  2. TODAS as operações dessas ordens no recorte, para consolidar com a mesma regra
+ *     do gráfico (área + "fechada só se todas fecharam"). Assim o detalhe não tem
+ *     como divergir do número da barra.
+ */
+export async function getOpenServiceOrdersByArea(
+  params: ServiceOrdersQueryParams,
+  key: PlanningGroupKey
+): Promise<ServiceOrderOpenByAreaResult> {
+  const where = buildServiceOrderWhere(params);
+
+  const candidates = await prisma.serviceOrder.findMany({
+    where: { AND: [where, { status: { not: ServiceOrderStatus.FECHADA } }] },
+    select: { osNumber: true },
+    distinct: ["osNumber"]
+  });
+
+  const rows = candidates.length
+    ? await prisma.serviceOrder.findMany({
+        where: { AND: [where, { osNumber: { in: candidates.map((row) => row.osNumber) } }] },
+        select: {
+          ...ADHERENCE_ROW_SELECT,
+          title: true,
+          openedAt: true,
+          technicalObjectRaw: true,
+          equipmentName: true,
+          equipmentCode: true,
+          responsibleName: true,
+          responsible: true
+        },
+        orderBy: [{ openedAt: "asc" }, { osNumber: "asc" }, { operationCode: "asc" }]
+      })
+    : [];
+
+  const now = Date.now();
+  const open = Array.from(consolidateOrders(rows).entries()).filter(
+    ([, order]) => order.area === key && !order.closed
+  );
+
+  return {
+    key,
+    area: PLANNING_GROUP_LABELS[key],
+    totalOpen: open.length,
+    limit: OPEN_BY_AREA_LIMIT,
+    items: open.slice(0, OPEN_BY_AREA_LIMIT).map(([osNumber, order]) => {
+      const first = order.operations[0];
+      const pending = order.openOperations[0];
+      const openedAt = order.operations.find((op) => op.openedAt)?.openedAt ?? null;
+      const equipment = order.operations.find((op) => op.technicalObjectRaw || op.equipmentName || op.equipmentCode);
+      const responsible = order.operations.find((op) => op.responsibleName || op.responsible);
+
+      return {
+        osNumber,
+        title: first.title,
+        technicalObject: equipment
+          ? equipment.technicalObjectRaw ?? formatTechnicalObject(equipment.equipmentName, equipment.equipmentCode)
+          : "-",
+        responsibleName: responsible ? responsible.responsibleName ?? responsible.responsible : null,
+        // Status da primeira operação pendente: é ela que impede o encerramento.
+        status: pending.status as ServiceOrderStatusLabel,
+        statusSapRaw: pending.statusSapRaw,
+        openedAt: openedAt?.toISOString() ?? null,
+        daysOpen: openedAt ? Math.max(0, Math.floor((now - openedAt.getTime()) / 86_400_000)) : null,
+        totalOperations: order.operations.length,
+        openOperations: order.openOperations.length
+      };
+    })
   };
 }
 

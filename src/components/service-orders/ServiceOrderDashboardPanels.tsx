@@ -3,6 +3,7 @@
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { ClipboardList, Clock, FolderOpen, Gauge, Timer, User, Wrench } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
+import { ServiceOrderAreaAdherenceSection } from "@/components/service-orders/ServiceOrderAreaAdherence";
 import { RankingList } from "@/components/RankingList";
 import { KpiGrid, type KpiCardData } from "@/components/ui/KpiGrid";
 import { UnavailableIndicator } from "@/components/ui/FieldNotice";
@@ -91,16 +92,23 @@ export function ServiceOrderKpis({ dashboard }: { dashboard: ServiceOrderDashboa
   return <KpiGrid cards={cards} className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" />;
 }
 
-export function ServiceOrderCharts({ dashboard }: { dashboard: ServiceOrderDashboard }) {
+export function ServiceOrderCharts({
+  dashboard,
+  filterQuery
+}: {
+  dashboard: ServiceOrderDashboard;
+  /** Query string dos filtros aplicados — o detalhe por área usa o mesmo recorte. */
+  filterQuery: string;
+}) {
   return (
     <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
       <MonthlyCard className="xl:col-span-7" points={dashboard.openClosedByMonth} />
 
-      <DonutCard
+      {/* Substitui "OS por status": abre o detalhe da área clicada em largura total logo abaixo. */}
+      <ServiceOrderAreaAdherenceSection
         className="xl:col-span-5"
-        title="OS por status"
-        slices={dashboard.byStatus}
-        palette={[CHART_SERIES.corretiva, CHART_SERIES.preventiva, CHART_SERIES.compras, "#8C6B2F", "#5B7B7A", "#9B3B3B"]}
+        adherence={dashboard.adherenceByArea}
+        filterQuery={filterQuery}
       />
 
       <DonutCard

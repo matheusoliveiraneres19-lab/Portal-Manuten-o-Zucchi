@@ -289,7 +289,10 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
       {data.dashboard.total > 0 ? (
         <>
           <ServiceOrderKpis dashboard={data.dashboard} />
-          <ServiceOrderCharts dashboard={data.dashboard} />
+          <ServiceOrderCharts
+            dashboard={data.dashboard}
+            filterQuery={filtersToSearchParams(appliedFilters, 1).toString()}
+          />
         </>
       ) : null}
 
@@ -307,6 +310,11 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
           {
             term: "OS fechadas",
             detail: "Status da ordem igual a FECHADA. Campo: status."
+          },
+          {
+            term: "Aderência de execução por área",
+            detail:
+              "Área = grupo de planejamento normalizado (resolvePlanningGroup): Mecânica, Elétrica, Serviço Terceiro, Lubrificação, Usinagem; grupo vazio ou não reconhecido entra em Outros, para nenhuma ordem do recorte ficar de fora. Conta ORDENS de manutenção (número da OS), não as operações listadas na tabela. Fechada = todas as operações tecnicamente encerradas (isClosedServiceOrder); aberta = qualquer operação pendente, inclusive Liberada. Mesma unidade e regra do relatório PDF de aderência. Aderência = fechadas ÷ total da área × 100; área sem OS não aparece."
           },
           {
             term: "Horas apontadas",
