@@ -4,6 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Search, X } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { CHART_SERIES, GOLD, SEMANTIC } from "@/constants/theme";
+import {
+  CriticalEquipmentEvolutionChart,
+  type EvolutionChartData
+} from "@/components/critical-equipments/CriticalEquipmentEvolutionChart";
 import type {
   CriticalMachineMonth,
   CriticalMachineMonthDetail,
@@ -21,8 +25,6 @@ import type { MachineAnalysisState } from "@/utils/critical-equipment-selection"
  * família. Tudo é agregado no servidor (`/api/critical-equipments/machine`); aqui só
  * se filtra a lista e se desenha.
  */
-type Metric = "orders" | "hours";
-
 const STATUS_TEXT: Record<string, string> = {
   ABERTA: "Aberta",
   LIBERADA: "Liberada",
@@ -62,7 +64,6 @@ export function CriticalEquipmentMachineAnalysis({
 }) {
   const [options, setOptions] = useState<Load<CriticalMachineOption[]>>({ phase: "loading" });
   const [analysis, setAnalysis] = useState<Load<CriticalMachineYearAnalysis | null>>({ phase: "idle" });
-  const [metric, setMetric] = useState<Metric>("orders");
   const [month, setMonth] = useState<string | null>(null);
 
   // Lista de máquinas: uma vez por montagem (independe de filtros, família e Top N).
@@ -82,7 +83,7 @@ export function CriticalEquipmentMachineAnalysis({
 
   const requestedYear = state.year ?? defaultYear;
 
-  // Ano da máquina: uma requisição por (máquina, ano, filtros).
+  // Ano da máquina: UMA requisição por (máquina, ano, filtros) — o ano inteiro agregado no servidor.
   useEffect(() => {
     setMonth(null);
     if (!state.machineId) {
@@ -124,20 +125,36 @@ export function CriticalEquipmentMachineAnalysis({
   const data = analysis.phase === "ready" ? analysis.data : null;
   const machineName = data?.machine.name ?? selectedOption?.name ?? state.machineId ?? "";
   const shownYear = data?.year ?? requestedYear;
+  const hasData = Boolean(data && data.summary.totalOrders > 0);
 
-  return (
-    <article className="panel rounded-lg p-4 xl:col-span-12">
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
-            {state.machineId ? `Evolução mensal — ${machineName}` : "Evolução mensal por máquina"}
-          </h3>
-          <p className="text-[11px] text-zinc-500">Desempenho mensal do equipamento no ano selecionado.</p>
-        </div>
-        {data ? <MetricToggle metric={metric} onChange={setMetric} /> : null}
-      </div>
+  // Mesmos dados do gráfico de Família: uma série (a máquina), Jan → Dez.
+  const chartData = useMemo<EvolutionChartData>(() => (data && hasData ? toChartData(data) : { months: [], series: [] }), [data, hasData]);
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
+  const placeholder = !state.machineId ? (
+    <EmptyState
+      title="Selecione uma máquina"
+      description="Pesquise por nome, código, local de instalação ou objeto técnico. Todas as máquinas válidas estão disponíveis, de qualquer família."
+    />
+  ) : analysis.phase === "loading" || analysis.phase === "idle" ? (
+    <p className="flex h-40 items-center justify-center gap-2 text-sm text-zinc-500">
+      <Loader2 className="h-4 w-4 animate-spin text-gold" /> Carregando a análise da máquina…
+    </p>
+  ) : analysis.phase === "error" ? (
+    <p className="py-8 text-center text-sm text-rose-700">{analysis.message}</p>
+  ) : !hasData ? (
+    <EmptyState
+      title={`Não há ordens para este equipamento em ${shownYear ?? "—"} com os filtros atuais.`}
+      description={
+        data?.availableYears.length
+          ? `Anos com OS desta máquina: ${data.availableYears.join(", ")}.`
+          : "Ajuste os filtros de OS ou escolha outra máquina."
+      }
+    />
+  ) : null;
+
+  const toolbar = (
+    <>
+      <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
         <div className="min-w-0">
           <span className="mb-1 block text-[10px] font-extrabold uppercase tracking-wide text-zinc-500">Máquina / Equipamento</span>
           <MachinePicker
@@ -163,53 +180,87 @@ export function CriticalEquipmentMachineAnalysis({
           </select>
         </label>
       </div>
-
-      {state.machineId ? (
-        <ContextStrip machineName={machineName} year={shownYear} ignored={data?.ignoredFilters ?? []} />
-      ) : null}
-
-      <div className="mt-3">
-        {!state.machineId ? (
-          <EmptyState
-            title="Selecione uma máquina"
-            description="Pesquise por nome, código, local de instalação ou objeto técnico. Todas as máquinas válidas estão disponíveis, de qualquer família."
-          />
-        ) : analysis.phase === "loading" || analysis.phase === "idle" ? (
-          <p className="flex h-40 items-center justify-center gap-2 text-sm text-zinc-500">
-            <Loader2 className="h-4 w-4 animate-spin text-gold" /> Carregando a análise da máquina…
-          </p>
-        ) : analysis.phase === "error" ? (
-          <p className="py-8 text-center text-sm text-rose-700">{analysis.message}</p>
-        ) : !data || data.summary.totalOrders === 0 ? (
-          <EmptyState
-            title={`Não há ordens para este equipamento em ${shownYear ?? "—"} com os filtros atuais.`}
-            description={
-              data?.availableYears.length
-                ? `Anos com OS desta máquina: ${data.availableYears.join(", ")}.`
-                : "Ajuste os filtros de OS ou escolha outra máquina."
-            }
-          />
-        ) : (
-          <>
-            <SummaryStrip data={data} />
-            <YearChart months={data.months} metric={metric} selected={month} onSelect={setMonth} />
-            <CompositionRow split={data.summary} />
-            {month && state.machineId ? (
-              <MonthDetail
-                key={`${state.machineId}|${month}|${filterQuery}`}
-                machineId={state.machineId}
-                month={month}
-                filterQuery={filterQuery}
-                onClose={() => setMonth(null)}
-              />
-            ) : (
-              <p className="mt-3 text-[11px] text-zinc-500">Clique em um mês para ver as ordens do equipamento naquele mês.</p>
-            )}
-          </>
-        )}
-      </div>
-    </article>
+      {state.machineId ? <ContextStrip machineName={machineName} year={shownYear} ignored={data?.ignoredFilters ?? []} /> : null}
+    </>
   );
+
+  return (
+    <CriticalEquipmentEvolutionChart
+      mode="machine"
+      title={state.machineId ? `Evolução mensal — ${machineName}` : "Evolução mensal por máquina"}
+      subtitle="Desempenho mensal do equipamento no ano selecionado."
+      data={chartData}
+      selection={{ series: state.machineId, month }}
+      // Clique num ponto (ou na célula da tabela) abre o detalhe só daquele mês.
+      onSelect={(_key, period) => {
+        if (period) setMonth(period);
+      }}
+      toolbar={toolbar}
+      placeholder={placeholder}
+    >
+      {data && hasData ? (
+        <>
+          <p className="mt-1 text-[10px] text-zinc-500">
+            — = mês ainda não ocorrido ou anterior ao início da base (sem período disponível); 0 = mês encerrado sem OS.
+            {data.months.some((item) => item.state === "current")
+              ? ` ${data.months.find((item) => item.state === "current")?.label}/${String(data.year).slice(2)} em andamento — valores parciais, não compare direto com meses completos.`
+              : ""}
+          </p>
+          <div className="mt-3">
+            <SummaryStrip data={data} />
+          </div>
+          <CompositionRow split={data.summary} />
+          {month && state.machineId ? (
+            <MonthDetail
+              key={`${state.machineId}|${month}|${filterQuery}`}
+              machineId={state.machineId}
+              month={month}
+              filterQuery={filterQuery}
+              onClose={() => setMonth(null)}
+            />
+          ) : (
+            <p className="mt-3 text-[11px] text-zinc-500">Clique em um ponto do gráfico para ver as ordens do equipamento naquele mês.</p>
+          )}
+        </>
+      ) : null}
+    </CriticalEquipmentEvolutionChart>
+  );
+}
+
+const MONTH_LABELS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+/**
+ * Ano da máquina → dados do gráfico comum. Mês futuro ou anterior à base = `null`
+ * (sem dado, lacuna na linha); mês encerrado sem OS = 0.
+ */
+function toChartData(data: CriticalMachineYearAnalysis): EvolutionChartData {
+  const yy = String(data.year).slice(2);
+  const hasValue = (month: CriticalMachineMonth) => month.state === "closed" || month.state === "current";
+  return {
+    months: data.months.map((month, index) => ({
+      period: month.period,
+      label: MONTH_LABELS[index],
+      tooltipLabel: `${MONTH_LABELS[index]}/${yy}`,
+      note:
+        month.state === "current"
+          ? "Mês em andamento — valores parciais"
+          : month.state === "future"
+            ? "Mês ainda não ocorreu"
+            : month.state === "noBase"
+              ? "Sem período disponível na base"
+              : undefined
+    })),
+    series: [
+      {
+        key: data.machine.id,
+        label: data.machine.name,
+        totalOrders: data.summary.totalOrders,
+        totalWorkedHours: data.summary.totalWorkedHours,
+        orders: data.months.map((month) => (hasValue(month) ? month.totalOrders : null)),
+        hours: data.months.map((month) => (hasValue(month) ? month.totalWorkedHours : null))
+      }
+    ]
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -450,90 +501,6 @@ function GroupChips({ split }: { split: CriticalMachineSplit }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Gráfico Jan → Dez                                                  */
-/* ------------------------------------------------------------------ */
-
-function YearChart({
-  months,
-  metric,
-  selected,
-  onSelect
-}: {
-  months: CriticalMachineMonth[];
-  metric: Metric;
-  selected: string | null;
-  onSelect: (period: string) => void;
-}) {
-  const value = (month: CriticalMachineMonth) => (metric === "orders" ? month.totalOrders : month.totalWorkedHours);
-  const max = Math.max(...months.map(value), 1);
-  const format = (month: CriticalMachineMonth) => (metric === "orders" ? int(month.totalOrders) : hoursText(month.totalWorkedHours));
-
-  return (
-    <div className="mt-3">
-      <ol className="flex items-end gap-1 sm:gap-2" aria-label="Evolução mensal da máquina">
-        {months.map((month) => {
-          const unavailable = month.state === "future" || month.state === "noBase";
-          const active = selected === month.period;
-          const height = unavailable ? 0 : (value(month) / max) * 100;
-          const stateText =
-            month.state === "future"
-              ? "mês ainda não ocorreu"
-              : month.state === "noBase"
-                ? "sem período disponível na base"
-                : month.state === "current"
-                  ? "mês em andamento (parcial)"
-                  : "mês encerrado";
-          return (
-            <li key={month.period} className="flex min-w-0 flex-1">
-            <button
-              type="button"
-              disabled={unavailable}
-              onClick={() => onSelect(month.period)}
-              aria-pressed={active}
-              aria-label={`${month.label}: ${unavailable ? "—" : format(month)} — ${stateText}`}
-              title={`${month.label}: ${unavailable ? "—" : `${int(month.totalOrders)} OS · ${hoursText(month.totalWorkedHours)}`} — ${stateText}`}
-              className={`group flex min-w-0 flex-1 flex-col items-center gap-1 rounded-md px-0.5 pb-1 pt-1 transition disabled:cursor-default ${
-                active ? "bg-gold/15 ring-1 ring-gold/60" : "enabled:hover:bg-gold/[0.07]"
-              } focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold/70`}
-            >
-              <span className={`text-[10px] font-bold tabular-nums ${unavailable ? "text-zinc-400" : "text-zinc-700"}`}>
-                {unavailable ? "—" : format(month)}
-              </span>
-              <span className="flex h-36 w-full items-end justify-center">
-                {unavailable ? (
-                  <span className="block h-full w-full max-w-[34px] rounded-t border border-dashed border-zinc-300/80" />
-                ) : (
-                  <span
-                    className="block w-full max-w-[34px] rounded-t"
-                    style={{
-                      height: `${height}%`,
-                      minHeight: value(month) > 0 ? 3 : 0,
-                      background:
-                        month.state === "current"
-                          ? `repeating-linear-gradient(135deg, ${GOLD.DEFAULT}, ${GOLD.DEFAULT} 4px, ${GOLD.soft} 4px, ${GOLD.soft} 8px)`
-                          : GOLD.DEFAULT
-                    }}
-                  />
-                )}
-              </span>
-              <span className={`text-[10px] font-semibold ${active ? "text-zinc-900" : "text-zinc-500"}`}>{month.label}</span>
-              <span className="h-3 text-[8px] uppercase tracking-wide text-amber-700">
-                {month.state === "current" ? "em andamento" : month.state === "noBase" ? "sem base" : ""}
-              </span>
-            </button>
-            </li>
-          );
-        })}
-      </ol>
-      <p className="mt-1 text-[10px] text-zinc-500">
-        — = mês ainda não ocorrido ou anterior ao início da base (sem período disponível); 0 = mês encerrado sem OS. O mês
-        em andamento (hachurado) é parcial — não compare direto com meses completos.
-      </p>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /* Detalhe do mês                                                     */
 /* ------------------------------------------------------------------ */
 
@@ -744,31 +711,6 @@ function MonthDetail({
 /* ------------------------------------------------------------------ */
 /* Peças                                                              */
 /* ------------------------------------------------------------------ */
-
-function MetricToggle({ metric, onChange }: { metric: Metric; onChange: (metric: Metric) => void }) {
-  return (
-    <div className="inline-flex rounded-md border border-zinc-300/80 bg-white/60 p-0.5" role="group" aria-label="Métrica">
-      {(
-        [
-          ["orders", "Quantidade de OS"],
-          ["hours", "Horas apontadas"]
-        ] as const
-      ).map(([value, label]) => (
-        <button
-          key={value}
-          type="button"
-          aria-pressed={metric === value}
-          onClick={() => onChange(value)}
-          className={`rounded px-2.5 py-1 text-[11px] font-bold transition ${
-            metric === value ? "bg-gold/25 text-zinc-900" : "text-zinc-500 hover:text-zinc-900"
-          }`}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 function Dot({ color }: { color: string }) {
   return <span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ background: color }} aria-hidden />;

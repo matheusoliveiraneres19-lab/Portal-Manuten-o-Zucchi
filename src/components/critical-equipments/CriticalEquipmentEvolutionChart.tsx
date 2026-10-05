@@ -1,16 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Check, ChevronDown, Search, Table2 } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
-import type { FamilyEvolutionData, FamilyEvolutionMetric, FamilyEvolutionSeries } from "@/types/critical-equipments";
+import type { FamilyEvolutionData, FamilyEvolutionMetric } from "@/types/critical-equipments";
 import { CHART_CHROME } from "@/constants/theme";
 import { formatMonthLong } from "@/services/critical-equipment-evolution.service";
 
 /**
+ * GRÁFICO DE EVOLUÇÃO MENSAL de Equipamentos Críticos — UM componente para os dois
+ * caminhos analíticos:
+ *
+ *   mode="family"  → EVOLUÇÃO MENSAL DE ORDENS POR FAMÍLIA (uma linha por família)
+ *   mode="machine" → EVOLUÇÃO MENSAL — <MÁQUINA> (uma linha, Jan → Dez do ano)
+ *
+ * Card, linha, pontos, eixos, tooltip, legenda, controles e tabela são os mesmos; só
+ * os dados mudam. Valor `null` = mês SEM DADO (futuro ou anterior à base): vira
+ * lacuna na linha e "—" na tabela — nunca um zero operacional.
+ */
+
+/**
  * Paleta categórica DESTE gráfico (validada: faixa de luminosidade, croma, separação
- * para daltonismo e visão normal). A cor segue a FAMÍLIA, não o ranking: cada família
+ * para daltonismo e visão normal). A cor segue a SÉRIE, não o ranking: cada família
  * ganha um slot ao ser exibida e o mantém enquanto estiver na tela. Acima de 8
  * famílias simultâneas as excedentes viram linhas de contexto cinza — nunca uma
  * 9ª cor gerada.
@@ -25,84 +37,126 @@ export const FAMILY_PALETTE = [
   "#D97706",
   "#DB2777"
 ] as const;
+
 export const FAMILY_CONTEXT_COLOR = "#B8AF9F";
 
 const DEFAULT_VISIBLE = 5;
 
-/** Família/mês destacados — vêm do estado único da página. */
-type ChartSelection = { family: string | null; month: string | null };
-
-type Props = {
-  data: FamilyEvolutionData;
-  selection: ChartSelection;
-  /** Clique num ponto/célula (mês) ou na legenda (período inteiro, `month = null`). */
-  onSelect: (family: string, month: string | null) => void;
+/** Uma linha do gráfico (uma família, ou a máquina analisada). */
+export type EvolutionChartSeries = {
+  key: string;
+  label: string;
+  totalOrders: number;
+  totalWorkedHours: number;
+  /** Por mês; `null` = sem dado (mês futuro/sem período disponível). */
+  orders: Array<number | null>;
+  hours: Array<number | null>;
+  /** Máquinas afetadas por mês (só no modo Família). */
+  machines?: number[];
 };
 
-/**
- * Gráfico de CONTEXTO: não é recortado pela seleção (senão a linha clicada viraria a
- * única do gráfico). Ele só DEFINE família/mês no estado da página, que recorta os
- * dashboards abaixo.
- */
-export function CriticalEquipmentFamilyEvolutionChart({ data, selection, onSelect }: Props) {
-  const [metric, setMetric] = useState<FamilyEvolutionMetric>("orders");
-  const familyNames = useMemo(() => data.families.map((family) => family.family), [data.families]);
+export type EvolutionChartMonth = {
+  period: string;
+  /** Rótulo do eixo X. */
+  label: string;
+  /** Cabeçalho do tooltip. */
+  tooltipLabel: string;
+  /** Observação do mês no tooltip (ex.: "Mês em andamento — valores parciais"). */
+  note?: string;
+};
 
-  const [visible, setVisible] = useState<string[]>(() => {
-    const top = familyNames.slice(0, DEFAULT_VISIBLE);
-    return selection.family && familyNames.includes(selection.family) && !top.includes(selection.family)
-      ? [...top, selection.family]
-      : top;
-  });
+export type EvolutionChartData = { months: EvolutionChartMonth[]; series: EvolutionChartSeries[] };
+
+/** Série/mês destacados — vêm do estado de quem usa o gráfico. */
+type ChartSelection = { series: string | null; month: string | null };
+
+type Props = {
+  mode: "family" | "machine";
+  title: string;
+  subtitle: string;
+  data: EvolutionChartData;
+  selection: ChartSelection;
+  /** Clique num ponto/célula (mês) ou na legenda (período inteiro, `month = null`). */
+  onSelect: (seriesKey: string, month: string | null) => void;
+  /** Controles extras dentro do card, abaixo do cabeçalho (ex.: máquina e ano). */
+  toolbar?: ReactNode;
+  /** Substitui o gráfico (carregando, nenhuma máquina, sem dados) — o card continua o mesmo. */
+  placeholder?: ReactNode;
+  /** Conteúdo depois do gráfico, no mesmo card (ex.: resumo anual, detalhe do mês). */
+  children?: ReactNode;
+  emptyTitle?: string;
+  emptyDescription?: string;
+};
+
+export function CriticalEquipmentEvolutionChart({
+  mode,
+  title,
+  subtitle,
+  data,
+  selection,
+  onSelect,
+  toolbar,
+  placeholder,
+  children,
+  emptyTitle = "Sem ordens no período",
+  emptyDescription = "Ajuste o período ou os filtros para visualizar a evolução por família."
+}: Props) {
+  const [metric, setMetric] = useState<FamilyEvolutionMetric>("orders");
+  const seriesKeys = useMemo(() => data.series.map((series) => series.key), [data.series]);
+  // Modo Máquina: sempre a única linha (a máquina). Modo Família: Top 5 + a selecionada.
+  const [visible, setVisible] = useState<string[]>(() => initialVisible(mode, seriesKeys, selection.series));
   const [slots, setSlots] = useState<Record<string, number>>(() => assignSlots({}, visible));
   const hoverIndexRef = useRef<number | null>(null);
 
-  // Filtros novos da página: o conjunto de famílias pode mudar — mantém as exibidas que sobreviveram.
+  // Dados novos (filtros, outra máquina): mantém as séries exibidas que sobreviveram.
   useEffect(() => {
     setVisible((current) => {
-      const kept = current.filter((family) => familyNames.includes(family));
-      return kept.length ? kept : familyNames.slice(0, DEFAULT_VISIBLE);
+      if (mode === "machine") return seriesKeys.slice(0, 1);
+      const kept = current.filter((key) => seriesKeys.includes(key));
+      return kept.length ? kept : seriesKeys.slice(0, DEFAULT_VISIBLE);
     });
-  }, [familyNames]);
+  }, [seriesKeys, mode]);
 
   // Família selecionada fora das exibidas (ex.: via ranking) entra no gráfico.
   useEffect(() => {
-    const family = selection.family;
-    if (family && familyNames.includes(family)) {
-      setVisible((current) => (current.includes(family) ? current : [...current, family]));
+    const key = selection.series;
+    if (key && seriesKeys.includes(key)) {
+      setVisible((current) => (current.includes(key) ? current : [...current, key]));
     }
-  }, [selection.family, familyNames]);
+  }, [selection.series, seriesKeys]);
 
   useEffect(() => {
     setSlots((current) => assignSlots(current, visible));
   }, [visible]);
 
-  const seriesByFamily = useMemo(
-    () => new Map(data.families.map((family) => [family.family, family])),
-    [data.families]
-  );
+  const seriesByKey = useMemo(() => new Map(data.series.map((series) => [series.key, series])), [data.series]);
 
-  const colorOf = (family: string) => {
-    const slot = slots[family];
+  const colorOf = (key: string) => {
+    const slot = slots[key];
     return slot === undefined ? FAMILY_CONTEXT_COLOR : FAMILY_PALETTE[slot];
   };
 
-  function selectPoint(family: string, monthIndex: number | null) {
+  /** Mês sem dado não abre drill-down: não há o que detalhar. */
+  function selectPoint(key: string, monthIndex: number | null) {
+    if (monthIndex !== null) {
+      const series = seriesByKey.get(key);
+      if (series && series.orders[monthIndex] === null) return;
+    }
     const month = monthIndex !== null ? data.months[monthIndex]?.period ?? null : null;
-    onSelect(family, month);
+    onSelect(key, month);
   }
 
   const chartRows = useMemo(
     () =>
       data.months.map((month, index) => {
-        const row: Record<string, string | number> = { label: month.label };
-        for (const family of visible) {
-          const series = seriesByFamily.get(family);
-          row[family] = series ? (metric === "orders" ? series.orders[index] : series.hours[index]) : 0;
+        const row: Record<string, string | number | null> = { label: month.label };
+        for (const key of visible) {
+          const series = seriesByKey.get(key);
+          row[key] = series ? (metric === "orders" ? series.orders[index] : series.hours[index]) : 0;
         }
         return row;
       }),
-    [data.months, visible, seriesByFamily, metric]
+    [data.months, visible, seriesByKey, metric]
   );
 
   const selectedMonthLabel = selection.month
@@ -110,37 +164,39 @@ export function CriticalEquipmentFamilyEvolutionChart({ data, selection, onSelec
     : undefined;
 
   const unit = metric === "orders" ? "OS" : "h";
+  const hasChart = data.series.length > 0 && data.months.length > 0;
 
   return (
     <article className="panel rounded-lg p-4 xl:col-span-12">
       <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">
-            Evolução mensal de ordens por família
-          </h3>
-          <p className="text-[11px] text-zinc-500">
-            Clique em uma família ou num ponto do mês para recortar toda a análise abaixo.
-          </p>
+          <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">{title}</h3>
+          <p className="text-[11px] text-zinc-500">{subtitle}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <MetricToggle metric={metric} onChange={setMetric} />
-          <FamilyPicker families={data.families} visible={visible} onChange={setVisible} colorOf={colorOf} />
+          {mode === "family" ? (
+            <FamilyPicker series={data.series} visible={visible} onChange={setVisible} colorOf={colorOf} />
+          ) : null}
         </div>
       </div>
 
-      {data.families.length === 0 || data.months.length === 0 ? (
-        <EmptyState
-          title="Sem ordens no período"
-          description="Ajuste o período ou os filtros para visualizar a evolução por família."
-        />
+      {toolbar}
+
+      {placeholder ? (
+        placeholder
+      ) : !hasChart ? (
+        <EmptyState title={emptyTitle} description={emptyDescription} />
       ) : (
         <>
-          <FamilyLegend
+          <SeriesLegend
+            mode={mode}
+            metric={metric}
             visible={visible}
-            seriesByFamily={seriesByFamily}
+            seriesByKey={seriesByKey}
             colorOf={colorOf}
-            selectedFamily={selection.family}
-            onSelect={(family) => onSelect(family, null)}
+            selectedKey={selection.series}
+            onSelect={(key) => onSelect(key, null)}
           />
 
           <div className="h-[260px] w-full">
@@ -153,7 +209,7 @@ export function CriticalEquipmentFamilyEvolutionChart({ data, selection, onSelec
                     typeof state?.activeTooltipIndex === "number" ? state.activeTooltipIndex : null;
                 }}
                 onClick={(state) => {
-                  // Clique fora de um ponto: só é inequívoco com uma única família na tela.
+                  // Clique fora de um ponto: só é inequívoco com uma única série na tela.
                   if (visible.length === 1 && typeof state?.activeTooltipIndex === "number") {
                     selectPoint(visible[0], state.activeTooltipIndex);
                   }
@@ -170,30 +226,32 @@ export function CriticalEquipmentFamilyEvolutionChart({ data, selection, onSelec
                   <ReferenceLine x={selectedMonthLabel} stroke={CHART_CHROME.onLight.label} strokeDasharray="4 3" />
                 ) : null}
                 <Tooltip
-                  content={<EvolutionTooltip data={data} visible={visible} metric={metric} colorOf={colorOf} />}
+                  content={<EvolutionTooltip mode={mode} data={data} visible={visible} metric={metric} colorOf={colorOf} />}
                   cursor={{ stroke: CHART_CHROME.onLight.grid, strokeWidth: 1 }}
                 />
-                {visible.map((family) => {
-                  const color = colorOf(family);
-                  const isSelected = selection.family === family;
+                {visible.map((key) => {
+                  const color = colorOf(key);
+                  const isSelected = selection.series === key;
                   const isContext = color === FAMILY_CONTEXT_COLOR;
                   return (
                     <Line
-                      key={family}
+                      key={key}
                       type="monotone"
-                      // Função, não string: nome de família com "." viraria caminho no lodash.get do Recharts.
-                      dataKey={(row: Record<string, number>) => row[family]}
-                      name={family}
+                      // Função, não string: nome com "." viraria caminho no lodash.get do Recharts.
+                      dataKey={(row: Record<string, number | null>) => row[key]}
+                      name={seriesByKey.get(key)?.label ?? key}
                       stroke={color}
                       strokeWidth={isSelected ? 3 : isContext ? 1.25 : 2}
-                      strokeOpacity={selection.family && !isSelected ? 0.55 : 1}
+                      strokeOpacity={selection.series && !isSelected ? 0.55 : 1}
+                      // Mês sem dado = lacuna, nunca ligado como se fosse zero.
+                      connectNulls={false}
                       dot={{ r: 3, strokeWidth: 0, fill: color }}
                       activeDot={{
                         r: 7,
                         stroke: "#fff",
                         strokeWidth: 2,
                         cursor: "pointer",
-                        onClick: () => selectPoint(family, hoverIndexRef.current)
+                        onClick: () => selectPoint(key, hoverIndexRef.current)
                       }}
                       isAnimationActive={false}
                     />
@@ -204,6 +262,7 @@ export function CriticalEquipmentFamilyEvolutionChart({ data, selection, onSelec
           </div>
 
           <EvolutionTable
+            mode={mode}
             data={data}
             visible={visible}
             metric={metric}
@@ -214,7 +273,55 @@ export function CriticalEquipmentFamilyEvolutionChart({ data, selection, onSelec
           />
         </>
       )}
+
+      {children}
     </article>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Modo Família — adaptador (comportamento inalterado)                */
+/* ------------------------------------------------------------------ */
+
+/** "EVOLUÇÃO MENSAL DE ORDENS POR FAMÍLIA" — os dados de família no gráfico comum. */
+export function CriticalEquipmentFamilyEvolutionChart({
+  data,
+  selection,
+  onSelect
+}: {
+  data: FamilyEvolutionData;
+  /** Família/mês destacados — vêm do estado único da página. */
+  selection: { family: string | null; month: string | null };
+  /** Clique num ponto/célula (mês) ou na legenda (período inteiro, `month = null`). */
+  onSelect: (family: string, month: string | null) => void;
+}) {
+  const chartData = useMemo<EvolutionChartData>(
+    () => ({
+      months: data.months.map((month) => ({ ...month, tooltipLabel: formatMonthLong(month.period) })),
+      series: data.families.map((family) => ({
+        key: family.family,
+        label: family.family,
+        totalOrders: family.totalOrders,
+        totalWorkedHours: family.totalWorkedHours,
+        orders: family.orders,
+        hours: family.hours,
+        machines: family.machines
+      }))
+    }),
+    [data]
+  );
+
+  return (
+    <CriticalEquipmentEvolutionChart
+      mode="family"
+      // Gráfico de CONTEXTO: não é recortado pela seleção (senão a linha clicada viraria a
+      // única do gráfico). Ele só DEFINE família/mês no estado da página.
+      title="Evolução mensal de ordens por família"
+      subtitle="Clique em uma família ou num ponto do mês para recortar toda a análise abaixo."
+      data={chartData}
+      selection={{ series: selection.family, month: selection.month }}
+      onSelect={onSelect}
+    />
   );
 }
 
@@ -254,15 +361,15 @@ function MetricToggle({
 }
 
 function FamilyPicker({
-  families,
+  series,
   visible,
   onChange,
   colorOf
 }: {
-  families: FamilyEvolutionSeries[];
+  series: EvolutionChartSeries[];
   visible: string[];
   onChange: (next: string[]) => void;
-  colorOf: (family: string) => string;
+  colorOf: (key: string) => string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -287,16 +394,14 @@ function FamilyPicker({
   }, [open]);
 
   const normalized = query.trim().toLowerCase();
-  const filtered = normalized
-    ? families.filter((family) => family.family.toLowerCase().includes(normalized))
-    : families;
+  const filtered = normalized ? series.filter((item) => item.label.toLowerCase().includes(normalized)) : series;
 
-  function toggle(family: string) {
-    if (visible.includes(family)) {
+  function toggle(key: string) {
+    if (visible.includes(key)) {
       // Nunca deixa o gráfico vazio.
-      if (visible.length > 1) onChange(visible.filter((value) => value !== family));
+      if (visible.length > 1) onChange(visible.filter((value) => value !== key));
     } else {
-      onChange([...visible, family]);
+      onChange([...visible, key]);
     }
   }
 
@@ -311,7 +416,7 @@ function FamilyPicker({
       >
         Famílias exibidas
         <span className="rounded bg-zinc-100 px-1.5 text-[10px] font-bold text-zinc-600">
-          {visible.length}/{families.length}
+          {visible.length}/{series.length}
         </span>
         <ChevronDown className="h-3.5 w-3.5" />
       </button>
@@ -321,20 +426,20 @@ function FamilyPicker({
           <div className="mb-2 flex flex-wrap gap-1.5">
             <button
               type="button"
-              onClick={() => onChange(families.slice(0, DEFAULT_VISIBLE).map((family) => family.family))}
+              onClick={() => onChange(series.slice(0, DEFAULT_VISIBLE).map((item) => item.key))}
               className="rounded border border-zinc-200 px-2 py-1 text-[10px] font-bold uppercase text-zinc-600 hover:border-gold/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
             >
               Top {DEFAULT_VISIBLE}
             </button>
             <button
               type="button"
-              onClick={() => onChange(families.map((family) => family.family))}
+              onClick={() => onChange(series.map((item) => item.key))}
               className="rounded border border-zinc-200 px-2 py-1 text-[10px] font-bold uppercase text-zinc-600 hover:border-gold/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold"
             >
               Ver todas
             </button>
           </div>
-          {families.length > 6 ? (
+          {series.length > 6 ? (
             <label className="mb-2 flex items-center gap-1.5 rounded border border-zinc-200 px-2 py-1">
               <Search className="h-3.5 w-3.5 text-zinc-400" />
               <input
@@ -347,15 +452,15 @@ function FamilyPicker({
             </label>
           ) : null}
           <ul role="listbox" aria-multiselectable="true" className="max-h-64 overflow-y-auto">
-            {filtered.map((family) => {
-              const checked = visible.includes(family.family);
+            {filtered.map((item) => {
+              const checked = visible.includes(item.key);
               return (
-                <li key={family.family}>
+                <li key={item.key}>
                   <button
                     type="button"
                     role="option"
                     aria-selected={checked}
-                    onClick={() => toggle(family.family)}
+                    onClick={() => toggle(item.key)}
                     className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-zinc-700 hover:bg-gold/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-gold"
                   >
                     <span
@@ -366,10 +471,10 @@ function FamilyPicker({
                       {checked ? <Check className="h-2.5 w-2.5" /> : null}
                     </span>
                     {checked ? (
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf(family.family) }} />
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf(item.key) }} />
                     ) : null}
-                    <span className="min-w-0 flex-1 truncate">{family.family}</span>
-                    <span className="text-[11px] tabular-nums text-zinc-500">{fmtInt(family.totalOrders)} OS</span>
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    <span className="text-[11px] tabular-nums text-zinc-500">{fmtInt(item.totalOrders)} OS</span>
                   </button>
                 </li>
               );
@@ -387,38 +492,60 @@ function FamilyPicker({
   );
 }
 
-function FamilyLegend({
+/**
+ * Tags das séries exibidas. Família: total de OS (como sempre foi). Máquina: o total
+ * da métrica escolhida — "184 OS" ou "1.245,4 h".
+ */
+function SeriesLegend({
+  mode,
+  metric,
   visible,
-  seriesByFamily,
+  seriesByKey,
   colorOf,
-  selectedFamily,
+  selectedKey,
   onSelect
 }: {
+  mode: "family" | "machine";
+  metric: FamilyEvolutionMetric;
   visible: string[];
-  seriesByFamily: Map<string, FamilyEvolutionSeries>;
-  colorOf: (family: string) => string;
-  selectedFamily: string | null;
-  onSelect: (family: string) => void;
+  seriesByKey: Map<string, EvolutionChartSeries>;
+  colorOf: (key: string) => string;
+  selectedKey: string | null;
+  onSelect: (key: string) => void;
 }) {
   return (
-    <ul className="mb-2 mt-2 flex flex-wrap gap-1.5" aria-label="Famílias exibidas no gráfico">
-      {visible.map((family) => {
-        const series = seriesByFamily.get(family);
-        const active = selectedFamily === family;
+    <ul
+      className="mb-2 mt-2 flex flex-wrap gap-1.5"
+      aria-label={mode === "family" ? "Famílias exibidas no gráfico" : "Máquina exibida no gráfico"}
+    >
+      {visible.map((key) => {
+        const series = seriesByKey.get(key);
+        const label = series?.label ?? key;
+        const active = selectedKey === key;
+        const value =
+          mode === "machine" && metric === "hours"
+            ? `${fmtHours(series?.totalWorkedHours ?? 0)} h`
+            : mode === "machine"
+              ? `${fmtInt(series?.totalOrders ?? 0)} OS`
+              : fmtInt(series?.totalOrders ?? 0);
         return (
-          <li key={family}>
+          <li key={key}>
             <button
               type="button"
-              onClick={() => onSelect(family)}
+              onClick={() => onSelect(key)}
               aria-pressed={active}
-              aria-label={`Detalhar ${family} no período inteiro: ${fmtInt(series?.totalOrders ?? 0)} OS`}
+              aria-label={
+                mode === "family"
+                  ? `Detalhar ${label} no período inteiro: ${fmtInt(series?.totalOrders ?? 0)} OS`
+                  : `${label}: ${value} no ano`
+              }
               className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold ${
                 active ? "border-ink bg-ink/[0.04] font-semibold text-zinc-900" : "border-zinc-200 text-zinc-700 hover:border-gold/60"
               }`}
             >
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorOf(family) }} />
-              {family}
-              <span className="tabular-nums text-zinc-500">{fmtInt(series?.totalOrders ?? 0)}</span>
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colorOf(key) }} />
+              {label}
+              <span className="tabular-nums text-zinc-500">{value}</span>
             </button>
           </li>
         );
@@ -434,52 +561,79 @@ function FamilyLegend({
 type TooltipProps = {
   active?: boolean;
   label?: string;
-  data: FamilyEvolutionData;
+  mode: "family" | "machine";
+  data: EvolutionChartData;
   visible: string[];
   metric: FamilyEvolutionMetric;
-  colorOf: (family: string) => string;
+  colorOf: (key: string) => string;
 };
 
-function EvolutionTooltip({ active, label, data, visible, metric, colorOf }: TooltipProps) {
+function EvolutionTooltip({ active, label, mode, data, visible, metric, colorOf }: TooltipProps) {
   if (!active || !label) return null;
   const index = data.months.findIndex((month) => month.label === label);
   if (index < 0) return null;
   const month = data.months[index];
 
   const rows = visible
-    .map((family) => data.families.find((series) => series.family === family))
-    .filter((series): series is FamilyEvolutionSeries => Boolean(series))
+    .map((key) => data.series.find((series) => series.key === key))
+    .filter((series): series is EvolutionChartSeries => Boolean(series))
     .map((series) => {
       const value = metric === "orders" ? series.orders[index] : series.hours[index];
       const previous = index > 0 ? (metric === "orders" ? series.orders[index - 1] : series.hours[index - 1]) : null;
       return {
-        family: series.family,
+        key: series.key,
+        label: series.label,
         value,
-        machines: series.machines[index],
-        // Sem mês anterior no período, ou anterior zerado: não há base para percentual.
-        variation: previous !== null && previous > 0 ? ((value - previous) / previous) * 100 : null
+        machines: series.machines?.[index] ?? null,
+        // Sem mês anterior no período, ou anterior zerado/sem dado: não há base para percentual.
+        variation: value !== null && previous !== null && previous > 0 ? ((value - previous) / previous) * 100 : null
       };
     })
-    .sort((a, b) => b.value - a.value);
+    .sort((a, b) => (b.value ?? -1) - (a.value ?? -1));
+
+  if (mode === "machine") {
+    const row = rows[0];
+    if (!row) return null;
+    return (
+      <div className="max-w-xs rounded-md border border-zinc-200 bg-white px-3 py-2 text-[11px] shadow-lg">
+        <p className="mb-1 font-bold text-zinc-900">{month.tooltipLabel}</p>
+        <p className="flex items-center gap-1.5 font-semibold text-zinc-800">
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf(row.key) }} />
+          {row.label}
+        </p>
+        <p className="mt-0.5 tabular-nums text-zinc-900">
+          {row.value === null
+            ? "Sem dado neste mês"
+            : metric === "orders"
+              ? `OS: ${fmtInt(row.value)}`
+              : `Horas apontadas: ${fmtHours(row.value)} h`}
+        </p>
+        {month.note ? <p className="mt-0.5 text-amber-700">{month.note}</p> : null}
+        {row.value !== null ? (
+          <p className="mt-1.5 border-t border-zinc-100 pt-1 text-[10px] text-zinc-400">Clique no ponto para detalhar o mês</p>
+        ) : null}
+      </div>
+    );
+  }
 
   const previousLabel = index > 0 ? formatMonthLong(data.months[index - 1].period).split("/")[0].toLowerCase() : null;
 
   return (
     <div className="max-w-xs rounded-md border border-zinc-200 bg-white px-3 py-2 text-[11px] shadow-lg">
-      <p className="mb-1.5 font-bold text-zinc-900">{formatMonthLong(month.period)}</p>
+      <p className="mb-1.5 font-bold text-zinc-900">{month.tooltipLabel}</p>
       <ul className="space-y-1.5">
         {rows.map((row) => (
-          <li key={row.family} className="flex gap-2">
-            <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf(row.family) }} />
+          <li key={row.key} className="flex gap-2">
+            <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf(row.key) }} />
             <div className="min-w-0">
               <p className="font-semibold text-zinc-800">
-                {row.family}{" "}
+                {row.label}{" "}
                 <span className="tabular-nums text-zinc-900">
-                  {metric === "orders" ? `${fmtInt(row.value)} OS` : `${fmtHours(row.value)} h`}
+                  {metric === "orders" ? `${fmtInt(row.value ?? 0)} OS` : `${fmtHours(row.value ?? 0)} h`}
                 </span>
               </p>
               <p className="text-zinc-500">
-                Máquinas afetadas: {fmtInt(row.machines)}
+                Máquinas afetadas: {fmtInt(row.machines ?? 0)}
                 {previousLabel
                   ? row.variation !== null
                     ? ` · vs ${previousLabel}: ${row.variation > 0 ? "+" : ""}${fmtPercent(row.variation)}`
@@ -497,9 +651,11 @@ function EvolutionTooltip({ active, label, data, visible, metric, colorOf }: Too
 
 /**
  * Tabela mês a mês — o caminho por TECLADO até o drill-down (os pontos do SVG não
- * recebem foco) e a leitura exata dos números. Cada célula é um botão.
+ * recebem foco) e a leitura exata dos números. Cada célula é um botão; mês sem dado
+ * mostra "—" e não é clicável.
  */
 function EvolutionTable({
+  mode,
   data,
   visible,
   metric,
@@ -508,17 +664,19 @@ function EvolutionTable({
   selection,
   onSelect
 }: {
-  data: FamilyEvolutionData;
+  mode: "family" | "machine";
+  data: EvolutionChartData;
   visible: string[];
   metric: FamilyEvolutionMetric;
   unit: string;
-  colorOf: (family: string) => string;
+  colorOf: (key: string) => string;
   selection: ChartSelection;
-  onSelect: (family: string, monthIndex: number | null) => void;
+  onSelect: (key: string, monthIndex: number | null) => void;
 }) {
   const rows = visible
-    .map((family) => data.families.find((series) => series.family === family))
-    .filter((series): series is FamilyEvolutionSeries => Boolean(series));
+    .map((key) => data.series.find((series) => series.key === key))
+    .filter((series): series is EvolutionChartSeries => Boolean(series));
+  const subject = mode === "family" ? "Família" : "Máquina";
 
   return (
     <details className="group mt-2">
@@ -530,13 +688,13 @@ function EvolutionTable({
       <div className="mt-2 overflow-x-auto">
         <table className="w-full min-w-max text-[11px]">
           <caption className="sr-only">
-            {metric === "orders" ? "Quantidade de OS" : "Horas apontadas"} por família e mês. Selecione uma célula
-            para detalhar.
+            {metric === "orders" ? "Quantidade de OS" : "Horas apontadas"} por {subject.toLowerCase()} e mês. Selecione uma
+            célula para detalhar.
           </caption>
           <thead>
             <tr className="border-b border-zinc-200 text-left text-[10px] uppercase tracking-wide text-zinc-500">
               <th scope="col" className="px-2 py-1.5 font-bold">
-                Família
+                {subject}
               </th>
               {data.months.map((month) => (
                 <th key={month.period} scope="col" className="px-2 py-1.5 text-right font-bold">
@@ -550,23 +708,30 @@ function EvolutionTable({
           </thead>
           <tbody>
             {rows.map((series) => (
-              <tr key={series.family} className="border-b border-zinc-100">
+              <tr key={series.key} className="border-b border-zinc-100">
                 <th scope="row" className="px-2 py-1 text-left font-semibold text-zinc-800">
                   <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf(series.family) }} />
-                    {series.family}
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf(series.key) }} />
+                    {series.label}
                   </span>
                 </th>
                 {data.months.map((month, index) => {
                   const value = metric === "orders" ? series.orders[index] : series.hours[index];
-                  const active = selection?.family === series.family && selection.month === month.period;
+                  const active = selection?.series === series.key && selection.month === month.period;
+                  if (value === null) {
+                    return (
+                      <td key={month.period} className="px-2 py-0.5 text-right text-zinc-400" title={month.note ?? "Sem dado neste mês"}>
+                        —
+                      </td>
+                    );
+                  }
                   return (
                     <td key={month.period} className="px-1 py-0.5 text-right">
                       <button
                         type="button"
-                        onClick={() => onSelect(series.family, index)}
+                        onClick={() => onSelect(series.key, index)}
                         aria-pressed={active}
-                        aria-label={`${series.family}, ${formatMonthLong(month.period)}: ${
+                        aria-label={`${series.label}, ${month.tooltipLabel}: ${
                           metric === "orders" ? fmtInt(value) : fmtHours(value)
                         } ${unit}. Detalhar.`}
                         className={`w-full rounded px-1 py-0.5 tabular-nums transition hover:bg-gold/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold ${
@@ -594,21 +759,27 @@ function EvolutionTable({
 /* Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
+function initialVisible(mode: "family" | "machine", keys: string[], selected: string | null): string[] {
+  if (mode === "machine") return keys.slice(0, 1);
+  const top = keys.slice(0, DEFAULT_VISIBLE);
+  return selected && keys.includes(selected) && !top.includes(selected) ? [...top, selected] : top;
+}
+
 /** Mantém o slot de cor de quem continua na tela; novos pegam o primeiro slot livre. */
 function assignSlots(previous: Record<string, number>, visible: string[]): Record<string, number> {
   const next: Record<string, number> = {};
   const used = new Set<number>();
-  for (const family of visible) {
-    if (previous[family] !== undefined) {
-      next[family] = previous[family];
-      used.add(previous[family]);
+  for (const key of visible) {
+    if (previous[key] !== undefined) {
+      next[key] = previous[key];
+      used.add(previous[key]);
     }
   }
-  for (const family of visible) {
-    if (next[family] !== undefined) continue;
+  for (const key of visible) {
+    if (next[key] !== undefined) continue;
     const free = FAMILY_PALETTE.findIndex((_, index) => !used.has(index));
     if (free < 0) break;
-    next[family] = free;
+    next[key] = free;
     used.add(free);
   }
   return next;

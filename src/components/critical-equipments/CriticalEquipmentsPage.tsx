@@ -51,7 +51,7 @@ const CriticalEquipmentStatusChart = dynamic(
 );
 const CriticalEquipmentFamilyEvolutionChart = dynamic(
   () =>
-    import("@/components/critical-equipments/CriticalEquipmentFamilyEvolutionChart").then(
+    import("@/components/critical-equipments/CriticalEquipmentEvolutionChart").then(
       (m) => m.CriticalEquipmentFamilyEvolutionChart
     ),
   { ssr: false, loading: () => <ChartSkeleton className="xl:col-span-12" /> }
