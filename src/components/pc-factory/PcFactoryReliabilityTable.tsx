@@ -23,6 +23,11 @@ import {
 } from "@/utils/pc-factory-physical-availability";
 import { AVAILABILITY_NOTE_LIMITS, type PcFactoryAvailabilityNoteDTO } from "@/types/pc-factory-availability-note";
 import { FOCUS_RING } from "@/constants/interactive";
+import {
+  PcFactoryServiceOrderPicker,
+  ServiceOrderChipView,
+  type ServiceOrderChip
+} from "@/components/pc-factory/PcFactoryServiceOrderPicker";
 import type { PcFactoryPeriodWindowDTO, PcFactoryReliabilityRow } from "@/types/pc-factory";
 
 type PcFactoryReliabilityTableProps = {
@@ -57,8 +62,11 @@ const HEADER_HINTS = {
     "não usa LOADTIME, Tempo Operacional, Setup, MTTR, MTBF, MTTA nem quebras. " +
     "Passe o mouse na célula para ver a conta da máquina.",
   reason:
-    "Justificativa gerencial da disponibilidade da máquina NESTE período. É texto de gestão: " +
-    "não altera Horas de Parada, Tempo Total nem Disponibilidade."
+    "Motivo (causa) e justificativa gerencial da disponibilidade da máquina NESTE período. É texto de gestão: " +
+    "não altera Horas de Parada, Tempo Total nem Disponibilidade.",
+  serviceOrders:
+    "Ordens de Serviço do portal que registram a intervenção deste período. Informação gerencial: " +
+    "não entra em Disponibilidade, Horas de Parada nem MTBF/MTTR/MTTA."
 } as const;
 
 /**
@@ -307,6 +315,10 @@ export function PcFactoryReliabilityTable({
                   <th className="py-2 pl-3 text-left" title={HEADER_HINTS.reason}>
                     <span className="font-extrabold uppercase tracking-wide">Motivo / Justificativa</span>
                   </th>
+                  {/* Em tela pequena a OS aparece dentro da célula de motivo (sem 5ª coluna). */}
+                  <th className="hidden py-2 pl-3 text-left md:table-cell" title={HEADER_HINTS.serviceOrders}>
+                    <span className="font-extrabold uppercase tracking-wide">OS</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -366,12 +378,19 @@ export function PcFactoryReliabilityTable({
                             onToggle={() => setExpanded(isExpanded ? null : row.machineName)}
                           />
                         </td>
+                        <td className="hidden py-2 pl-3 align-top md:table-cell">
+                          <ServiceOrderCell
+                            note={note}
+                            availability={row.availability}
+                            onOpen={() => setExpanded(isExpanded ? null : row.machineName)}
+                          />
+                        </td>
                       </tr>
 
                       {isExpanded ? (
                         <tr className="border-b border-zinc-100">
                           {/* Painel central: ocupa a largura inteira da tabela. */}
-                          <td colSpan={4} className="p-0">
+                          <td colSpan={5} className="p-0">
                             <AvailabilityNotePanel
                               row={row}
                               note={note}
@@ -497,10 +516,22 @@ function ReasonCell({
           O `hidden/sm:block` vive no CONTÊINER: aplicado no próprio parágrafo ele
           brigaria com o `display:-webkit-box` que o `line-clamp-2` precisa. */}
       <div className="hidden sm:block">
+        {note.cause ? (
+          <p className="line-clamp-1 text-[11px] font-bold leading-snug text-zinc-800" title={`Motivo: ${note.cause}`}>
+            {note.cause}
+          </p>
+        ) : null}
         <p className="line-clamp-2 text-[11px] leading-snug text-zinc-600" title={note.reason}>
           {note.reason}
         </p>
       </div>
+      {/* Sem a coluna OS (tela pequena), o número aparece aqui. */}
+      {note.serviceOrders.length ? (
+        <span className="text-[10px] font-semibold tabular-nums text-zinc-600 md:hidden">
+          OS {note.serviceOrders[0].osNumber}
+          {note.serviceOrders.length > 1 ? ` +${note.serviceOrders.length - 1}` : ""}
+        </span>
+      ) : null}
       <button
         type="button"
         onClick={handle}
@@ -512,6 +543,69 @@ function ReasonCell({
       </button>
     </div>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Coluna OS                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * "OS 45012345", ou "OS 45012345 +2" quando há várias — o clique abre o painel da
+ * justificativa, que lista todas. Máquina na faixa crítica, justificada e sem OS
+ * mostra "OS não informada": é sinal de processo, não erro de cálculo.
+ */
+function ServiceOrderCell({
+  note,
+  availability,
+  onOpen
+}: {
+  note: PcFactoryAvailabilityNoteDTO | null;
+  availability: number | null;
+  onOpen: () => void;
+}) {
+  const orders = note?.serviceOrders ?? [];
+
+  if (!orders.length) {
+    const flag = note && classifyPhysicalAvailability(availability) === "critica";
+    return flag ? (
+      <span
+        className="text-[10px] italic text-zinc-400"
+        title="Justificativa registrada sem Ordem de Serviço vinculada. Indicador de qualidade do processo — não afeta nenhum cálculo."
+      >
+        OS não informada
+      </span>
+    ) : (
+      <span className="text-[11px] text-zinc-400">—</span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen();
+      }}
+      title={orders
+        .map((order) => `OS ${order.osNumber}${order.planningGroupLabel ? ` — ${order.planningGroupLabel}` : ""}${order.statusLabel ? ` — ${order.statusLabel}` : ""}`)
+        .join("\n")}
+      className={`whitespace-nowrap rounded-md px-1 text-[11px] font-bold tabular-nums text-gold-deep underline decoration-gold/40 underline-offset-2 transition hover:decoration-gold ${FOCUS_RING}`}
+    >
+      OS {orders[0].osNumber}
+      {orders.length > 1 ? <span className="ml-1 text-zinc-500">+{orders.length - 1}</span> : null}
+    </button>
+  );
+}
+
+function toChips(note: PcFactoryAvailabilityNoteDTO | null): ServiceOrderChip[] {
+  return (note?.serviceOrders ?? []).map((order) => ({
+    osNumber: order.osNumber,
+    title: order.title,
+    planningGroupLabel: order.planningGroupLabel,
+    statusLabel: order.statusLabel,
+    closed: order.closed,
+    found: order.found
+  }));
 }
 
 /* ------------------------------------------------------------------ */
@@ -544,7 +638,9 @@ function AvailabilityNotePanel({
   onClose: () => void;
   onSaved: (note: PcFactoryAvailabilityNoteDTO) => void;
 }) {
+  const [cause, setCause] = useState(note?.cause ?? "");
   const [reason, setReason] = useState(note?.reason ?? "");
+  const [serviceOrders, setServiceOrders] = useState<ServiceOrderChip[]>(() => toChips(note));
   const [actionPlan, setActionPlan] = useState(note?.actionPlan ?? "");
   const [responsible, setResponsible] = useState(note?.responsible ?? "");
   const [saving, setSaving] = useState(false);
@@ -593,7 +689,10 @@ function AvailabilityNotePanel({
           resourceCode: row.machineCode,
           periodStart: period.startDate,
           periodEnd: period.endDate,
+          cause: cause.trim() || null,
           reason: text,
+          // Lista COMPLETA: o servidor inclui as novas e remove (só o vínculo) as que saíram.
+          serviceOrderNumbers: serviceOrders.map((order) => order.osNumber),
           actionPlan: actionPlan.trim() || null,
           responsible: responsible.trim() || null,
           // Foto informativa do que o gestor via ao escrever. Não é usada em
@@ -650,9 +749,19 @@ function AvailabilityNotePanel({
 
       {canEdit ? (
         <div className="space-y-3">
+          <Field label="Motivo" hint={`Causa / resumo do problema · opcional · até ${AVAILABILITY_NOTE_LIMITS.cause} caracteres`}>
+            <input
+              value={cause}
+              onChange={(event) => setCause(event.target.value)}
+              maxLength={AVAILABILITY_NOTE_LIMITS.cause}
+              placeholder="Ex.: Falha elétrica no motor principal"
+              className={FIELD_CLASS}
+            />
+          </Field>
+
           <Field
             label="Justificativa da baixa disponibilidade"
-            hint={`Obrigatório · até ${AVAILABILITY_NOTE_LIMITS.reason} caracteres`}
+            hint={`Explicação gerencial · obrigatório · até ${AVAILABILITY_NOTE_LIMITS.reason} caracteres`}
           >
             <textarea
               ref={reasonRef}
@@ -664,6 +773,23 @@ function AvailabilityNotePanel({
               className={FIELD_CLASS}
             />
           </Field>
+
+          {/* Não é <label>: a área tem vários controles (busca, escopo, chips). */}
+          <div>
+            <span className="mb-1 flex items-baseline gap-2 text-[11px] font-extrabold uppercase tracking-wide text-gold-soft">
+              Ordens de Serviço relacionadas
+              <span className="font-semibold normal-case tracking-normal text-parchment-dim">
+                Registro oficial da intervenção · opcional · até {AVAILABILITY_NOTE_LIMITS.serviceOrders} OS
+              </span>
+            </span>
+            <PcFactoryServiceOrderPicker
+              machine={row.machineName}
+              periodStart={period.startDate}
+              periodEnd={period.endDate}
+              value={serviceOrders}
+              onChange={setServiceOrders}
+            />
+          </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Plano de ação" hint="Opcional">
@@ -688,7 +814,7 @@ function AvailabilityNotePanel({
           </div>
 
           <p className="text-[11px] text-parchment-dim">
-            A justificativa é informação gerencial: não altera Horas de Parada, Tempo Total nem Disponibilidade.
+            Motivo, justificativa e OS vinculadas são informação gerencial: não alteram Horas de Parada, Tempo Total, Disponibilidade nem MTBF/MTTR/MTTA.
           </p>
 
           <div className="flex flex-wrap justify-end gap-2">
@@ -712,18 +838,30 @@ function AvailabilityNotePanel({
           </div>
         </div>
       ) : (
-        <div className="space-y-2">
-          <p className="whitespace-pre-wrap text-sm text-parchment">{note?.reason ?? "Sem justificativa registrada."}</p>
-          {note?.actionPlan ? (
-            <p className="text-[12px] text-parchment-dim">
-              <span className="font-bold text-gold-soft">Plano de ação:</span> {note.actionPlan}
-            </p>
-          ) : null}
-          {note?.responsible ? (
-            <p className="text-[12px] text-parchment-dim">
-              <span className="font-bold text-gold-soft">Responsável:</span> {note.responsible}
-            </p>
-          ) : null}
+        <div className="space-y-3">
+          {note ? (
+            <>
+              {note.cause ? <ReadBlock label="Motivo">{note.cause}</ReadBlock> : null}
+              <ReadBlock label="Justificativa">{note.reason}</ReadBlock>
+              <ReadBlock label="Ordens de Serviço">
+                {note.serviceOrders.length ? (
+                  <ul className="flex flex-wrap gap-2">
+                    {toChips(note).map((chip) => (
+                      <li key={chip.osNumber}>
+                        <ServiceOrderChipView chip={chip} />
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="text-parchment-dim">OS não informada.</span>
+                )}
+              </ReadBlock>
+              {note.actionPlan ? <ReadBlock label="Plano de ação">{note.actionPlan}</ReadBlock> : null}
+              {note.responsible ? <ReadBlock label="Responsável">{note.responsible}</ReadBlock> : null}
+            </>
+          ) : (
+            <p className="text-sm text-parchment">Sem justificativa registrada.</p>
+          )}
           <p className="text-[11px] text-parchment-dim">Seu perfil permite apenas visualizar justificativas.</p>
         </div>
       )}
@@ -748,9 +886,15 @@ function AvailabilityNotePanel({
             {history.notes.map((item) => (
               <li key={item.id} className="flex flex-wrap gap-x-2 text-[11px] text-parchment-dim">
                 <span className="font-bold text-parchment">{item.periodLabel}</span>
-                <span className="line-clamp-1 max-w-[70%]" title={item.reason}>
-                  — {item.reason}
+                <span className="line-clamp-1 max-w-[60%]" title={item.cause ? `${item.cause} — ${item.reason}` : item.reason}>
+                  — {item.cause ?? item.reason}
                 </span>
+                {/* As OS são da justificativa DAQUELE período — nunca misturadas entre janelas. */}
+                {item.serviceOrders.length ? (
+                  <span className="tabular-nums text-gold-soft">
+                    OS {item.serviceOrders.map((order) => order.osNumber).join(", ")}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -772,6 +916,15 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       </span>
       {children}
     </label>
+  );
+}
+
+function ReadBlock({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="text-[10px] font-extrabold uppercase tracking-wide text-gold-soft">{label}</p>
+      <div className="mt-0.5 whitespace-pre-wrap text-sm text-parchment">{children}</div>
+    </div>
   );
 }
 

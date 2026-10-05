@@ -34,6 +34,7 @@
     "validate:pc-factory": "tsx scripts/validate-pcfactory-availability.ts",
     "validate:pc-factory-machines": "tsx scripts/validate-pcfactory-machine-availability.ts",
     "validate:pc-factory-notes": "tsx scripts/validate-pcfactory-availability-notes.ts",
+    "validate:pc-factory-note-os": "tsx scripts/validate-pcfactory-note-service-orders.ts",
     "auth:hash-passwords": "tsx scripts/hash-passwords.ts",
     "auth:set-password": "tsx scripts/set-password.ts",
     "capture": "node scripts/capture-portal.mjs",

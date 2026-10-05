@@ -147,5 +147,24 @@ DATABASE_URL="$(grep -E '^DIRECT_URL=' .env | cut -d= -f2- | tr -d '"')" \
 
 Nenhum dado existente é apagado: a migration só cria tabela nova.
 
+### 6.1 Ordens de Serviço vinculadas e campo Motivo (2026-10-05)
+
+Justificativa → N Ordens de Serviço (`PcFactoryAvailabilityNoteServiceOrder`, único por
+justificativa + `osNumber`, FK para a operação de referência em `ServiceOrder`) e o campo
+opcional `cause` (MOTIVO, separado da JUSTIFICATIVA). Busca: `GET /api/service-orders/search`.
+Remover um vínculo apaga só o vínculo; vincular/desvincular entra no AuditLog.
+
+```bash
+# Migration aditiva e idempotente (coluna nova + tabela nova)
+DATABASE_URL="$(grep -E '^DIRECT_URL=' .env | cut -d= -f2- | tr -d '"')" \
+  npx prisma db execute \
+    --file prisma/migrations/20261005000000_pcfactory_note_service_orders/migration.sql \
+    --schema prisma/schema.prisma
+
+# Teste funcional (janela livre; escreve e limpa só nas tabelas de justificativa)
+DATABASE_URL="$(grep -E '^DIRECT_URL=' .env | cut -d= -f2- | tr -d '"')?connection_limit=5&pool_timeout=60" \
+  npm run validate:pc-factory-note-os -- --machine="Multifio 03 - BM"
+```
+
 Se o código subir antes da migration, a aba **não quebra** — a carga das justificativas
 é tolerante a falha e a tabela aparece sem a coluna preenchida.

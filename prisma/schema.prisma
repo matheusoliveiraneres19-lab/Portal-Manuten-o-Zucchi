@@ -303,6 +303,8 @@ model ServiceOrder {
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   timeEntries          TimeEntry[]
+  /// Justificativas de baixa disponibilidade (PC-Factory) que citam esta OS.
+  availabilityNotes    PcFactoryAvailabilityNoteServiceOrder[]
 
   @@unique([osNumber, operationCode])
   @@index([osNumber])
@@ -1145,7 +1147,9 @@ model PcFactoryAvailabilityNote {
   /// Janela analisada (dia-calendário, UTC). Parte da chave junto com resourceName.
   periodStart           DateTime @db.Date
   periodEnd             DateTime @db.Date
-  /// Justificativa da baixa disponibilidade. Obrigatória.
+  /// MOTIVO: causa/resumo do problema (opcional, curto). Ex.: "Falha elétrica no motor principal".
+  cause                 String?
+  /// JUSTIFICATIVA: explicação gerencial do ocorrido. Obrigatória.
   reason                String
   /// Plano de ação (opcional).
   actionPlan            String?
@@ -1164,8 +1168,38 @@ model PcFactoryAvailabilityNote {
   updatedByName         String?
   updatedAt             DateTime @updatedAt
 
+  /// Ordens de Serviço que registram a intervenção (1 justificativa → N OS).
+  serviceOrderLinks     PcFactoryAvailabilityNoteServiceOrder[]
+
   /// Uma justificativa por máquina e período — o que permite editar sem duplicar.
   @@unique([resourceName, periodStart, periodEnd], map: "PcFactoryAvailabilityNote_resource_period_key")
   @@index([resourceName])
   @@index([periodStart, periodEnd])
+}
+
+/// VÍNCULO justificativa de baixa disponibilidade ↔ Ordem de Serviço.
+///
+/// A unidade é a ORDEM: `ServiceOrder` guarda uma linha por OPERAÇÃO
+/// ([osNumber, operationCode]), então uma OS tem vários `id`. O vínculo é único por
+/// (justificativa, osNumber) e aponta `serviceOrderId` para a operação de referência
+/// (menor operationCode) — FK real para a OS existente, sem copiar dados dela.
+/// Remover o vínculo apaga só esta linha; a ServiceOrder nunca é tocada. Se o
+/// registro da OS sumir da base, o vínculo fica (SetNull) e a tela avisa.
+/// Informação gerencial: não entra em Disponibilidade, Horas de Parada nem MTBF/MTTR/MTTA.
+model PcFactoryAvailabilityNoteServiceOrder {
+  id                 String                    @id @default(cuid())
+  availabilityNoteId String
+  availabilityNote   PcFactoryAvailabilityNote @relation(fields: [availabilityNoteId], references: [id], onDelete: Cascade)
+  /// Número da OS no SAP — a identidade da ordem para o gestor.
+  osNumber           String
+  serviceOrderId     String?
+  serviceOrder       ServiceOrder?             @relation(fields: [serviceOrderId], references: [id], onDelete: SetNull)
+  /// Auditoria de quem vinculou. A remoção vai para o AuditLog (a linha deixa de existir).
+  createdById        String?
+  createdByName      String?
+  createdAt          DateTime                  @default(now())
+
+  @@unique([availabilityNoteId, osNumber])
+  @@index([osNumber])
+  @@index([serviceOrderId])
 }

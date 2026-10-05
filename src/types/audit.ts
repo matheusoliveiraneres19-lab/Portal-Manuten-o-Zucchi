@@ -14,6 +14,8 @@ export const AUDIT_ACTIONS = {
   EXCLUIR_PROCEDIMENTO: "excluir_procedimento",
   ALTERAR_CONFIGURACAO: "alterar_configuracao",
   REGISTRAR_JUSTIFICATIVA_DISPONIBILIDADE: "registrar_justificativa_disponibilidade",
+  VINCULAR_OS_JUSTIFICATIVA: "vincular_os_justificativa",
+  DESVINCULAR_OS_JUSTIFICATIVA: "desvincular_os_justificativa",
   IMPORTAR_PLANILHA: "importar_planilha",
   ERRO_IMPORTACAO: "erro_importacao"
 } as const;
@@ -40,6 +42,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   editar_procedimento: "Edição de procedimento",
   excluir_procedimento: "Exclusão/arquivamento de procedimento",
   registrar_justificativa_disponibilidade: "Justificativa de baixa disponibilidade (PC-Factory)",
+  vincular_os_justificativa: "OS vinculada à justificativa de disponibilidade",
+  desvincular_os_justificativa: "OS desvinculada da justificativa de disponibilidade",
   alterar_configuracao: "Alteração de configuração",
   importar_planilha: "Importação de planilha",
   erro_importacao: "Erro de importação"
