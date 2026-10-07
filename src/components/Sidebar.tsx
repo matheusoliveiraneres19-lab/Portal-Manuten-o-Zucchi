@@ -10,7 +10,7 @@ import {
   FileBarChart,
   FileText,
   Home,
-  LockKeyhole,
+  PackageSearch,
   Settings,
   ShieldCheck,
   ShoppingCart,
@@ -22,7 +22,8 @@ const baseMenu = [
   { label: "Ordens de Serviço", href: "/dashboard/ordens-servico", icon: ClipboardList },
   { label: "Compras Realizadas", href: "/dashboard/compras-realizadas", icon: ShoppingCart },
   { label: "Compras Pendentes", href: "/dashboard/compras-pendentes", icon: FileBarChart },
-  { label: "Lubrificantes", href: "/dashboard/lubrificantes", icon: LockKeyhole },
+  // Rota legada: /dashboard/lubrificantes (poderá migrar para /dashboard/analise-mrp).
+  { label: "Análise MRP", href: "/dashboard/lubrificantes", icon: PackageSearch },
   { label: "Equipamentos Críticos", href: "/dashboard/equipamentos-criticos", icon: ShieldCheck },
   { label: "PC-Factory", href: "/dashboard/pc-factory", icon: Factory },
   { label: "Central de Procedimentos", href: "/dashboard/procedimentos", icon: FileText },

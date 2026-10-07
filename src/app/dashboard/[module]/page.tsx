@@ -10,10 +10,6 @@ const modules = {
     title: "Materiais Utilizados",
     description: "Visualize o consumo de materiais por período, equipamento e tipo de manutenção."
   },
-  lubrificantes: {
-    title: "Lubrificantes",
-    description: "Controle consumo, estoque e aplicações de lubrificantes nos equipamentos críticos."
-  },
   "equipamentos-criticos": {
     title: "Equipamentos Críticos",
     description: "Priorize ativos estratégicos, criticidade operacional e riscos de parada."

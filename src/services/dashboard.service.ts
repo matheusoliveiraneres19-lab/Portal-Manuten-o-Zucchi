@@ -280,8 +280,7 @@ function labelToCriticality(label: string): Criticality {
  * Alertas críticos consolidados da aba Início (TAREFA 10). Reutiliza o service
  * OFICIAL de alertas derivados (getDerivedAlerts), que cruza as MESMAS fontes do
  * portal: OS corretiva recorrente, OS aberta há muitos dias, compra atrasada,
- * regularização Y04 de valor alto e lubrificante abaixo do mínimo. Sem dados de
- * teste. Ordena por severidade (crítico → alto → médio) e devolve os mais graves.
+ * regularização Y04 de valor alto. Sem dados de teste. Ordena por severidade (crítico → alto → médio) e devolve os mais graves.
  */
 export async function getDashboardCriticalAlerts(period: DashboardPeriod, limit = 6): Promise<CriticalAlertData[]> {
   const alerts = await getDerivedAlerts(period);
@@ -482,8 +481,7 @@ async function buildHomeDataQuality(period: DashboardPeriod, openClosedNote: str
  *
  * Duas fontes, ambas de indicadores que já existem; nenhum alerta é inventado:
  *
- *  1. `getDerivedAlerts` — quebra recorrente, OS atrasada, compra e lubrificante
- *     abaixo do mínimo. Já existiam, mas chegavam à tela sem gravidade e sem link.
+ *  1. `getDerivedAlerts` — quebra recorrente, OS atrasada e compra. Já existiam, mas chegavam à tela sem gravidade e sem link.
  *  2. Indicadores desta mesma carga — aderência preventiva abaixo da meta, OS
  *     fechadas sem execução e máquinas do PC-Factory abaixo da média. Não custam
  *     consulta nenhuma: os números já estão em `data`.
@@ -552,8 +550,6 @@ function buildHomeAlerts(data: DatabaseDashboardData): AlertItem[] {
 /** Aba de origem de cada tipo de alerta derivado. */
 function routeForAlertType(type: AlertType): string {
   switch (type) {
-    case AlertType.LUBRIFICANTE_BAIXO:
-      return "/dashboard/lubrificantes";
     case AlertType.COMPRA_ATRASADA:
       return "/dashboard/compras-pendentes";
     case AlertType.QUEBRA_RECORRENTE:

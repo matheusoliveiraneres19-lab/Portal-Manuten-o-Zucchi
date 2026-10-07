@@ -2,16 +2,17 @@
  * Alertas DERIVADOS dos dados do portal (TAREFA 10).
  *
  * Base para alertas automáticos calculados a partir das mesmas fontes únicas
- * (Ordens de Serviço, Compras, Lubrificantes). Por ora o service apenas DETECTA
- * e retorna candidatos a alerta — a persistência (upsert em Alert) pode ser
- * adicionada depois, no mesmo molde de lubricants.service.syncLubricantLowStockAlerts.
+ * (Ordens de Serviço, Compras). Por ora o service apenas DETECTA e retorna
+ * candidatos a alerta — a persistência (upsert em Alert) pode ser adicionada depois.
+ *
+ * O alerta LUBRIFICANTE_BAIXO foi retirado da Home junto com a antiga tela de
+ * Lubrificantes (substituída por Análise MRP). O enum e os dados continuam no banco.
  *
  * Limiares configuráveis via SystemConfig (chaves abaixo); na ausência da
  * configuração, usa defaults seguros.
  */
 import { AlertType, MaintenanceType, Priority, PurchaseType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getLubricantReplenishmentItems } from "@/services/lubricants.service";
 import { resolvePurchaseValue } from "@/utils/purchases-normalizer";
 import { BREAKDOWN_MAINTENANCE_TYPES, OPEN_SERVICE_ORDER_STATUSES } from "@/services/shared/portal-rules";
 import { withinPeriod, type DateRange } from "@/utils/date-range";
@@ -261,22 +262,6 @@ export async function detectHighValueRegularizations(config: DerivedAlertConfig)
 }
 
 /**
- * LUBRIFICANTE_BAIXO — reaproveita o cálculo de reposição de lubrificants.service
- * (não recalcula). A persistência já é feita por syncLubricantLowStockAlerts.
- */
-export async function detectLowLubricants(): Promise<DerivedAlert[]> {
-  const items = await getLubricantReplenishmentItems();
-
-  return items.map((item) => ({
-    type: AlertType.LUBRIFICANTE_BAIXO,
-    severity: item.deficit >= item.minimumStock ? Priority.CRITICA : Priority.ALTA,
-    title: `Lubrificante abaixo do mínimo: ${item.code}`,
-    description: `${item.description} — saldo ${item.balance} ${item.unit} / mínimo ${item.minimumStock} ${item.unit} (déficit ${item.deficit}).`,
-    equipmentId: null
-  }));
-}
-
-/**
  * Agrega todos os candidatos a alerta derivado para um período, em paralelo.
  * Útil para um painel "alertas sugeridos" ou para futura sincronização com Alert.
  */
@@ -291,8 +276,7 @@ export async function getDerivedAlerts(period: DateRange): Promise<DerivedAlert[
     lateReceived,
     requisitionsWithoutOrder,
     pendingMiro,
-    highValueRegularizations,
-    lowLubricants
+    highValueRegularizations
   ] = await Promise.all([
     detectRecurrentBreakdowns(period, config),
     detectOverdueServiceOrders(config, now),
@@ -300,8 +284,7 @@ export async function getDerivedAlerts(period: DateRange): Promise<DerivedAlert[
     detectLateReceivedPurchases(),
     detectRequisitionsWithoutOrder(config, now),
     detectPendingMiro(),
-    detectHighValueRegularizations(config),
-    detectLowLubricants()
+    detectHighValueRegularizations(config)
   ]);
 
   return [
@@ -311,8 +294,7 @@ export async function getDerivedAlerts(period: DateRange): Promise<DerivedAlert[
     ...lateReceived,
     ...requisitionsWithoutOrder,
     ...pendingMiro,
-    ...highValueRegularizations,
-    ...lowLubricants
+    ...highValueRegularizations
   ];
 }
 
