@@ -23,7 +23,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { prisma } from "../src/lib/prisma";
 import { buildMrpMaterialsFromHtmlSeed } from "../src/lib/mrp/html-seed";
-import { MRP_AREA_ELE, MRP_AREA_MEC, MRP_FAMILIES } from "../src/lib/mrp/html-normalize";
+import { MRP_AREA_ELE, MRP_AREA_MEC, MRP_FAMILIES } from "../src/lib/mrp/classification";
 import { createMrpBaseVersion, getActiveMrpBaseVersion } from "../src/services/mrp-persistence.service";
 import { DEFAULT_SETTINGS } from "../src/constants/portal-settings-defaults";
 import { HTML_FILE_NAME, loadHtmlReference } from "./mrp/html-reference";

@@ -5,10 +5,12 @@
  *
  *   npx tsx scripts/mrp/db-counts.ts [--out=arquivo.json]
  */
+import { connectWithRetry } from "./script-db";
 import { writeFileSync } from "node:fs";
 import { prisma } from "../../src/lib/prisma";
 
 async function main() {
+  await connectWithRetry(prisma, { label: "contagens" });
   const counts = {
     User: await prisma.user.count(),
     ServiceOrder: await prisma.serviceOrder.count(),

@@ -98,7 +98,10 @@ export const IMPORT_TYPE_LABELS: Record<string, string> = {
   EQUIPAMENTOS: "Equipamentos",
   PROCEDIMENTOS: "Procedimentos",
   PC_FACTORY: "PC-Factory",
-  LOCAL_INSTALACAO: "Locais de Instalação"
+  LOCAL_INSTALACAO: "Locais de Instalação",
+  MRP_BASE: "Análise MRP — Base MRP",
+  MRP_STOCK: "Análise MRP — Estoque",
+  MRP_PURCHASES: "Análise MRP — Compras"
 };
 
 /**

@@ -48,7 +48,9 @@
     "seed:mrp-html-base": "tsx scripts/seed-mrp-html-base.ts",
     "test:mrp-persistence": "tsx scripts/mrp/test-mrp-persistence.ts",
     "test:mrp-precision": "tsx scripts/mrp/test-numeric-precision.ts",
-    "mrp:db-counts": "tsx scripts/mrp/db-counts.ts"
+    "mrp:db-counts": "tsx scripts/mrp/db-counts.ts",
+    "test:mrp-import": "tsx scripts/test-mrp-import.ts",
+    "test:mrp-import-db": "tsx scripts/mrp/test-mrp-import-db.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

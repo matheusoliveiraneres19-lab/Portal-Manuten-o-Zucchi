@@ -13,7 +13,9 @@
  *   - substitui mín E máx juntos se o primeiro tiver !min && !max;
  *   - preenche a descrição se a primeira estiver vazia.
  */
-import { MRP_AREA_ELE, MRP_AREA_MEC, cleanCode, cleanText, parseNum, resolveMrpFamily } from "./html-normalize";
+import { MRP_AREA_ELE, MRP_AREA_MEC, resolveMrpFamily } from "./classification";
+import { cleanCode, cleanText } from "./normalization";
+import { parseNum } from "./number-parser";
 
 export type HtmlSeedRow = (string | number | null)[];
 
