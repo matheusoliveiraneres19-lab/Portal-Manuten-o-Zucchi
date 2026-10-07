@@ -44,7 +44,11 @@
     "backup:pc-factory": "tsx scripts/backup-pc-factory.ts",
     "backfill:pc-factory-fingerprint": "tsx scripts/backfill-pcfactory-fingerprint.ts",
     "validate:pc-factory-incremental": "tsx scripts/validate-pcfactory-incremental-import.ts",
-    "validate:critical-evolution": "tsx scripts/validate-critical-equipment-evolution.ts"
+    "validate:critical-evolution": "tsx scripts/validate-critical-equipment-evolution.ts",
+    "seed:mrp-html-base": "tsx scripts/seed-mrp-html-base.ts",
+    "test:mrp-persistence": "tsx scripts/mrp/test-mrp-persistence.ts",
+    "test:mrp-precision": "tsx scripts/mrp/test-numeric-precision.ts",
+    "mrp:db-counts": "tsx scripts/mrp/db-counts.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

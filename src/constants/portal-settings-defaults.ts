@@ -60,7 +60,13 @@ export const DEFAULT_SETTINGS: SettingDefault[] = [
   { category: "alertas", key: "os_atrasada", label: "Alerta: OS atrasada", value: true, valueType: "boolean" },
   { category: "alertas", key: "compra_vencida", label: "Alerta: compra vencida", value: true, valueType: "boolean" },
   { category: "alertas", key: "pcfactory_parada", label: "Alerta: parada PC-Factory", value: true, valueType: "boolean" },
-  { category: "alertas", key: "preventiva_nao_executada", label: "Alerta: preventiva não executada", value: true, valueType: "boolean" }
+  { category: "alertas", key: "preventiva_nao_executada", label: "Alerta: preventiva não executada", value: true, valueType: "boolean" },
+
+  // ── Análise MRP ───────────────────────────────────────────────────────
+  // Padrão do HTML de referência (campo fDep = "1400"). É só o valor inicial do
+  // filtro: o usuário pode alterá-lo (ou apagá-lo = todos os depósitos) a cada
+  // análise, e o valor efetivamente usado fica gravado em MrpAnalysisRun.depositFilter.
+  { category: "mrp", key: "deposito_padrao", label: "Depósito padrão da Análise MRP", value: "1400", valueType: "text", description: "Depósito sugerido no filtro da planilha de estoque. Vazio = todos os depósitos." }
 ];
 
 /** Metadados de cada categoria para a UI (título e ordem). */
@@ -72,7 +78,8 @@ export const SETTING_CATEGORY_META: Record<SettingCategory, { title: string; des
   pc_factory: { title: "Regras PC-Factory", description: "Base de tempo, cores e exclusões do Management View." },
   compras: { title: "Regras de Compras", description: "Y01, Y04, bloqueados e serviços." },
   procedimentos: { title: "Central de Procedimentos", description: "Exclusão lógica, categorias e leitura obrigatória." },
-  alertas: { title: "Alertas", description: "Liga/desliga dos alertas operacionais." }
+  alertas: { title: "Alertas", description: "Liga/desliga dos alertas operacionais." },
+  mrp: { title: "Análise MRP", description: "Depósito padrão do filtro de estoque." }
 };
 
 /** Mapa key -> valor padrão dentro de uma categoria (fallback rápido). */
