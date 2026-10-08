@@ -22,12 +22,14 @@ import { prisma } from "../../src/lib/prisma";
 import { MRP_BUY_SORTS, MRP_BUY_STATUS_FILTERS, mrpSituation, type MrpBuyFilters } from "../../src/lib/mrp/buy-list";
 import type { MrpFileKind } from "../../src/lib/mrp/types";
 import { getCurrentMrpAnalysisSummary } from "../../src/services/mrp-analysis.service";
-import { clearMrpBuyListingCache, getCurrentMrpBuyListing } from "../../src/services/mrp-listing.service";
+import { clearMrpBuyListingCache, getCurrentMrpBuyListing, getMrpAreasSummary } from "../../src/services/mrp-listing.service";
+import { fmtMrp } from "../../src/lib/mrp/format";
 import { activateMrpBaseVersion, getActiveMrpBaseVersion, getMrpDefaultDeposit, setCurrentMrpAnalysisRun } from "../../src/services/mrp-persistence.service";
 import { updateAllMrp } from "../../src/services/mrp-update.service";
 import { IMPORT_STAGES } from "../../src/types/imports";
 import * as F from "./fixtures";
 import { createHtmlRuntime } from "./html-runtime";
+import { parseCards } from "./html-cards";
 
 type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const TAG = "scripts/mrp/test-mrp-screen-db.ts";
@@ -147,6 +149,35 @@ async function main() {
     check("abrir a página: consultas constantes (não por material)", !!pageSummary && pageQueries <= 10, String(pageQueries));
     check("aplicar filtro: 1 consulta (itens do run em cache)", filterQueries === 1, String(filterQueries));
 
+    console.log("\n1b. Áreas & Conjuntos (FASE F) sobre o run gravado");
+    clearMrpBuyListingCache();
+    queryCounter.reset();
+    const areasCold = await getMrpAreasSummary(run1.id);
+    const areasColdQueries = queryCounter.value;
+    queryCounter.reset();
+    await getCurrentMrpBuyListing({ q: "", status: "need", area: "", family: "", sort: "need" });
+    const areasWarm = await getMrpAreasSummary(run1.id);
+    const warmQueries = queryCounter.value;
+    console.log(`    consultas: resumo das áreas com cache frio ${areasColdQueries} · lista + áreas com cache quente ${warmQueries}`);
+    check("áreas: 1 consulta (itens do run) e 0 extra com o cache da lista", areasColdQueries === 1 && warmQueries === 1 && areasWarm.queries === 0);
+    const markup = rt.fn.renderAreasHtml();
+    const htmlCards = [...parseCards(markup.area), ...parseCards(markup.fam)];
+    const portalCards = [...areasCold.summary.areas, ...areasCold.summary.families, areasCold.summary.allFamilies];
+    const cardDiff = portalCards.filter((c, i) => {
+      const h = htmlCards[i];
+      const s = c.summary;
+      return !h || h.title !== c.title || h.tot !== fmtMrp(s.total) || h.Comprar !== fmtMrp(s.Comprar) || h.Verificar !== fmtMrp(s.Verificar) || h.Comprado !== fmtMrp(s.Comprado) || h.qtd !== fmtMrp(s.qtd) || h.target.area !== c.target.area || h.target.family !== c.target.family;
+    });
+    check(`cartões do run gravado = renderAreas() do HTML (${portalCards.length} cartões)`, cardDiff.length === 0 && htmlCards.length === portalCards.length, cardDiff.map((c) => c.title).join(", "));
+    for (const card of [...areasCold.summary.areas, ...areasCold.summary.families]) {
+      const list = await getCurrentMrpBuyListing({ q: "", status: "need", area: card.target.area, family: card.target.family, sort: "need" });
+      check(`clique "${card.title}" → lista need com ${card.summary.Comprar + card.summary.Verificar} = Comprar + Verificar do cartão`, list!.filteredCount === card.summary.Comprar + card.summary.Verificar, String(list!.filteredCount));
+    }
+    const allFam = areasCold.summary.allFamilies;
+    const generalNeed = await getCurrentMrpBuyListing({ q: "", status: "need", area: "", family: "", sort: "need" });
+    check("Todos os conjuntos: números só dos itens com conjunto, clique = lista geral (legacy parity behavior)",
+      allFam.summary.total === all!.items.filter((i) => i.family).length && allFam.summary.total < all!.totalCount && allFam.target.area === "" && allFam.target.family === "" && generalNeed!.filteredCount === hc.Comprar + hc.Verificar);
+
     console.log("\n2. Atualizar tudo com planilha do MRP nova");
     const r2 = await updateAllMrp({
       items: [await openHistory("base", F.baseFixture(), "MRP Analise manutenção"), await openHistory("est", F.stockFixture(), "Sheet1"), await openHistory("cmp", F.purchaseFixture(), "Compras")],
@@ -159,6 +190,8 @@ async function main() {
     check("base nova ativada junto com o run", active2?.id === r2.imported.baseVersionId && run2.isCurrent && run2.baseVersionId === active2?.id);
     check("seed inativa e run anterior não vigente (ambos preservados)", !(await prisma.mrpBaseVersion.findUniqueOrThrow({ where: { id: seed.id } })).isActive && !(await prisma.mrpAnalysisRun.findUniqueOrThrow({ where: { id: run1.id } })).isCurrent);
     check("tela passa a mostrar a análise nova (8 materiais)", (await getCurrentMrpAnalysisSummary())?.kpis.total === 8);
+    const areas2 = await getMrpAreasSummary(run2.id);
+    check("Áreas & Conjuntos reflete o NOVO run (sem cache da análise anterior)", areas2.summary.areas[2].summary.total === 8 && areas2.summary.families.length === 5);
 
     console.log("\n3. Falha na análise (depois da importação)");
     let msg = "";

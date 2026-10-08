@@ -21,6 +21,7 @@ import {
   type MrpSituationTone
 } from "@/lib/mrp/buy-list";
 import { outputNumber } from "@/lib/mrp/mrp-math";
+import { buildMrpAreasSummary, type MrpAreasSummary } from "@/lib/mrp/areas";
 import { mrpAnalysisItemToResult } from "@/services/mrp-analysis.service";
 
 /** Linha pronta para a tela (números já sem -0; textos do HTML prontos). */
@@ -60,7 +61,7 @@ export type MrpBuyListing = {
   queries: number;
 };
 
-type Cached = { runId: string; rows: MrpBuyListItem[]; families: string[] };
+type Cached = { runId: string; rows: MrpBuyListItem[]; families: string[]; areas?: MrpAreasSummary };
 const CACHE_MAX = 2;
 const cache = new Map<string, Cached>();
 
@@ -117,6 +118,17 @@ export async function getMrpBuyListing(runId: string, filters: MrpBuyFilters, li
     families: data.families,
     queries: priorQueries + queries
   };
+}
+
+/**
+ * Aba Áreas & Conjuntos: cartões de área e de conjunto do run (renderAreas()).
+ * Usa o MESMO cache por runId da lista Comprar — sem consulta extra quando os
+ * itens já estão em memória, e nunca mistura análises diferentes.
+ */
+export async function getMrpAreasSummary(runId: string): Promise<{ summary: MrpAreasSummary; queries: number }> {
+  const { data, queries } = await loadRun(runId);
+  if (!data.areas) data.areas = buildMrpAreasSummary(data.rows);
+  return { summary: data.areas, queries };
 }
 
 /** Só para testes: esvazia o cache. */

@@ -1,33 +1,103 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Boxes, CalendarClock, Database, FileSpreadsheet, PackageSearch, Upload, UserRound, Warehouse } from "lucide-react";
+import { MrpAreasTab } from "@/components/mrp/MrpAreasTab";
 import { MrpBuyTab } from "@/components/mrp/MrpBuyTab";
 import { MrpImportModal } from "@/components/mrp/MrpImportModal";
-import type { MrpPageProps } from "@/components/mrp/types";
+import { mrpGet } from "@/components/mrp/mrp-api";
+import { MRP_TABS, parseMrpTab, type MrpPageProps, type MrpTab } from "@/components/mrp/types";
+import { MRP_BUY_DEFAULT_FILTERS, MRP_BUY_INITIAL_LIMIT, parseMrpBuyFilters, type MrpBuyFilters } from "@/lib/mrp/buy-list";
+import type { MrpAreaTarget } from "@/lib/mrp/areas";
+import type { MrpBuyListing } from "@/services/mrp-listing.service";
 
 /**
  * ANÁLISE MRP — casca da página: cabeçalho, metadados da análise vigente, abas
- * e o modal "Planilhas". Só a aba Comprar é funcional nesta fase.
+ * (?tab=buy|areas) e o modal "Planilhas". Comprar e Áreas & Conjuntos são
+ * funcionais; as demais entram nas próximas fases.
  *
- * Nenhuma regra do MRP roda aqui: KPIs vêm de MrpAnalysisRun.kpis e a lista,
- * de /api/mrp/analysis/current/items (itens já calculados pelo motor).
+ * Nenhuma regra do MRP roda aqui: KPIs e cartões vêm do run persistido e a lista
+ * de /api/mrp/analysis/current/items. Abas e cliques nos cartões viram entradas
+ * no histórico (voltar/avançar/atualizar/copiar link funcionam).
  */
-const TABS = [
-  { key: "comprar", label: "Comprar", ready: true },
-  { key: "areas", label: "Áreas & Conjuntos", ready: false },
-  { key: "transito", label: "Em trânsito", ready: false },
-  { key: "parado", label: "Estoque parado", ready: false },
-  { key: "base", label: "Base MRP", ready: false }
-] as const;
-
 const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
+
+const FILTER_KEYS = ["q", "status", "area", "family", "sort"] as const;
+
+function urlFor(tab: MrpTab, filters: MrpBuyFilters): string {
+  const params = new URLSearchParams(window.location.search);
+  params.set("tab", tab);
+  for (const key of FILTER_KEYS) {
+    const value = filters[key];
+    if (value && value !== MRP_BUY_DEFAULT_FILTERS[key]) params.set(key, value);
+    else params.delete(key);
+  }
+  return `${window.location.pathname}?${params.toString()}`;
+}
+
+const sameFilters = (a: MrpBuyFilters, b: MrpBuyFilters) => FILTER_KEYS.every((k) => a[k] === b[k]);
 
 export function MrpAnalysisView(props: MrpPageProps) {
   const router = useRouter();
   const [importOpen, setImportOpen] = useState(false);
+  const [tab, setTab] = useState<MrpTab>(props.initialTab);
+  // Lista que a aba Comprar recebe ao (re)montar; trocada por clique em cartão ou voltar/avançar.
+  const [buy, setBuy] = useState<{ key: number; filters: MrpBuyFilters; listing: MrpBuyListing | null }>({
+    key: 0,
+    filters: props.filters,
+    listing: props.listing
+  });
+  const [navError, setNavError] = useState<string | null>(null);
+  // Filtros da lista montada (para o voltar/avançar decidir se precisa recarregar).
+  const buyFiltersRef = useRef(buy.filters);
+  buyFiltersRef.current = buy.filters;
   const { summary } = props;
+
+  const loadBuy = useCallback(async (filters: MrpBuyFilters) => {
+    const params = new URLSearchParams({ ...filters, limit: String(MRP_BUY_INITIAL_LIMIT) });
+    const res = await mrpGet<{ listing: MrpBuyListing | null }>(`/api/mrp/analysis/current/items?${params}`);
+    if (!res.ok) {
+      setNavError(res.error);
+      return false;
+    }
+    setNavError(null);
+    setBuy((b) => ({ key: b.key + 1, filters, listing: res.data.listing }));
+    return true;
+  }, []);
+
+  /** `filtrarPor(area, fam)`: status "need" + área/conjunto; busca e ordenação atuais ficam. */
+  const openBuy = useCallback(
+    async (target: MrpAreaTarget) => {
+      const current = parseMrpBuyFilters((k) => new URLSearchParams(window.location.search).get(k));
+      const filters: MrpBuyFilters = { ...current, status: "need", area: target.area, family: target.family };
+      if (await loadBuy(filters)) {
+        setTab("buy");
+        window.history.pushState(window.history.state, "", urlFor("buy", filters));
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    },
+    [loadBuy]
+  );
+
+  const selectTab = (next: MrpTab) => {
+    if (next === tab) return;
+    setTab(next);
+    const filters = parseMrpBuyFilters((k) => new URLSearchParams(window.location.search).get(k));
+    window.history.pushState(window.history.state, "", urlFor(next, filters));
+  };
+
+  // Voltar/avançar: a URL é a fonte da verdade.
+  useEffect(() => {
+    const onPop = () => {
+      const params = new URLSearchParams(window.location.search);
+      setTab(parseMrpTab(params.get("tab")));
+      const filters = parseMrpBuyFilters((k) => params.get(k));
+      if (!sameFilters(buyFiltersRef.current, filters)) void loadBuy(filters);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [loadBuy]);
 
   return (
     <section className="space-y-4 text-champagne">
@@ -70,28 +140,39 @@ export function MrpAnalysisView(props: MrpPageProps) {
         ) : null}
       </header>
 
-      <nav aria-label="Visões da Análise MRP" className="flex gap-1 overflow-x-auto rounded-lg border border-gold/15 bg-ink/80 p-1">
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            disabled={!tab.ready}
-            aria-current={tab.key === "comprar" ? "page" : undefined}
-            title={tab.ready ? undefined : "Em construção — próxima etapa"}
-            className={`shrink-0 rounded-md px-4 py-2 text-sm font-semibold transition ${
-              tab.key === "comprar"
-                ? "bg-gold/15 text-gold"
-                : "cursor-not-allowed text-parchment-dim/60"
-            }`}
-          >
-            {tab.label}
-            {!tab.ready ? <span className="ml-2 text-[10px] font-normal uppercase tracking-wide">em breve</span> : null}
-          </button>
-        ))}
+      <nav aria-label="Visões da Análise MRP" className="flex gap-1 overflow-x-auto rounded-lg border border-gold/15 bg-ink/80 p-1" role="tablist">
+        {MRP_TABS.map((t) => {
+          const active = t.ready && t.key === tab;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              disabled={!t.ready}
+              data-tab={t.key}
+              onClick={() => t.ready && selectTab(t.key as MrpTab)}
+              title={t.ready ? undefined : "Em construção — próxima etapa"}
+              className={`shrink-0 rounded-md px-4 py-2 text-sm font-semibold transition ${
+                active ? "bg-gold/15 text-gold" : t.ready ? "text-parchment hover:bg-white/5 hover:text-white" : "cursor-not-allowed text-parchment-dim/60"
+              }`}
+            >
+              {t.label}
+              {!t.ready ? <span className="ml-2 text-[10px] font-normal uppercase tracking-wide">em breve</span> : null}
+            </button>
+          );
+        })}
       </nav>
 
-      {summary && props.listing ? (
-        <MrpBuyTab key={summary.runId} kpis={summary.kpis} initialListing={props.listing} initialFilters={props.filters} />
+      {navError ? <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger-soft">{navError}</p> : null}
+
+      {summary && buy.listing ? (
+        <>
+          <div hidden={tab !== "buy"}>
+            <MrpBuyTab key={`${summary.runId}:${buy.key}`} kpis={summary.kpis} initialListing={buy.listing} initialFilters={buy.filters} />
+          </div>
+          {tab === "areas" && props.areas ? <MrpAreasTab summary={props.areas} onOpen={openBuy} /> : null}
+        </>
       ) : (
         <div className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-10 text-center shadow-premium">
           <div className="login-marble-bg absolute inset-0 opacity-80" />

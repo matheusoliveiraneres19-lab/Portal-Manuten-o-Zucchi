@@ -55,7 +55,8 @@
     "test:mrp-analysis-db": "tsx scripts/mrp/test-mrp-analysis-db.ts",
     "test:mrp-buy-list": "tsx scripts/test-mrp-buy-list.ts",
     "test:mrp-screen-db": "tsx scripts/mrp/test-mrp-screen-db.ts",
-    "test:mrp-e2e": "tsx scripts/mrp/e2e-mrp-screen.ts"
+    "test:mrp-e2e": "tsx scripts/mrp/e2e-mrp-screen.ts",
+    "test:mrp-areas": "tsx scripts/test-mrp-areas.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

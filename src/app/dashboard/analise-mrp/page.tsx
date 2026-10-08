@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { MrpAnalysisView } from "@/components/mrp/MrpAnalysisView";
-import type { MrpSummaryView } from "@/components/mrp/types";
+import { parseMrpTab, type MrpSummaryView } from "@/components/mrp/types";
 import { getSession } from "@/lib/auth-guard";
 import { parseMrpBuyFilters } from "@/lib/mrp/buy-list";
 import { getCurrentMrpAnalysisSummary } from "@/services/mrp-analysis.service";
-import { getMrpBuyListing } from "@/services/mrp-listing.service";
+import { getMrpAreasSummary, getMrpBuyListing } from "@/services/mrp-listing.service";
 import { getActiveMrpBaseVersion, getMrpDefaultDeposit } from "@/services/mrp-persistence.service";
 
 /**
@@ -31,6 +31,8 @@ export default async function AnaliseMrpRoute({ searchParams = {} }: { searchPar
 
   const current = await getCurrentMrpAnalysisSummary();
   const listing = current ? await getMrpBuyListing(current.runId, filters) : null;
+  // Mesmo cache por runId da lista: sem consulta extra.
+  const areas = current ? (await getMrpAreasSummary(current.runId)).summary : null;
   const hasActiveBase = canImport ? !!(await getActiveMrpBaseVersion()) : false;
   const defaultDeposit = canImport ? await getMrpDefaultDeposit() : "";
 
@@ -59,7 +61,9 @@ export default async function AnaliseMrpRoute({ searchParams = {} }: { searchPar
       key={summary?.runId ?? "sem-analise"}
       summary={summary}
       listing={listing}
+      areas={areas}
       filters={filters}
+      initialTab={parseMrpTab(first(searchParams.tab))}
       canImport={canImport}
       hasActiveBase={hasActiveBase}
       defaultDeposit={defaultDeposit}

@@ -27,7 +27,7 @@ import { chromium, type Page } from "playwright";
 import { prisma } from "../../src/lib/prisma";
 import { signSession } from "../../src/lib/session";
 import { fmtMrp } from "../../src/lib/mrp/format";
-import { getCurrentMrpBuyListing } from "../../src/services/mrp-listing.service";
+import { getCurrentMrpBuyListing, getMrpAreasSummary } from "../../src/services/mrp-listing.service";
 import { activateMrpBaseVersion, getActiveMrpBaseVersion, setCurrentMrpAnalysisRun } from "../../src/services/mrp-persistence.service";
 import { deleteImportFile } from "../../src/services/import-storage.service";
 import { updateAllMrp } from "../../src/services/mrp-update.service";
@@ -201,12 +201,87 @@ async function main() {
     check("conjuntos = só os presentes na análise", famOptions.join("|") === ["Todos os conjuntos", ...apiEle!.families].join("|"), famOptions.join(", "));
     await shot(page, "4-filtros");
 
-    console.log("\n7. Celular");
+    console.log("\n7. Áreas & Conjuntos (FASE F)");
+    const { summary: areas } = await getMrpAreasSummary(run!.id);
+    await page.goto(`${BASE}/dashboard/analise-mrp?tab=areas`, { waitUntil: "load", timeout: 120_000 });
+    await page.locator("[data-testid=mrp-areas]").waitFor({ timeout: 60_000 });
+    check("?tab=areas abre direto em Áreas & Conjuntos", await page.locator('[data-tab="areas"][aria-selected="true"]').isVisible());
+    await page.reload({ waitUntil: "load" });
+    await page.locator("[data-testid=mrp-areas]").waitFor({ timeout: 60_000 });
+    check("refresh mantém a aba", await page.locator("[data-testid=mrp-areas]").isVisible());
+    for (const card of [...areas.areas, ...areas.families, areas.allFamilies]) {
+      const el = page.locator(`[data-card="${card.title}"]`);
+      const read = async (m: string) => ((await el.locator(`[data-metric="${m}"]`).textContent()) ?? "").trim();
+      const s = card.summary;
+      const ok =
+        (await read("total")).startsWith(`${fmtMrp(s.total)} materiais`) &&
+        (await read("Comprar")) === fmtMrp(s.Comprar) &&
+        (await read("Verificar")) === fmtMrp(s.Verificar) &&
+        (await read("Em trânsito")) === fmtMrp(s.Comprado) &&
+        (await read("Qtd. sugerida")) === fmtMrp(s.qtd);
+      console.log(`    ${card.title}: ${fmtMrp(s.total)} materiais${s.noParams && card.key.startsWith("fam:") && card.key !== "fam:*" ? ` · ${fmtMrp(s.noParams)} sem mín/máx` : ""} · Comprar ${fmtMrp(s.Comprar)} · Verificar ${fmtMrp(s.Verificar)} · Em trânsito ${fmtMrp(s.Comprado)} · OK ${fmtMrp(s.OK)} · Qtd. sugerida ${fmtMrp(s.qtd)}`);
+      check(`cartão ${card.title} = serviço`, ok);
+    }
+    check("barra de composição presente em cada cartão", (await page.locator('[data-card] [data-metric="bar"]').count()) === areas.areas.length + areas.families.length + 1);
+
+    const openCard = async (title: string, how: "click" | "Enter" | "Space") => {
+      const card = page.locator(`[data-card="${title}"]`);
+      await withList(page, async () => {
+        if (how === "click") await card.click();
+        else {
+          await card.focus();
+          await page.keyboard.press(how);
+        }
+      });
+      const url = new URL(page.url());
+      const subtitle = ((await page.locator("[data-testid=mrp-buy-subtitle]").textContent()) ?? "").trim();
+      return { url, subtitle, visibleBuy: await page.locator("[data-testid=mrp-buy-table], [data-testid=mrp-buy-subtitle]").first().isVisible() };
+    };
+    const expectBuy = (label: string, r: Awaited<ReturnType<typeof openCard>>, area: string, family: string, count: number) =>
+      check(
+        `${label} → Comprar, need, área "${area}", conjunto "${family}", ${count} materiais`,
+        r.url.searchParams.get("tab") === "buy" && (r.url.searchParams.get("status") ?? "need") === "need" && (r.url.searchParams.get("area") ?? "") === area && (r.url.searchParams.get("family") ?? "") === family && r.visibleBuy && r.subtitle.startsWith(`${fmtMrp(count)} materiais no filtro`),
+        `${r.url.search} · ${r.subtitle}`
+      );
+    const [mec, ele, tot] = areas.areas;
+    expectBuy("clique Mecânica", await openCard("Mecânica", "click"), "Mecânica", "", mec.summary.Comprar + mec.summary.Verificar);
+    await page.goBack();
+    await page.locator("[data-testid=mrp-areas]").waitFor({ timeout: 30_000 });
+    check("voltar retorna para Áreas & Conjuntos", new URL(page.url()).searchParams.get("tab") === "areas");
+    await page.waitForTimeout(1500); // deixa terminar a recarga disparada pelo voltar
+    await page.goForward();
+    const mecText = `${fmtMrp(mec.summary.Comprar + mec.summary.Verificar)} materiais no filtro`;
+    const forwardOk = await page.locator("[data-testid=mrp-buy-subtitle]", { hasText: mecText }).first().waitFor({ timeout: 20_000 }).then(() => true, () => false);
+    check("avançar volta para a lista filtrada da Mecânica", forwardOk && new URL(page.url()).searchParams.get("area") === "Mecânica", `${page.url()} · ${await page.locator("[data-testid=mrp-buy-subtitle]").first().textContent()}`);
+    await page.locator('[data-tab="areas"]').click();
+    expectBuy("Enter no cartão Elétrica", await openCard("Elétrica", "Enter"), "Elétrica", "", ele.summary.Comprar + ele.summary.Verificar);
+    await page.locator('[data-tab="areas"]').click();
+    expectBuy("Espaço no cartão Total", await openCard("Total", "Space"), "", "", tot.summary.Comprar + tot.summary.Verificar);
+    const breton8 = areas.families.find((f) => f.title === "Satélite Breton 8");
+    if (breton8) {
+      await page.locator('[data-tab="areas"]').click();
+      expectBuy("clique Satélite Breton 8 (limpa a área)", await openCard("Satélite Breton 8", "click"), "", "Satélite Breton 8", breton8.summary.Comprar + breton8.summary.Verificar);
+    }
+    await page.locator('[data-tab="areas"]').click();
+    expectBuy("clique Todos os conjuntos → lista GERAL (legacy parity behavior)", await openCard("Todos os conjuntos", "click"), "", "", tot.summary.Comprar + tot.summary.Verificar);
+    await page.locator('[data-tab="areas"]').click();
+    await page.locator("[data-testid=mrp-areas]").waitFor();
+    const sel = await page.$$eval("[data-tab]", (els) => els.map((e) => `${e.getAttribute("data-tab")}=${e.getAttribute("aria-selected")}:${e.className.includes("bg-gold/15") ? "destacada" : "-"}`));
+    check("após clicar em Áreas: só a aba Áreas destacada", sel.includes("areas=true:destacada") && sel.includes("buy=false:-"), sel.join(" "));
+    await page.mouse.move(5, 5);
+    await shot(page, "6-areas");
+
+    console.log("\n8. Celular");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${BASE}/dashboard/analise-mrp`, { waitUntil: "load", timeout: 120_000 });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check("sem rolagem horizontal da página no celular", overflow <= 0, `excesso ${overflow}px`);
     await shot(page, "5-celular");
+    await page.goto(`${BASE}/dashboard/analise-mrp?tab=areas`, { waitUntil: "load", timeout: 120_000 });
+    await page.locator("[data-testid=mrp-areas]").waitFor({ timeout: 60_000 });
+    const overflowAreas = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    check("Áreas & Conjuntos no celular sem rolagem horizontal", overflowAreas <= 0, `excesso ${overflowAreas}px`);
+    await shot(page, "7-areas-celular");
   } finally {
     await browser.close();
     server.kill();

@@ -122,6 +122,7 @@ globalThis.__mrp = {
         findHeaderRow, pontuar, analisarArquivo, colunasOk, famDe, isSemMovTxt, cmpStatus, cmpOrdem, ALIAS, FAMS,
         obsDe, contar, materiais(){ _mats=null; return materiais(); },
         /* analisar() sobre estoque/compras arbitrários (sem passar pelos arquivos) */
+        renderAreasHtml(){ renderAreas(); return { area: document.getElementById('cardsArea').innerHTML, fam: document.getElementById('cardsFam').innerHTML }; },
         setValue(id, v){ document.getElementById(id).value = v; },
         filtrarCompra(){ return filtrarCompra(); },
         bgStatus(a){ return bgStatus(a); },
