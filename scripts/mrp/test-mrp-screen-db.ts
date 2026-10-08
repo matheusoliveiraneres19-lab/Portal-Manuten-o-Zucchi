@@ -30,6 +30,11 @@ import { IMPORT_STAGES } from "../../src/types/imports";
 import * as F from "./fixtures";
 import { createHtmlRuntime } from "./html-runtime";
 import { parseCards, parseKpis, parseRows } from "./html-cards";
+import { getCurrentMrpIdleListing } from "../../src/services/mrp-idle.service";
+
+/** Os eventos "query" do Prisma chegam de forma assíncrona: espera antes de ler o contador. */
+const settle = () => new Promise((r) => setTimeout(r, 100));
+const parseIdleKpis = (html: string) => Array.from(html.matchAll(new RegExp('<div class="val">([^<]*)</div>', "g"))).map((m) => m[1]);
 import { clearMrpTransitCache, getCurrentMrpTransitListing, getMrpTransitListing } from "../../src/services/mrp-transit.service";
 
 type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -212,6 +217,44 @@ async function main() {
       }
     }
     check("tabela da API = renderTransito() em 24 combinações", tDiverg === 0, `${tDiverg} divergência(s)`);
+
+    console.log("\n1d. Estoque parado (FASE H) sobre o run gravado");
+    clearMrpBuyListingCache();
+    queryCounter.reset();
+    const iCold = await getCurrentMrpIdleListing({ q: "", type: "com", area: "" });
+    await settle();
+    const iColdQueries = queryCounter.value;
+    queryCounter.reset();
+    await getCurrentMrpIdleListing({ q: "", type: "com", area: "" });
+    await settle();
+    const iWarmQueries = queryCounter.value;
+    queryCounter.reset();
+    await getCurrentMrpIdleListing({ q: "motor", type: "all", area: "Mecânica" });
+    await settle();
+    const iFilterQueries = queryCounter.value;
+    console.log(`    consultas: abrir com cache frio ${iColdQueries} · abrir com cache quente ${iWarmQueries} · filtrar ${iFilterQueries}`);
+    check("Estoque parado: cache frio 2 (run + itens); quente 1; filtro 1", iColdQueries === 2 && iWarmQueries === 1 && iFilterQueries === 1);
+    rt.fn.setValue("pQ", "");
+    rt.fn.setValue("pTipo", "com");
+    rt.fn.setValue("pArea", "");
+    const ik = parseIdleKpis(rt.fn.renderParadoHtml(200).kpis);
+    check("4 KPIs gravados (run.kpis) = renderParado() do HTML",
+      ik.join("|") === [dbKpis.semMov, dbKpis.parado, dbKpis.qtdParada, dbKpis.semMov - dbKpis.parado].map(fmtMrp).join("|"), ik.join("|"));
+    check("totalNoMovement da API = kpis.semMov", iCold!.totalNoMovement === dbKpis.semMov);
+    let iDiverg = 0;
+    for (const type of ["com", "sem", "all"] as const) {
+      for (const area of ["", "Mecânica", "Elétrica"]) {
+        for (const q of ["", "motor"]) {
+          rt.fn.setValue("pQ", q);
+          rt.fn.setValue("pTipo", type === "all" ? "" : type);
+          rt.fn.setValue("pArea", area);
+          const codes = Array.from((rt.fn.renderParadoHtml(1_000_000).table as string).matchAll(/<td class="cod">([^<]*)<\/td>/g)).map((m) => m[1]);
+          const api = await getCurrentMrpIdleListing({ q, type, area }, 100_000);
+          if (api!.items.map((i) => i.code).join() !== codes.join() || api!.filteredCount !== codes.length) iDiverg++;
+        }
+      }
+    }
+    check("ordem da API = renderParado() em 18 combinações", iDiverg === 0, `${iDiverg} divergência(s)`);
 
     console.log("\n2. Atualizar tudo com planilha do MRP nova");
     const r2 = await updateAllMrp({

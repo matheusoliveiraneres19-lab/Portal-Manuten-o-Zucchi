@@ -2,6 +2,7 @@
 import type { MrpAreasSummary } from "@/lib/mrp/areas";
 import type { MrpBuyFilters } from "@/lib/mrp/buy-list";
 import type { MrpTransitFilters } from "@/lib/mrp/transit";
+import type { MrpIdleFilters } from "@/lib/mrp/idle";
 import type { MrpBuyListing } from "@/services/mrp-listing.service";
 
 /** Abas do módulo (`?tab=`). Só as `ready` são funcionais. */
@@ -9,14 +10,14 @@ export const MRP_TABS = [
   { key: "buy", label: "Comprar", ready: true },
   { key: "areas", label: "Áreas & Conjuntos", ready: true },
   { key: "transit", label: "Em trânsito", ready: true },
-  { key: "parado", label: "Estoque parado", ready: false },
+  { key: "idle", label: "Estoque parado", ready: true },
   { key: "base", label: "Base MRP", ready: false }
 ] as const;
 
-export type MrpTab = "buy" | "areas" | "transit";
+export type MrpTab = "buy" | "areas" | "transit" | "idle";
 
 export function parseMrpTab(value: string | null | undefined): MrpTab {
-  return value === "areas" || value === "transit" ? value : "buy";
+  return value === "areas" || value === "transit" || value === "idle" ? value : "buy";
 }
 
 /** KPIs da aba Em trânsito (do run): 4 de compras + "Saíram do MRP". */
@@ -29,6 +30,9 @@ export type MrpTransitKpisView = {
   avoidedQty: number;
 };
 
+/** KPIs da aba Estoque parado (do run): total, semMov, parado e qtdParada de contar(). */
+export type MrpIdleKpisView = { total: number; semMov: number; parado: number; qtdParada: number };
+
 export type MrpKpisView = {
   total: number;
   Comprar: number;
@@ -37,6 +41,7 @@ export type MrpKpisView = {
   OK: number;
   qtd: number;
   transit: MrpTransitKpisView;
+  idle: MrpIdleKpisView;
 };
 
 export type MrpSummaryView = {
@@ -57,6 +62,7 @@ export type MrpPageProps = {
   areas: MrpAreasSummary | null;
   filters: MrpBuyFilters;
   transitFilters: MrpTransitFilters;
+  idleFilters: MrpIdleFilters;
   initialTab: MrpTab;
   canImport: boolean;
   hasActiveBase: boolean;

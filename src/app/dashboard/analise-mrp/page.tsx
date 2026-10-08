@@ -4,6 +4,7 @@ import { parseMrpTab, type MrpSummaryView } from "@/components/mrp/types";
 import { getSession } from "@/lib/auth-guard";
 import { parseMrpBuyFilters } from "@/lib/mrp/buy-list";
 import { parseMrpTransitFilters } from "@/lib/mrp/transit";
+import { parseMrpIdleFilters } from "@/lib/mrp/idle";
 import { getCurrentMrpAnalysisSummary } from "@/services/mrp-analysis.service";
 import { getMrpAreasSummary, getMrpBuyListing } from "@/services/mrp-listing.service";
 import { getActiveMrpBaseVersion, getMrpDefaultDeposit } from "@/services/mrp-persistence.service";
@@ -57,7 +58,8 @@ export default async function AnaliseMrpRoute({ searchParams = {} }: { searchPar
             recebidos: current.kpis.purchases.recebidos,
             removedFromMrp: current.kpis.removedFromMrp,
             avoidedQty: current.kpis.avoidedQty
-          }
+          },
+          idle: { total: current.kpis.total, semMov: current.kpis.semMov, parado: current.kpis.parado, qtdParada: current.kpis.qtdParada }
         },
         base: { fileName: current.sources.base.fileName, source: current.sources.base.source, materialCount: current.sources.base.materialCount },
         stock: { fileName: current.sources.stock.fileName, depositInfo: current.sources.stock.depositInfo },
@@ -73,6 +75,7 @@ export default async function AnaliseMrpRoute({ searchParams = {} }: { searchPar
       areas={areas}
       filters={filters}
       transitFilters={parseMrpTransitFilters((key) => first(searchParams[key]))}
+      idleFilters={parseMrpIdleFilters((key) => first(searchParams[key]))}
       initialTab={parseMrpTab(first(searchParams.tab))}
       canImport={canImport}
       hasActiveBase={hasActiveBase}

@@ -6,6 +6,7 @@ import { Boxes, CalendarClock, Database, FileSpreadsheet, PackageSearch, Upload,
 import { MrpAreasTab } from "@/components/mrp/MrpAreasTab";
 import { MrpBuyTab } from "@/components/mrp/MrpBuyTab";
 import { MrpTransitTab } from "@/components/mrp/MrpTransitTab";
+import { MrpIdleTab } from "@/components/mrp/MrpIdleTab";
 import { MrpImportModal } from "@/components/mrp/MrpImportModal";
 import { mrpGet } from "@/components/mrp/mrp-api";
 import { MRP_TABS, parseMrpTab, type MrpPageProps, type MrpTab } from "@/components/mrp/types";
@@ -52,17 +53,24 @@ export function MrpAnalysisView(props: MrpPageProps) {
   const [navError, setNavError] = useState<string | null>(null);
   // A aba Em trânsito monta na 1ª visita e fica montada (filtros preservados entre abas).
   const [transitMounted, setTransitMounted] = useState(props.initialTab === "transit");
+  const [idleMounted, setIdleMounted] = useState(props.initialTab === "idle");
   useEffect(() => {
     if (tab === "transit") setTransitMounted(true);
+    if (tab === "idle") setIdleMounted(true);
   }, [tab]);
   // Filtros da lista montada (para o voltar/avançar decidir se precisa recarregar).
   const buyFiltersRef = useRef(buy.filters);
   buyFiltersRef.current = buy.filters;
   const { summary } = props;
 
+  // Só a resposta da navegação MAIS RECENTE vale: em voltar/avançar rápidos, uma
+  // resposta antiga que chegasse depois deixaria a lista diferente da URL.
+  const loadSeq = useRef(0);
   const loadBuy = useCallback(async (filters: MrpBuyFilters) => {
+    const seq = ++loadSeq.current;
     const params = new URLSearchParams({ ...filters, limit: String(MRP_BUY_INITIAL_LIMIT) });
     const res = await mrpGet<{ listing: MrpBuyListing | null }>(`/api/mrp/analysis/current/items?${params}`);
+    if (seq !== loadSeq.current) return false;
     if (!res.ok) {
       setNavError(res.error);
       return false;
@@ -192,6 +200,9 @@ export function MrpAnalysisView(props: MrpPageProps) {
                 onOpenBought={() => openBuy({ status: "Comprado", area: "", family: "", q: "" })}
               />
             ) : null}
+          </div>
+          <div hidden={tab !== "idle"}>
+            {idleMounted ? <MrpIdleTab key={summary.runId} kpis={summary.kpis.idle} initialFilters={props.idleFilters} /> : null}
           </div>
         </>
       ) : (

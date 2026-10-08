@@ -39,6 +39,8 @@ export type MrpBuyListItem = {
   status: "Comprar" | "Verificar" | "Comprado" | "OK";
   noParams: boolean;
   notFound: boolean;
+  /** Sem movimentação (motor: noParams || isSemMovTxt) — aba Estoque parado. */
+  noMovement: boolean;
   /** Rótulo de bgStatus(): Comprar / Verificar / Em trânsito / Sem MRP / OK. */
   situation: string;
   tone: MrpSituationTone;
@@ -86,6 +88,7 @@ async function loadRun(runId: string): Promise<{ data: Cached; queries: number }
       status: a.status,
       noParams: a.noParams,
       notFound: a.notFound,
+      noMovement: a.noMovement,
       situation: sit.label,
       tone: sit.tone,
       observation: mrpObservation(a)

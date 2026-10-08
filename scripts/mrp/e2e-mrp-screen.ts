@@ -32,6 +32,7 @@ import { activateMrpBaseVersion, getActiveMrpBaseVersion, setCurrentMrpAnalysisR
 import { deleteImportFile } from "../../src/services/import-storage.service";
 import { updateAllMrp } from "../../src/services/mrp-update.service";
 import { getCurrentMrpTransitListing } from "../../src/services/mrp-transit.service";
+import { getCurrentMrpIdleListing } from "../../src/services/mrp-idle.service";
 
 type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 import * as F from "./fixtures";
@@ -229,6 +230,7 @@ async function main() {
 
     const openCard = async (title: string, how: "click" | "Enter" | "Space") => {
       const card = page.locator(`[data-card="${title}"]`);
+      await card.waitFor({ timeout: 30_000 });
       await withList(page, async () => {
         if (how === "click") await card.click();
         else {
@@ -236,6 +238,9 @@ async function main() {
           await page.keyboard.press(how);
         }
       });
+      // Espera a navegação assentar (URL na aba Comprar) antes de ler.
+      await page.waitForFunction(() => new URLSearchParams(location.search).get("tab") === "buy", null, { timeout: 30_000 });
+      await page.waitForTimeout(400);
       const url = new URL(page.url());
       const subtitle = ((await page.locator("[data-testid=mrp-buy-subtitle]").textContent()) ?? "").trim();
       return { url, subtitle, visibleBuy: await page.locator("[data-testid=mrp-buy-table], [data-testid=mrp-buy-subtitle]").first().isVisible() };
@@ -255,6 +260,7 @@ async function main() {
     await page.goForward();
     const mecText = `${fmtMrp(mec.summary.Comprar + mec.summary.Verificar)} materiais no filtro`;
     const forwardOk = await page.locator("[data-testid=mrp-buy-subtitle]", { hasText: mecText }).first().waitFor({ timeout: 20_000 }).then(() => true, () => false);
+    await page.waitForTimeout(1500); // deixa terminar as recargas disparadas pelo voltar/avançar
     check("avançar volta para a lista filtrada da Mecânica", forwardOk && new URL(page.url()).searchParams.get("area") === "Mecânica", `${page.url()} · ${await page.locator("[data-testid=mrp-buy-subtitle]").first().textContent()}`);
     await page.locator('[data-tab="areas"]').click();
     expectBuy("Enter no cartão Elétrica", await openCard("Elétrica", "Enter"), "Elétrica", "", ele.summary.Comprar + ele.summary.Verificar);
@@ -324,7 +330,56 @@ async function main() {
     await page.locator("[data-testid=mrp-transit]").waitFor({ timeout: 60_000 });
     check("refresh mantém Em trânsito e o filtro da URL", (await page.locator("select[aria-label='Situação da compra']").inputValue()) === "all");
 
-    console.log("\n9. Celular");
+    console.log("\n9. Estoque parado (FASE H)");
+    const withIdle = async (action: () => Promise<unknown>) => {
+      await Promise.all([page.waitForResponse((r) => r.url().includes("/api/mrp/analysis/current/idle-stock"), { timeout: 60_000 }), action()]);
+      await page.waitForTimeout(300);
+    };
+    await withIdle(() => page.goto(`${BASE}/dashboard/analise-mrp?tab=idle`, { waitUntil: "load", timeout: 120_000 }));
+    check("?tab=idle abre direto em Estoque parado", await page.locator('[data-tab="idle"][aria-selected="true"]').isVisible());
+    const iKpi = async (label: string) => ((await page.locator(`[data-testid=mrp-idle] [data-kpi="${label}"] [data-kpi-value]`).textContent()) ?? "").trim();
+    const readIdleKpis = async () => [await iKpi("Sem movimentação"), await iKpi("Com saldo"), await iKpi("Qtd. parada"), await iKpi("Zerados")].join("|");
+    const expectedIdle = [kp.semMov, kp.parado, kp.qtdParada, kp.semMov - kp.parado].map(fmtMrp).join("|");
+    check(`4 KPIs = banco (${expectedIdle})`, (await readIdleKpis()) === expectedIdle, await readIdleKpis());
+    const share = ((await page.locator('[data-testid=mrp-idle] [data-kpi="Sem movimentação"] [data-kpi-hint]').textContent()) ?? "").trim();
+    check(`percentual da base "${share}"`, share === `${((kp.semMov / Math.max(1, kp.total)) * 100).toFixed(1).replace(".", ",")}% da base`);
+    const iRows = () => page.$$eval("[data-testid=mrp-idle-table] tbody tr", (rows) => rows.map((r) => `${r.getAttribute("data-code")}|${r.getAttribute("data-situation")}`));
+    const apiCom = await getCurrentMrpIdleListing({ q: "", type: "com", area: "" }, 100_000);
+    const comRows = await iRows();
+    check(`padrão "Com saldo": ${apiCom!.filteredCount} linhas, todas Capital parado, = API`, comRows.every((r) => r.endsWith("|Capital parado")) && comRows.map((r) => r.split("|")[0]).join() === apiCom!.items.map((i) => i.code).join());
+    check("5 colunas", (await page.locator("[data-testid=mrp-idle-table] thead th").allTextContents()).join("|") === "Código|Material|Saldo|Grupo|Situação");
+    await withIdle(() => page.selectOption("select[aria-label='Tipo de estoque parado']", "sem"));
+    const semRows = await iRows();
+    check(`Zerados: ${semRows.length} linhas, todas Zerado; URL idleType=sem`, semRows.length > 0 && semRows.every((r) => r.endsWith("|Zerado")) && new URL(page.url()).searchParams.get("idleType") === "sem");
+    check("KPIs não mudam com o filtro", (await readIdleKpis()) === expectedIdle);
+    await withIdle(() => page.selectOption("select[aria-label='Tipo de estoque parado']", "all"));
+    const i200 = (await iRows()).length;
+    await withIdle(() => page.getByRole("button", { name: "mostrar mais" }).click());
+    const i600 = await iRows();
+    await withIdle(() => page.getByRole("button", { name: "mostrar mais" }).click());
+    const i1000 = await iRows();
+    check("Todos + mostrar mais: 200 → 600 → 1000 sem duplicar", i200 === 200 && i600.length === 600 && i1000.length === 1000 && new Set(i1000).size === 1000 && i1000.slice(0, 600).join() === i600.join(), `${i200}/${i600.length}/${i1000.length}`);
+    await withIdle(() => page.selectOption("select[aria-label='Área do estoque parado']", "Elétrica"));
+    const apiEleIdle = await getCurrentMrpIdleListing({ q: "", type: "all", area: "Elétrica" }, 100_000);
+    check(`área Elétrica = API (${apiEleIdle!.filteredCount})`, ((await page.locator("[data-testid=mrp-idle-count]").textContent()) ?? "").startsWith(`${fmtMrp(apiEleIdle!.filteredCount)} materiais`));
+    await withIdle(() => page.fill("[data-testid=mrp-idle-search]", "anilha"));
+    const apiSearchIdle = await getCurrentMrpIdleListing({ q: "anilha", type: "all", area: "Elétrica" }, 100_000);
+    check(`busca "anilha" = API (${apiSearchIdle!.filteredCount} > 0)`, apiSearchIdle!.filteredCount > 0 && (await iRows()).map((r) => r.split("|")[0]).join() === apiSearchIdle!.items.map((i) => i.code).join());
+    await page.locator('[data-tab="buy"]').click();
+    await page.locator('[data-tab="idle"]').click();
+    check("filtros preservados ao ir e voltar de Comprar", (await page.locator("select[aria-label='Tipo de estoque parado']").inputValue()) === "all" && (await page.locator("[data-testid=mrp-idle-search]").inputValue()) === "anilha");
+    await page.goBack();
+    check("voltar sai de Estoque parado (para Comprar)", new URL(page.url()).searchParams.get("tab") === "buy");
+    await page.goForward();
+    await page.locator("[data-testid=mrp-idle]").waitFor({ timeout: 30_000 });
+    check("avançar volta para Estoque parado", (await page.locator('[data-tab="idle"][aria-selected="true"]').isVisible()));
+    await page.reload({ waitUntil: "load" });
+    await page.locator("[data-testid=mrp-idle-table]").waitFor({ timeout: 60_000 });
+    check("refresh mantém a aba e os filtros (idleType/idleArea/idleQ)", (await page.locator("select[aria-label='Tipo de estoque parado']").inputValue()) === "all" && (await page.locator("select[aria-label='Área do estoque parado']").inputValue()) === "Elétrica" && (await page.locator("[data-testid=mrp-idle-search]").inputValue()) === "anilha");
+    await page.mouse.move(5, 5);
+    await shot(page, "10-estoque-parado");
+
+    console.log("\n10. Celular");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${BASE}/dashboard/analise-mrp`, { waitUntil: "load", timeout: 120_000 });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -340,6 +395,11 @@ async function main() {
     const overflowTransit = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check("Em trânsito no celular sem rolagem horizontal", overflowTransit <= 0, `excesso ${overflowTransit}px`);
     await shot(page, "9-transito-celular");
+    await page.goto(`${BASE}/dashboard/analise-mrp?tab=idle&idleType=all`, { waitUntil: "load", timeout: 120_000 });
+    await page.locator("[data-testid=mrp-idle-table]").waitFor({ timeout: 60_000 });
+    const overflowIdle = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    check("Estoque parado no celular sem rolagem horizontal", overflowIdle <= 0, `excesso ${overflowIdle}px`);
+    await shot(page, "11-parado-celular");
   } finally {
     await browser.close();
     server.kill();
