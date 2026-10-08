@@ -114,12 +114,16 @@ globalThis.__mrp = {
   lock(){ return { disabled: !!document.getElementById('btnProc').disabled, message: document.getElementById('lockMsg').innerHTML }; },
   processar(){
     processar();
-    return { estoque, compras, infoEst, infoCmp, depFiltro, depInfo, baseCustom, baseInfo,
+    return { estoque, compras, infoEst, infoCmp, depFiltro, depInfo, baseCustom, baseInfo, analysis,
              upMsg: document.getElementById('upMsg').innerHTML };
   },
   readWorkbook(ab){ return XLSX.read(ab,{type:'array',cellDates:true,raw:false}); },
   fn: { norm, cleanCode, cleanText, parseNum, parseData, isoOf, dataBR, detectCol, sheetToAOA, scoreHeader,
         findHeaderRow, pontuar, analisarArquivo, colunasOk, famDe, isSemMovTxt, cmpStatus, cmpOrdem, ALIAS, FAMS,
+        obsDe, contar, materiais(){ _mats=null; return materiais(); },
+        /* analisar() sobre estoque/compras arbitrários (sem passar pelos arquivos) */
+        setBase(list){ baseCustom = list && list.length ? list : null; _mats=null; },
+        analisarCom(est, cmp){ estoque=est; compras=cmp; _cmpIdx=null; _pendIdx=null; analisar(); return analysis; },
         importarBase(wb,nome){ return importarBase(wb,nome,true); },
         baseCustom(){ return baseCustom; },
         comprasIndex(list){ compras=list; _cmpIdx=null; _pendIdx=null; return comprasIndex(); } }

@@ -50,7 +50,9 @@
     "test:mrp-precision": "tsx scripts/mrp/test-numeric-precision.ts",
     "mrp:db-counts": "tsx scripts/mrp/db-counts.ts",
     "test:mrp-import": "tsx scripts/test-mrp-import.ts",
-    "test:mrp-import-db": "tsx scripts/mrp/test-mrp-import-db.ts"
+    "test:mrp-import-db": "tsx scripts/mrp/test-mrp-import-db.ts",
+    "test:mrp-engine": "tsx scripts/test-mrp-engine.ts",
+    "test:mrp-analysis-db": "tsx scripts/mrp/test-mrp-analysis-db.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

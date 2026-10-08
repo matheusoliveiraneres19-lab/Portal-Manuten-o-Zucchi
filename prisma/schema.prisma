@@ -1409,6 +1409,9 @@ model MrpAnalysisItem {
   id                  String         @id @default(cuid())
   runId               String
   run                 MrpAnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  /// Posição na ordem de materiais() (0-based). Necessária para os desempates
+  /// das ordenações estáveis e para somas na mesma ordem do HTML.
+  position            Int            @default(0)
   code                String
   description         String
   group               String
@@ -1436,6 +1439,7 @@ model MrpAnalysisItem {
   purchaseDate        String?
 
   @@unique([runId, code])
+  @@index([runId, position])
   @@index([runId, status])
   @@index([runId, area])
   @@index([runId, family])
