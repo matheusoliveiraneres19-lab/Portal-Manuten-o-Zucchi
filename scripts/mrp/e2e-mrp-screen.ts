@@ -31,6 +31,9 @@ import { getCurrentMrpBuyListing, getMrpAreasSummary } from "../../src/services/
 import { activateMrpBaseVersion, getActiveMrpBaseVersion, setCurrentMrpAnalysisRun } from "../../src/services/mrp-persistence.service";
 import { deleteImportFile } from "../../src/services/import-storage.service";
 import { updateAllMrp } from "../../src/services/mrp-update.service";
+import { getCurrentMrpTransitListing } from "../../src/services/mrp-transit.service";
+
+type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 import * as F from "./fixtures";
 
 const PORT = 3107;
@@ -271,7 +274,57 @@ async function main() {
     await page.mouse.move(5, 5);
     await shot(page, "6-areas");
 
-    console.log("\n8. Celular");
+    console.log("\n8. Em trânsito (FASE G)");
+    const kp = run!.kpis as Record<string, Any>;
+    const withTransit = async (action: () => Promise<unknown>) => {
+      await Promise.all([page.waitForResponse((r) => r.url().includes("/api/mrp/analysis/current/transit"), { timeout: 60_000 }), action()]);
+      await page.waitForTimeout(300);
+    };
+    await withTransit(() => page.goto(`${BASE}/dashboard/analise-mrp?tab=transit`, { waitUntil: "load", timeout: 120_000 }));
+    await page.locator("[data-testid=mrp-transit-table], [data-testid=mrp-transit-empty]").first().waitFor({ timeout: 60_000 });
+    check("?tab=transit abre direto em Em trânsito", await page.locator('[data-tab="transit"][aria-selected="true"]').isVisible());
+    const tKpi = async (label: string) => ((await page.locator(`[data-testid=mrp-transit] [data-kpi="${label}"] [data-kpi-value]`).textContent()) ?? "").trim();
+    const expectedK: [string, number][] = [["Linhas de compra", kp.purchases.linhas], ["Em trânsito", kp.purchases.pendentes], ["Qtd. em trânsito", kp.purchases.qtdPendente], ["Recebidos", kp.purchases.recebidos], ["Saíram do MRP", kp.removedFromMrp]];
+    for (const [label, value] of expectedK) check(`KPI ${label} = ${fmtMrp(value)} (banco)`, (await tKpi(label)) === fmtMrp(value), await tKpi(label));
+    const hint = ((await page.locator('[data-testid=mrp-transit] [data-kpi="Saíram do MRP"] [data-kpi-hint]').textContent()) ?? "").trim();
+    check("Saíram do MRP: qtd. evitada", hint === `${fmtMrp(kp.avoidedQty)} de qtd. evitada`, hint);
+    const tCodes = () => page.$$eval("[data-testid=mrp-transit-table] tbody tr", (rows) => rows.map((r) => r.getAttribute("data-code") ?? ""));
+    const apiPend = await getCurrentMrpTransitListing({ q: "", status: "pend", onlyMrp: false }, 100_000);
+    check(`tabela padrão (Em trânsito) = API (${apiPend!.filteredCount} códigos)`, (await tCodes()).join() === apiPend!.items.map((i) => i.code).join());
+    check("8 colunas", (await page.locator("[data-testid=mrp-transit-table] thead th").allTextContents()).join("|") === "Código|Material|Qtd|Fornecedor|Pedido / Req.|Data|Previsão|Situação");
+    await withTransit(() => page.selectOption("select[aria-label='Situação da compra']", "all"));
+    const apiAll = await getCurrentMrpTransitListing({ q: "", status: "all", onlyMrp: false }, 100_000);
+    check(`Todos = API (${apiAll!.filteredCount}) e URL com transitStatus=all`, (await tCodes()).join() === apiAll!.items.map((i) => i.code).join() && new URL(page.url()).searchParams.get("transitStatus") === "all");
+    const outside = apiAll!.items.filter((i) => !i.inBase).map((i) => i.code);
+    check(`materiais fora da base com selo (${outside.join(", ") || "nenhum"})`, outside.length > 0 && (await page.locator('[data-badge="fora-base"]').count()) === outside.length);
+    await withTransit(() => page.locator("[data-testid=mrp-transit-only-mrp]").check());
+    const apiMrp = await getCurrentMrpTransitListing({ q: "", status: "all", onlyMrp: true }, 100_000);
+    check("Só materiais da base MRP: some quem está fora", (await tCodes()).join() === apiMrp!.items.map((i) => i.code).join() && (await page.locator('[data-badge="fora-base"]').count()) === 0 && new URL(page.url()).searchParams.get("transitMrp") === "1");
+    await withTransit(() => page.locator("[data-testid=mrp-transit-only-mrp]").uncheck());
+    await withTransit(() => page.fill("[data-testid=mrp-transit-search]", "fornecedor b"));
+    const apiSearch = await getCurrentMrpTransitListing({ q: "fornecedor b", status: "all", onlyMrp: false }, 100_000);
+    check(`busca por fornecedor (norm) = API (${apiSearch!.filteredCount} > 0)`, apiSearch!.filteredCount > 0 && (await tCodes()).join() === apiSearch!.items.map((i) => i.code).join());
+    await withTransit(() => page.fill("[data-testid=mrp-transit-search]", ""));
+    await page.locator('[data-tab="buy"]').click();
+    await page.locator('[data-tab="transit"]').click();
+    check("filtros de Em trânsito preservados ao ir e voltar de Comprar", (await page.locator("select[aria-label='Situação da compra']").inputValue()) === "all");
+    await shot(page, "8-transito");
+    const removed = kp.removedFromMrp as number;
+    await withList(page, () => page.locator('[data-testid=mrp-transit] [data-kpi="Saíram do MRP"]').click());
+    const boughtUrl = new URL(page.url());
+    const boughtText = ((await page.locator("[data-testid=mrp-buy-subtitle]").first().textContent()) ?? "") + ((await page.getByText("Nenhum material neste filtro").count()) ? " [vazio]" : "");
+    check(`Saíram do MRP → Comprar/Comprado, sem área/conjunto/busca, ${removed} materiais`,
+      boughtUrl.searchParams.get("tab") === "buy" && boughtUrl.searchParams.get("status") === "Comprado" && !boughtUrl.searchParams.get("area") && !boughtUrl.searchParams.get("family") && !boughtUrl.searchParams.get("q") &&
+        (removed === 0 ? boughtText.includes("[vazio]") : boughtText.startsWith(`${fmtMrp(removed)} materiais`)),
+      `${boughtUrl.search} · ${boughtText}`);
+    await page.goBack();
+    await page.locator("[data-testid=mrp-transit]").waitFor({ timeout: 30_000 });
+    check("voltar retorna para Em trânsito", new URL(page.url()).searchParams.get("tab") === "transit" && (await page.locator('[data-tab="transit"][aria-selected="true"]').isVisible()));
+    await page.reload({ waitUntil: "load" });
+    await page.locator("[data-testid=mrp-transit]").waitFor({ timeout: 60_000 });
+    check("refresh mantém Em trânsito e o filtro da URL", (await page.locator("select[aria-label='Situação da compra']").inputValue()) === "all");
+
+    console.log("\n9. Celular");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${BASE}/dashboard/analise-mrp`, { waitUntil: "load", timeout: 120_000 });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -282,6 +335,11 @@ async function main() {
     const overflowAreas = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check("Áreas & Conjuntos no celular sem rolagem horizontal", overflowAreas <= 0, `excesso ${overflowAreas}px`);
     await shot(page, "7-areas-celular");
+    await page.goto(`${BASE}/dashboard/analise-mrp?tab=transit&transitStatus=all`, { waitUntil: "load", timeout: 120_000 });
+    await page.locator("[data-testid=mrp-transit-table]").waitFor({ timeout: 60_000 });
+    const overflowTransit = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    check("Em trânsito no celular sem rolagem horizontal", overflowTransit <= 0, `excesso ${overflowTransit}px`);
+    await shot(page, "9-transito-celular");
   } finally {
     await browser.close();
     server.kill();

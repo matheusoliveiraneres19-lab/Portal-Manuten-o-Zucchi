@@ -3,6 +3,7 @@ import { MrpAnalysisView } from "@/components/mrp/MrpAnalysisView";
 import { parseMrpTab, type MrpSummaryView } from "@/components/mrp/types";
 import { getSession } from "@/lib/auth-guard";
 import { parseMrpBuyFilters } from "@/lib/mrp/buy-list";
+import { parseMrpTransitFilters } from "@/lib/mrp/transit";
 import { getCurrentMrpAnalysisSummary } from "@/services/mrp-analysis.service";
 import { getMrpAreasSummary, getMrpBuyListing } from "@/services/mrp-listing.service";
 import { getActiveMrpBaseVersion, getMrpDefaultDeposit } from "@/services/mrp-persistence.service";
@@ -48,7 +49,15 @@ export default async function AnaliseMrpRoute({ searchParams = {} }: { searchPar
           Verificar: current.kpis.Verificar,
           Comprado: current.kpis.Comprado,
           OK: current.kpis.OK,
-          qtd: current.kpis.qtd
+          qtd: current.kpis.qtd,
+          transit: {
+            linhas: current.kpis.purchases.linhas,
+            pendentes: current.kpis.purchases.pendentes,
+            qtdPendente: current.kpis.purchases.qtdPendente,
+            recebidos: current.kpis.purchases.recebidos,
+            removedFromMrp: current.kpis.removedFromMrp,
+            avoidedQty: current.kpis.avoidedQty
+          }
         },
         base: { fileName: current.sources.base.fileName, source: current.sources.base.source, materialCount: current.sources.base.materialCount },
         stock: { fileName: current.sources.stock.fileName, depositInfo: current.sources.stock.depositInfo },
@@ -63,6 +72,7 @@ export default async function AnaliseMrpRoute({ searchParams = {} }: { searchPar
       listing={listing}
       areas={areas}
       filters={filters}
+      transitFilters={parseMrpTransitFilters((key) => first(searchParams[key]))}
       initialTab={parseMrpTab(first(searchParams.tab))}
       canImport={canImport}
       hasActiveBase={hasActiveBase}

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Boxes, CalendarClock, Database, FileSpreadsheet, PackageSearch, Upload, UserRound, Warehouse } from "lucide-react";
 import { MrpAreasTab } from "@/components/mrp/MrpAreasTab";
 import { MrpBuyTab } from "@/components/mrp/MrpBuyTab";
+import { MrpTransitTab } from "@/components/mrp/MrpTransitTab";
 import { MrpImportModal } from "@/components/mrp/MrpImportModal";
 import { mrpGet } from "@/components/mrp/mrp-api";
 import { MRP_TABS, parseMrpTab, type MrpPageProps, type MrpTab } from "@/components/mrp/types";
@@ -49,6 +50,11 @@ export function MrpAnalysisView(props: MrpPageProps) {
     listing: props.listing
   });
   const [navError, setNavError] = useState<string | null>(null);
+  // A aba Em trânsito monta na 1ª visita e fica montada (filtros preservados entre abas).
+  const [transitMounted, setTransitMounted] = useState(props.initialTab === "transit");
+  useEffect(() => {
+    if (tab === "transit") setTransitMounted(true);
+  }, [tab]);
   // Filtros da lista montada (para o voltar/avançar decidir se precisa recarregar).
   const buyFiltersRef = useRef(buy.filters);
   buyFiltersRef.current = buy.filters;
@@ -66,11 +72,11 @@ export function MrpAnalysisView(props: MrpPageProps) {
     return true;
   }, []);
 
-  /** `filtrarPor(area, fam)`: status "need" + área/conjunto; busca e ordenação atuais ficam. */
+  /** Abre a aba Comprar com os filtros atuais da URL + `patch` (nova entrada no histórico). */
   const openBuy = useCallback(
-    async (target: MrpAreaTarget) => {
+    async (patch: Partial<MrpBuyFilters>) => {
       const current = parseMrpBuyFilters((k) => new URLSearchParams(window.location.search).get(k));
-      const filters: MrpBuyFilters = { ...current, status: "need", area: target.area, family: target.family };
+      const filters: MrpBuyFilters = { ...current, ...patch };
       if (await loadBuy(filters)) {
         setTab("buy");
         window.history.pushState(window.history.state, "", urlFor("buy", filters));
@@ -171,7 +177,22 @@ export function MrpAnalysisView(props: MrpPageProps) {
           <div hidden={tab !== "buy"}>
             <MrpBuyTab key={`${summary.runId}:${buy.key}`} kpis={summary.kpis} initialListing={buy.listing} initialFilters={buy.filters} />
           </div>
-          {tab === "areas" && props.areas ? <MrpAreasTab summary={props.areas} onOpen={openBuy} /> : null}
+          {tab === "areas" && props.areas ? (
+            // filtrarPor(area, fam): status "need" + área/conjunto; busca e ordenação atuais ficam.
+            <MrpAreasTab summary={props.areas} onOpen={(t: MrpAreaTarget) => openBuy({ status: "need", area: t.area, family: t.family })} />
+          ) : null}
+          <div hidden={tab !== "transit"}>
+            {transitMounted ? (
+              <MrpTransitTab
+                key={summary.runId}
+                kpis={summary.kpis.transit}
+                initialFilters={props.transitFilters}
+                // "Saíram do MRP" → Comprar/Comprado. Limpa área, conjunto e busca (pedido da FASE G,
+                // para nenhum filtro escondido reduzir a lista; o HTML só trocava o status).
+                onOpenBought={() => openBuy({ status: "Comprado", area: "", family: "", q: "" })}
+              />
+            ) : null}
+          </div>
         </>
       ) : (
         <div className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-10 text-center shadow-premium">

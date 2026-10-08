@@ -131,6 +131,15 @@ export async function getMrpAreasSummary(runId: string): Promise<{ summary: MrpA
   return { summary: data.areas, queries };
 }
 
+/**
+ * Itens do run (já com descrição/área), pelo mesmo cache por runId — usado pela
+ * aba Em trânsito para descrição, área e "Só materiais da base MRP".
+ */
+export async function getMrpRunItemsCached(runId: string): Promise<{ rows: MrpBuyListItem[]; queries: number }> {
+  const { data, queries } = await loadRun(runId);
+  return { rows: data.rows, queries };
+}
+
 /** Só para testes: esvazia o cache. */
 export function clearMrpBuyListingCache() {
   cache.clear();

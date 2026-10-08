@@ -29,7 +29,8 @@ import { updateAllMrp } from "../../src/services/mrp-update.service";
 import { IMPORT_STAGES } from "../../src/types/imports";
 import * as F from "./fixtures";
 import { createHtmlRuntime } from "./html-runtime";
-import { parseCards } from "./html-cards";
+import { parseCards, parseKpis, parseRows } from "./html-cards";
+import { clearMrpTransitCache, getCurrentMrpTransitListing, getMrpTransitListing } from "../../src/services/mrp-transit.service";
 
 type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 const TAG = "scripts/mrp/test-mrp-screen-db.ts";
@@ -178,6 +179,40 @@ async function main() {
     check("Todos os conjuntos: números só dos itens com conjunto, clique = lista geral (legacy parity behavior)",
       allFam.summary.total === all!.items.filter((i) => i.family).length && allFam.summary.total < all!.totalCount && allFam.target.area === "" && allFam.target.family === "" && generalNeed!.filteredCount === hc.Comprar + hc.Verificar);
 
+    console.log("\n1c. Em trânsito (FASE G) sobre o run gravado");
+    clearMrpBuyListingCache();
+    clearMrpTransitCache();
+    queryCounter.reset();
+    const tCold = await getCurrentMrpTransitListing({ q: "", status: "pend", onlyMrp: false });
+    const tColdQueries = queryCounter.value;
+    queryCounter.reset();
+    await getCurrentMrpTransitListing({ q: "fornecedor", status: "all", onlyMrp: true });
+    const tWarmQueries = queryCounter.value;
+    console.log(`    consultas: abrir com cache frio ${tColdQueries} · filtrar com cache quente ${tWarmQueries}`);
+    check("Em trânsito: cache frio = run + compras + itens (3); quente = 1", tColdQueries === 3 && tWarmQueries === 1);
+    check("usa o purchaseImportId do run vigente", tCold!.purchaseImportId === run1.purchaseImportId && tCold!.runId === run1.id);
+    const tk = parseKpis(rt.fn.renderTransitoHtml(200).kpis);
+    const pkDb = dbKpis.purchases;
+    check("5 KPIs gravados (run.kpis) = renderTransito() do HTML",
+      tk.vals.join("|") === [pkDb.linhas, pkDb.pendentes, pkDb.qtdPendente, pkDb.recebidos, dbKpis.removedFromMrp].map(fmtMrp).join("|") && tk.lastSub === `${fmtMrp(dbKpis.avoidedQty)} de qtd. evitada`,
+      `${tk.vals.join("|")} · ${tk.lastSub}`);
+    check("Linhas de compra = linhas da importação do run", tCold!.purchaseLines === pkDb.linhas);
+    let tDiverg = 0;
+    for (const status of ["pend", "rec", "sem", "all"] as const) {
+      for (const onlyMrp of [false, true]) {
+        for (const q of ["", "fornecedor a", "13515"]) {
+          rt.fn.setValue("tQ", q);
+          rt.fn.setValue("tStatus", status === "all" ? "" : status);
+          rt.fn.setChecked("tSoMrp", onlyMrp);
+          const h = parseRows(rt.fn.renderTransitoHtml(1_000_000).table);
+          const api = await getCurrentMrpTransitListing({ q, status, onlyMrp }, 100_000);
+          const same = api!.items.length === h.length && api!.items.every((it, i) => it.code === h[i].code && it.description === h[i].desc && fmtMrp(it.quantity) === h[i].qtd && (it.reference || "—") === h[i].ref && it.situation === h[i].badge && it.supplier === h[i].forn);
+          if (!same) tDiverg++;
+        }
+      }
+    }
+    check("tabela da API = renderTransito() em 24 combinações", tDiverg === 0, `${tDiverg} divergência(s)`);
+
     console.log("\n2. Atualizar tudo com planilha do MRP nova");
     const r2 = await updateAllMrp({
       items: [await openHistory("base", F.baseFixture(), "MRP Analise manutenção"), await openHistory("est", F.stockFixture(), "Sheet1"), await openHistory("cmp", F.purchaseFixture(), "Compras")],
@@ -191,6 +226,9 @@ async function main() {
     check("seed inativa e run anterior não vigente (ambos preservados)", !(await prisma.mrpBaseVersion.findUniqueOrThrow({ where: { id: seed.id } })).isActive && !(await prisma.mrpAnalysisRun.findUniqueOrThrow({ where: { id: run1.id } })).isCurrent);
     check("tela passa a mostrar a análise nova (8 materiais)", (await getCurrentMrpAnalysisSummary())?.kpis.total === 8);
     const areas2 = await getMrpAreasSummary(run2.id);
+    const t2 = await getCurrentMrpTransitListing({ q: "", status: "all", onlyMrp: false });
+    const t1Again = await getMrpTransitListing(run1.id, run1.purchaseImportId, { q: "", status: "all", onlyMrp: false });
+    check("Em trânsito segue o run vigente; o run anterior continua auditável com SUAS compras", t2!.runId === run2.id && t2!.purchaseImportId === run2.purchaseImportId && run2.purchaseImportId !== run1.purchaseImportId && t1Again.purchaseImportId === run1.purchaseImportId && t1Again.purchaseLines === tCold!.purchaseLines);
     check("Áreas & Conjuntos reflete o NOVO run (sem cache da análise anterior)", areas2.summary.areas[2].summary.total === 8 && areas2.summary.families.length === 5);
 
     console.log("\n3. Falha na análise (depois da importação)");

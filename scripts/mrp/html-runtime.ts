@@ -123,6 +123,9 @@ globalThis.__mrp = {
         obsDe, contar, materiais(){ _mats=null; return materiais(); },
         /* analisar() sobre estoque/compras arbitrários (sem passar pelos arquivos) */
         renderAreasHtml(){ renderAreas(); return { area: document.getElementById('cardsArea').innerHTML, fam: document.getElementById('cardsFam').innerHTML }; },
+        setChecked(id, v){ document.getElementById(id).checked = !!v; },
+        renderTransitoHtml(lim){ limTrans = lim || 200; renderTransito(); return { kpis: document.getElementById('kpisTrans').innerHTML, table: document.getElementById('tblTrans').innerHTML }; },
+        setCompras(list){ compras = list; _cmpIdx=null; _pendIdx=null; },
         setValue(id, v){ document.getElementById(id).value = v; },
         filtrarCompra(){ return filtrarCompra(); },
         bgStatus(a){ return bgStatus(a); },
