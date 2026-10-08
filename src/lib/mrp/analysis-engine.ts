@@ -23,6 +23,7 @@
  */
 import { isSemMovTxt } from "./classification";
 import { dataBR } from "./date-parser";
+import { fmtMrp } from "./format";
 import { lessThan, lteZero, maxZero, subtract } from "./mrp-math";
 import { buildMrpPurchaseIndex, type MrpPurchaseGroup, type MrpPurchaseRecord } from "./purchase-parser";
 
@@ -162,9 +163,7 @@ export function analyzeMrp(
 /*  obsDe                                                                      */
 /* -------------------------------------------------------------------------- */
 
-const nf = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 });
-/** `fmt()` do HTML. */
-export const fmtMrp = (v: number | null | undefined): string => nf.format(v || 0);
+export { fmtMrp };
 
 type ObsInput = Pick<MrpAnalysisResult, "status" | "notFound" | "noParams" | "free" | "min" | "missing" | "unit"> & {
   purchase: Pick<MrpPendingPurchase, "qty" | "order" | "requisition" | "forecast"> | null;

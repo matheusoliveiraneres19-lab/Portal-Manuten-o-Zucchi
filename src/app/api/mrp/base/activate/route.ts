@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       ipAddress: getClientIp(request),
       details: { action: "ativar_base_mrp", versionId: version.id, materialCount: version.materialCount }
     });
-    revalidatePath("/dashboard/lubrificantes");
+    revalidatePath("/dashboard/analise-mrp");
     return ok({ versionId: version.id, isActive: version.isActive, activatedAt: version.activatedAt, materialCount: version.materialCount });
   } catch (error) {
     const details = errorMessage(error);

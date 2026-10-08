@@ -9,6 +9,7 @@
  * HTML: 0 >= 0), mas sai com confidence LOW e aviso, para o usuário corrigir.
  */
 import { MRP_ALIASES, detectCol, type MrpAliasField } from "./aliases";
+import { evaluateMrpLockFlags, type MrpLockState } from "./lock";
 import { cleanText, norm } from "./normalization";
 import { sheetToRows, type MrpWorkbook } from "./workbook";
 import {
@@ -200,40 +201,16 @@ export function reassignMrpSlot<T>(slots: MrpSlots<T>, from: MrpFileKind, to: Mr
   return out;
 }
 
-export type MrpLockState = { ready: boolean; message: string; filled: number };
+export type { MrpLockState } from "./lock";
 
 /**
- * Trava do "Atualizar tudo" (`atualizarSlots()`): estoque E compras presentes e
- * válidos, e a planilha do MRP válida se tiver sido anexada. Regra do Portal
- * (equivale à base embutida do HTML): sem Base MRP vigente, a planilha do MRP
- * passa a ser obrigatória.
+ * Trava do "Atualizar tudo" (`atualizarSlots()`) a partir dos cabeçalhos de cada
+ * slot. A regra mora em ./lock (sem SheetJS, usável também no navegador).
  */
 export function evaluateMrpLock(
   slots: MrpSlots<{ headers: readonly unknown[] }>,
   hasActiveBase: boolean
 ): MrpLockState {
-  const ok = (kind: MrpFileKind) => !slots[kind] || mrpColumnsOk(kind, slots[kind]!.headers);
-  const okB = ok("base"),
-    okE = ok("est"),
-    okC = ok("cmp");
-  const temB = !!slots.base,
-    temE = !!slots.est,
-    temC = !!slots.cmp;
-  const filled = (temB ? 1 : 0) + (temE ? 1 : 0) + (temC ? 1 : 0);
-  const needsBase = !temB && !hasActiveBase;
-  const ready = temE && temC && okE && okC && okB && !needsBase;
-
-  let message: string;
-  if (ready) {
-    message = `${filled} planilha(s) prontas${temB ? " (com base do MRP nova)" : " (base do MRP vigente)"} — clique em Atualizar tudo`;
-  } else if (!okE || !okC || !okB) {
-    message = "Alguma planilha está sem as colunas obrigatórias — troque a aba ou o tipo no cartão";
-  } else if (temE && temC && needsBase) {
-    message = "Não há Base MRP vigente — anexe também a planilha do MRP";
-  } else if (temE || temC || temB) {
-    message = "Falta a planilha de " + (!temE ? "estoque" : "compras realizadas");
-  } else {
-    message = "Trava ativa — anexe as planilhas de estoque e compras para liberar a atualização";
-  }
-  return { ready, message, filled };
+  const flag = (kind: MrpFileKind) => (slots[kind] ? { requiredColumnsOk: mrpColumnsOk(kind, slots[kind]!.headers) } : null);
+  return evaluateMrpLockFlags({ base: flag("base"), est: flag("est"), cmp: flag("cmp") }, hasActiveBase);
 }

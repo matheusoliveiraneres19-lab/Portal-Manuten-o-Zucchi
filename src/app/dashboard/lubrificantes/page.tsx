@@ -1,21 +1,10 @@
-import type { Metadata } from "next";
-import { MrpAnalysisPage } from "@/components/mrp/MrpAnalysisPage";
+import { redirect } from "next/navigation";
 
 /**
- * ANÁLISE MRP.
- *
- * ROTA LEGADA: `/dashboard/lubrificantes` foi mantida apenas para não quebrar
- * links/favoritos existentes; toda a interface exibe "Análise MRP". Em etapa
- * futura a rota poderá migrar para `/dashboard/analise-mrp` (com redirect desta).
- *
- * A antiga tela de Lubrificantes foi removida da interface. Os dados (Lubricant,
- * LubricantMovement, histórico de importação) permanecem no banco, e as rotas
- * `/api/lubricants/*` e `lubricants.service` foram preservadas.
+ * ROTA LEGADA: a antiga tela de Lubrificantes virou a Análise MRP, que agora
+ * vive em /dashboard/analise-mrp. Este redirect mantém links e favoritos
+ * antigos funcionando. Os dados de lubrificação continuam no banco.
  */
-export const metadata: Metadata = {
-  title: "Análise MRP | Portal de Gestão da Manutenção Zucchi"
-};
-
-export default function AnaliseMrpPage() {
-  return <MrpAnalysisPage />;
+export default function LubrificantesLegacyRoute() {
+  redirect("/dashboard/analise-mrp");
 }

@@ -28,6 +28,7 @@ import { outputNumber } from "@/lib/mrp/mrp-math";
 import {
   MRP_RUN_TRIGGERS,
   MrpPersistenceError,
+  activateMrpBaseVersion,
   fromMrpDecimal,
   getActiveMrpBaseVersion,
   setCurrentMrpAnalysisRun,
@@ -67,6 +68,11 @@ export type RunMrpAnalysisParams = {
   depositFilter?: string;
   trigger: MrpRunTrigger;
   userId: string | null;
+  /**
+   * true = ativa a Base MRP usada NA MESMA transação em que o run vira current
+   * ("Atualizar tudo" com planilha do MRP nova): ou as duas coisas acontecem, ou nenhuma.
+   */
+  activateBaseVersion?: boolean;
   /** Só para testes: roda dentro da transação, antes do commit. */
   hooks?: { beforeCommit?: (tx: Prisma.TransactionClient) => Promise<void> };
 };
@@ -233,6 +239,10 @@ export async function runMrpAnalysis(params: RunMrpAnalysisParams): Promise<RunM
     queries++;
     if (written !== results.length || written !== base.materialCount) {
       throw new MrpPersistenceError(`Análise incompleta: ${written} itens gravados de ${results.length}.`);
+    }
+    if (params.activateBaseVersion) {
+      await activateMrpBaseVersion(base.id, tx);
+      queries += 5;
     }
     await setCurrentMrpAnalysisRun(created.id, tx);
     queries += 5; // findUnique + updateMany + update + count + findUniqueOrThrow

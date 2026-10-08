@@ -105,6 +105,8 @@ export type MrpInspectResult = {
   rejected: { fileName: string; importId?: string; reason: string }[];
   /** Arquivos além do 4º (o HTML ignora). */
   ignoredFiles: string[];
+  /** Importações que já estavam nos slots e foram substituídas (canceladas). */
+  displaced: string[];
   lock: ReturnType<typeof evaluateMrpLock>;
   hasActiveBase: boolean;
   depositFilter: string;
@@ -119,6 +121,11 @@ export type MrpInspectResult = {
 export async function inspectMrpUploads(params: {
   files: MrpUploadedFileRef[];
   importedBy: string;
+  /**
+   * Slots já ocupados no modal (importId por tipo). Como no receberArquivos() do
+   * HTML, um novo arquivo só toma um slot ocupado se não houver slot vazio.
+   */
+  currentSlots?: Partial<Record<MrpFileKind, string>>;
   depositFilter?: string;
   defaultArea?: string;
   download?: (path: string, bucket: string) => Promise<Buffer>;
@@ -151,12 +158,22 @@ export async function inspectMrpUploads(params: {
   }
 
   // Encaixe idêntico ao HTML; quem ficou fora (substituído) é registrado e cancelado.
-  const slotted = assignMrpSlots(emptyMrpSlots<Detected>(), detected);
+  type Existing = { existing: true; importId: string; kind: MrpFileKind };
+  const initial = emptyMrpSlots<Detected | Existing>();
+  for (const k of MRP_FILE_KINDS) {
+    const id = params.currentSlots?.[k];
+    if (id) initial[k] = { existing: true, importId: id, kind: k };
+  }
+  const slotted = assignMrpSlots(initial, detected);
   const kept = new Set(MRP_FILE_KINDS.map((k) => slotted[k]).filter(Boolean));
+  const displaced = MRP_FILE_KINDS.map((k) => initial[k])
+    .filter((e): e is Existing => !!e && !kept.has(e))
+    .map((e) => e.importId);
+  if (displaced.length) await cancelMrpImports(displaced, "Substituído por outro arquivo do mesmo tipo no envio.");
 
   const slots = emptyMrpSlots<MrpInspectSlot>();
   for (const d of detected) {
-    const slotKind = MRP_FILE_KINDS.find((k) => slotted[k] === d);
+    const slotKind = MRP_FILE_KINDS.find((k) => slotted[k] === (d as Detected | Existing));
     const kind = slotKind ?? d.kind;
     const preview = buildMrpFilePreview(d.ref.fileName, d.wb, { kind, sheet: d.detection.table.sheet, depositFilter, defaultArea });
     const meta: MrpHistoryMeta = {
@@ -198,7 +215,7 @@ export async function inspectMrpUploads(params: {
     { base: slots.base && { headers: slots.base.preview.headers }, est: slots.est && { headers: slots.est.preview.headers }, cmp: slots.cmp && { headers: slots.cmp.preview.headers } },
     hasActiveBase
   );
-  return { slots, rejected, ignoredFiles, lock, hasActiveBase, depositFilter, defaultArea };
+  return { slots, rejected, ignoredFiles, displaced, lock, hasActiveBase, depositFilter, defaultArea };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -330,6 +347,16 @@ export async function confirmMrpImport(params: {
     await markMrpHistoriesFailed(Object.values(historyIds), error);
     throw error;
   }
+}
+
+/** Cancela importações ainda não confirmadas (anexo removido/substituído). */
+export async function cancelMrpImports(ids: string[], reason = "Anexo removido antes da confirmação.") {
+  if (!ids.length) return 0;
+  const { count } = await prisma.importHistory.updateMany({
+    where: { id: { in: ids }, type: { in: [ImportType.MRP_BASE, ImportType.MRP_STOCK, ImportType.MRP_PURCHASES] }, stage: { in: [IMPORT_STAGES.UPLOADED, IMPORT_STAGES.FAILED] } },
+    data: { stage: IMPORT_STAGES.CANCELLED, status: ImportStatus.ERRO, errorMessage: reason, finishedAt: new Date() }
+  });
+  return count;
 }
 
 /** Reserva abandonada (função caiu no meio) pode ser retomada depois disto. */

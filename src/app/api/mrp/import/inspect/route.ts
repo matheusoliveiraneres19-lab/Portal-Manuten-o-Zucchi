@@ -7,12 +7,14 @@
  * do "Atualizar tudo". Abre um ImportHistory (UPLOADED) por arquivo; nenhum
  * dado de MRP é gravado.
  *
- * Corpo: { files: [{ fileName, filePath, bucket?, fileSize?, mimeType? }], depositFilter?, defaultArea? }
+ * Corpo: { files: [{ fileName, filePath, bucket?, fileSize?, mimeType? }], depositFilter?, defaultArea?,
+ *         currentSlots?: { base?: importId, est?: importId, cmp?: importId } }
  */
 import { type NextRequest } from "next/server";
 import { getSession, requireRole } from "@/lib/auth-guard";
 import { badRequest, errorMessage, ok, serverError } from "@/lib/api-response";
 import { MrpImportError, inspectMrpUploads, type MrpUploadedFileRef } from "@/services/mrp-import.service";
+import { isMrpFileKind, type MrpFileKind } from "@/lib/mrp/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -36,6 +38,13 @@ function parseFiles(value: unknown): MrpUploadedFileRef[] | null {
   return files;
 }
 
+function parseCurrentSlots(value: unknown): Partial<Record<MrpFileKind, string>> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const out: Partial<Record<MrpFileKind, string>> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) if (isMrpFileKind(k) && typeof v === "string" && v) out[k] = v;
+  return out;
+}
+
 export async function POST(request: NextRequest) {
   const denied = await requireRole(request, ["ADMIN", "GESTOR"]);
   if (denied) return denied;
@@ -51,7 +60,8 @@ export async function POST(request: NextRequest) {
       files,
       importedBy: session?.name ?? session?.sub ?? "portal-web",
       depositFilter: typeof body.depositFilter === "string" ? body.depositFilter : undefined,
-      defaultArea: typeof body.defaultArea === "string" ? body.defaultArea : undefined
+      defaultArea: typeof body.defaultArea === "string" ? body.defaultArea : undefined,
+      currentSlots: parseCurrentSlots(body.currentSlots)
     });
     console.info(
       `[MRP_IMPORT_INSPECT] arquivos=${files.length} base=${result.slots.base?.fileName ?? "-"} ` +

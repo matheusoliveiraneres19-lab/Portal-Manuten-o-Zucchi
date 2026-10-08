@@ -13,7 +13,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-function loadDotEnv(): Record<string, string> {
+export function loadDotEnv(): Record<string, string> {
   const file = join(process.cwd(), ".env");
   if (!existsSync(file)) return {};
   const out: Record<string, string> = {};

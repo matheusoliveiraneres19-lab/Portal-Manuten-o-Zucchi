@@ -122,6 +122,9 @@ globalThis.__mrp = {
         findHeaderRow, pontuar, analisarArquivo, colunasOk, famDe, isSemMovTxt, cmpStatus, cmpOrdem, ALIAS, FAMS,
         obsDe, contar, materiais(){ _mats=null; return materiais(); },
         /* analisar() sobre estoque/compras arbitrários (sem passar pelos arquivos) */
+        setValue(id, v){ document.getElementById(id).value = v; },
+        filtrarCompra(){ return filtrarCompra(); },
+        bgStatus(a){ return bgStatus(a); },
         setBase(list){ baseCustom = list && list.length ? list : null; _mats=null; },
         analisarCom(est, cmp){ estoque=est; compras=cmp; _cmpIdx=null; _pendIdx=null; analisar(); return analysis; },
         importarBase(wb,nome){ return importarBase(wb,nome,true); },

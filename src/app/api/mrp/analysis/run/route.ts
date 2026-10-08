@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       trigger,
       userId: session?.name ?? session?.sub ?? null
     });
-    revalidatePath("/dashboard/lubrificantes");
+    revalidatePath("/dashboard/analise-mrp");
     return ok(result);
   } catch (error) {
     const details = errorMessage(error);
