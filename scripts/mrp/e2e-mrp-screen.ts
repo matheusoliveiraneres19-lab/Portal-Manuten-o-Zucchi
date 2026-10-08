@@ -15,6 +15,8 @@
  *   6. clique no KPI Comprar filtra; Todos + "mostrar mais" 200 → 600 → 1000;
  *      busca "1885-0125" (com debounce) encontra o material; "Sem MRP" aparece;
  *   7. celular (390 px): sem rolagem horizontal da página.
+ *   9b. Base MRP (FASE I): resumo, 6 colunas, filtros, paginação, URL, envio,
+ *       aviso de base ativa diferente, restaurar pela tela, VISUALIZADOR (403).
  * Limpa tudo o que criou (runs, importações, históricos, arquivos no Storage).
  * As linhas de AuditLog do usuário de teste são MANTIDAS (auditoria não se apaga).
  */
@@ -33,6 +35,8 @@ import { deleteImportFile } from "../../src/services/import-storage.service";
 import { updateAllMrp } from "../../src/services/mrp-update.service";
 import { getCurrentMrpTransitListing } from "../../src/services/mrp-transit.service";
 import { getCurrentMrpIdleListing } from "../../src/services/mrp-idle.service";
+import { getCurrentMrpBaseListing, getMrpBaseView } from "../../src/services/mrp-base-view.service";
+import { confirmMrpImport } from "../../src/services/mrp-import.service";
 
 type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 import * as F from "./fixtures";
@@ -379,6 +383,135 @@ async function main() {
     await page.mouse.move(5, 5);
     await shot(page, "10-estoque-parado");
 
+    console.log("\n9b. Base MRP (FASE I)");
+    const withBase = async (action: () => Promise<unknown>) => {
+      await Promise.all([page.waitForResponse((r) => r.url().includes("/api/mrp/base/current/items"), { timeout: 60_000 }), action()]);
+      await page.waitForTimeout(300);
+    };
+    const bRows = () => page.$$eval("[data-testid=mrp-base-table] tbody tr", (rows) => rows.map((r) => r.getAttribute("data-code") ?? ""));
+    const metric = async (m: string) => ((await page.locator(`[data-testid=mrp-base-summary] [data-metric="${m}"]`).textContent()) ?? "").trim();
+    const CONFIRM = "A alteração da Base MRP recalculará a análise atual usando o mesmo estoque e as mesmas compras. Deseja continuar?";
+    await withBase(() => page.goto(`${BASE}/dashboard/analise-mrp?tab=base`, { waitUntil: "load", timeout: 120_000 }));
+    check("?tab=base abre direto em Base MRP", await page.locator('[data-tab="base"][aria-selected="true"]').isVisible());
+    const bv = await getMrpBaseView();
+    const runNow = await prisma.mrpAnalysisRun.findFirst({ where: { isCurrent: true } });
+    check("exibe a base da análise atual", !!bv && bv.version.id === runNow?.baseVersionId && bv.origin === "run");
+    const sm = bv!.summary;
+    const expectedSummary = [`${fmtMrp(sm.total)} materiais`, `Mecânica ${fmtMrp(sm.mechanical)}`, `Elétrica ${fmtMrp(sm.electrical)}`, `${fmtMrp(sm.noParams)} sem mín/máx`, `${fmtMrp(sm.inFamilies)} em satélites/coroas`].join("|");
+    const shownSummary = [await metric("total"), await metric("mec"), await metric("ele"), await metric("semparam"), await metric("conj")].join("|");
+    check(`resumo = banco (${expectedSummary})`, shownSummary === expectedSummary, shownSummary);
+    const originText = (await page.locator("[data-testid=mrp-base-summary]").textContent()) ?? "";
+    check("origem exibida", bv!.version.source === "SEED_HTML" ? originText.includes("Base inicial do sistema") : originText.includes(`Planilha enviada: ${bv!.version.fileName}`));
+    check("6 colunas", (await page.locator("[data-testid=mrp-base-table] thead th").allTextContents()).join("|") === "Código|Material|Mín|Máx|Grupo|Status MRP");
+    const apiBase = await getCurrentMrpBaseListing({ q: "", area: "", filter: "all" }, 100_000);
+    const cells = await page.$$eval("[data-testid=mrp-base-table] tbody tr", (rows) => rows.map((r) => Array.from(r.querySelectorAll("td")).map((td, i) => (i === 1 ? "" : (td.textContent ?? "").trim())).join("|")));
+    const expectedCells = apiBase!.items.slice(0, 200).map((m) => [m.code, "", fmtMrp(m.min), fmtMrp(m.max), m.group || "—", m.statusMrp || "—"].join("|"));
+    check("200 primeiras linhas = API (ordem, Mín, Máx, Grupo, Status MRP; vazio = —)", cells.join("\n") === expectedCells.join("\n"));
+    const b200 = await bRows();
+    await withBase(() => page.getByRole("button", { name: "mostrar mais" }).click());
+    const b600 = await bRows();
+    await withBase(() => page.getByRole("button", { name: "mostrar mais" }).click());
+    const b1000 = await bRows();
+    check("mostrar mais: 200 → 600 → 1000 na ordem da base, sem duplicar", b200.length === 200 && b600.length === 600 && b1000.length === 1000 && new Set(b1000).size === 1000 && b1000.join() === apiBase!.items.slice(0, 1000).map((i) => i.code).join(), `${b200.length}/${b600.length}/${b1000.length}`);
+    await withBase(() => page.selectOption("select[aria-label='Filtro da base']", "semparam"));
+    const apiSem = await getCurrentMrpBaseListing({ q: "", area: "", filter: "semparam" }, 100_000);
+    const semCount = ((await page.locator("[data-testid=mrp-base-count]").textContent()) ?? "").trim();
+    const semRowsN = await page.locator("[data-testid=mrp-base-table] tbody tr").count();
+    const semBadges = await page.locator("[data-testid=mrp-base-table] [data-badge=semparam]").count();
+    check(`Sem mín/máx: ${apiSem!.filteredCount} = API, todas com o selo; URL baseFilter=semparam`, semCount.startsWith(`${fmtMrp(apiSem!.filteredCount)} materiais`) && semRowsN === semBadges && new URL(page.url()).searchParams.get("baseFilter") === "semparam", `${semCount} · ${semRowsN}/${semBadges}`);
+    await withBase(() => page.selectOption("select[aria-label='Filtro da base']", "conj"));
+    await withBase(() => page.selectOption("select[aria-label='Área da base']", "Mecânica"));
+    const apiConj = await getCurrentMrpBaseListing({ q: "", area: "Mecânica", filter: "conj" }, 100_000);
+    check(`satélites/coroas + Mecânica = API (${apiConj!.filteredCount})`, (await bRows()).join() === apiConj!.items.map((i) => i.code).join());
+    await withBase(() => page.fill("[data-testid=mrp-base-search]", "breton"));
+    const apiQ = await getCurrentMrpBaseListing({ q: "breton", area: "Mecânica", filter: "conj" }, 100_000);
+    check(`busca "breton" = API (${apiQ!.filteredCount})`, apiQ!.filteredCount === 0 ? await page.locator("[data-testid=mrp-base-empty]").isVisible() : (await bRows()).join() === apiQ!.items.map((i) => i.code).join());
+    await withBase(() => page.fill("[data-testid=mrp-base-search]", "zzz-nao-existe"));
+    check("filtro sem resultado: mensagem própria", await page.locator("[data-testid=mrp-base-empty]").getByText("Nenhum material neste filtro").isVisible());
+    await withBase(() => page.fill("[data-testid=mrp-base-search]", "breton"));
+    check("Excel da base desabilitado (em breve)", await page.getByRole("button", { name: /Excel da base/ }).isDisabled());
+    await page.reload({ waitUntil: "load" });
+    await page.locator("[data-testid=mrp-base-summary]").waitFor({ timeout: 60_000 });
+    await page.waitForTimeout(800);
+    check(
+      "refresh mantém a aba e os filtros (baseQ/baseArea/baseFilter)",
+      (await page.locator("select[aria-label='Filtro da base']").inputValue()) === "conj" && (await page.locator("select[aria-label='Área da base']").inputValue()) === "Mecânica" && (await page.locator("[data-testid=mrp-base-search]").inputValue()) === "breton"
+    );
+    await page.locator('[data-tab="buy"]').click();
+    await page.goBack();
+    await page.waitForFunction(() => new URL(location.href).searchParams.get("tab") === "base", undefined, { timeout: 30_000 });
+    check("voltar retorna para Base MRP com os filtros", (await page.locator('[data-tab="base"][aria-selected="true"]').isVisible()) && (await page.locator("[data-testid=mrp-base-search]").inputValue()) === "breton");
+    await page.goForward();
+    await page.waitForFunction(() => new URL(location.href).searchParams.get("tab") === "buy", undefined, { timeout: 30_000 });
+    check("avançar vai para Comprar", await page.locator('[data-tab="buy"][aria-selected="true"]').isVisible());
+    await shot(page, "12-base");
+
+    // Envio de base pela aba.
+    await withBase(() => page.goto(`${BASE}/dashboard/analise-mrp?tab=base`, { waitUntil: "load", timeout: 120_000 }));
+    const baseFile = F.baseFixture();
+    await page.setInputFiles("[data-testid=mrp-base-file]", { name: baseFile.name, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: baseFile.data });
+    if (!storageReady) {
+      await page.locator("[data-testid=mrp-base] [role=alert]").waitFor({ timeout: 60_000 });
+      const msg = (await page.locator("[data-testid=mrp-base] [role=alert]").textContent()) ?? "";
+      check("sem Storage local: erro do envio exibido na aba", /Armazenamento de importações não configurado/.test(msg), msg);
+      check("nada muda (mesma análise vigente)", (await prisma.mrpAnalysisRun.findFirst({ where: { isCurrent: true } }))?.id === runNow?.id);
+      console.log("    (envio real da base pela aba: validar no Preview da Vercel, onde a chave do Storage existe)");
+    } else {
+      await page.locator("[data-testid=mrp-base-pending]").waitFor({ timeout: 120_000 });
+      await page.locator("[data-testid=mrp-base-apply]").click();
+      check("confirmação com o texto pedido", ((await page.locator("[data-testid=mrp-base-confirm]").textContent()) ?? "").includes(CONFIRM));
+      await Promise.all([page.waitForResponse((r) => r.url().includes("/api/mrp/base/replace"), { timeout: 300_000 }), page.locator("[data-testid=mrp-base-confirm]").getByRole("button", { name: "Atualizar Base MRP" }).click()]);
+      await page.waitForTimeout(1500);
+      const rr = await prisma.mrpAnalysisRun.findFirst({ where: { isCurrent: true } });
+      check("BASE_REIMPORT pela tela: mesmo estoque e compras", rr?.trigger === "BASE_REIMPORT" && rr.stockImportId === runNow?.stockImportId && rr.purchaseImportId === runNow?.purchaseImportId);
+    }
+
+    // Base ativa diferente da usada pela análise → aviso; restaurar pela tela.
+    const baseFiles = new Map<string, Buffer>();
+    const bpath = `imports/analise-mrp/e2e/${Date.now()}-${baseFile.name}`;
+    baseFiles.set(bpath, baseFile.data);
+    const bh = await prisma.importHistory.create({
+      data: { type: "MRP_BASE", fileName: baseFile.name, importedBy: USER.name, status: "EM_PROCESSAMENTO", stage: "UPLOADED", filePath: bpath, bucket: "e2e", metadata: { mrp: { flow: "analise-mrp", kind: "base", sheet: "MRP Analise manutenção" } } }
+    });
+    const other = await confirmMrpImport({ items: [{ importId: bh.id, kind: "base", sheet: "MRP Analise manutenção" }], activateBase: true, createdBy: USER.name, download: async (p) => baseFiles.get(p)! });
+    const runBefore = await prisma.mrpAnalysisRun.findFirst({ where: { isCurrent: true } });
+    await withBase(() => page.reload({ waitUntil: "load" }));
+    check("aviso: Base MRP ativa diferente da utilizada pela análise atual", ((await page.locator("[data-testid=mrp-base-mismatch]").textContent()) ?? "").includes("Existe uma Base MRP ativa diferente da utilizada pela análise atual."));
+    const viewNow = await getMrpBaseView();
+    check("continua exibindo a base da análise (não a ativa)", viewNow!.version.id === runBefore?.baseVersionId && other.baseVersionId !== runBefore?.baseVersionId && (await metric("total")) === `${fmtMrp(viewNow!.summary.total)} materiais`);
+    await shot(page, "13-base-aviso");
+    await page.locator("[data-testid=mrp-base-restore]").click();
+    check("restaurar pede confirmação com o texto pedido", ((await page.locator("[data-testid=mrp-base-confirm]").textContent()) ?? "").includes(CONFIRM));
+    const [restoreRes] = await Promise.all([page.waitForResponse((r) => r.url().includes("/api/mrp/base/restore"), { timeout: 300_000 }), page.locator("[data-testid=mrp-base-confirm]").getByRole("button", { name: "Restaurar" }).click()]);
+    check("POST /api/mrp/base/restore 200", restoreRes.status() === 200, String(restoreRes.status()));
+    await page.waitForTimeout(2000);
+    const restored = await prisma.mrpAnalysisRun.findFirst({ where: { isCurrent: true } });
+    check(
+      "BASE_RESTORE: seed ativa + run novo vigente com o mesmo estoque e compras",
+      restored?.trigger === "BASE_RESTORE" && restored.baseVersionId === seed.id && (await getActiveMrpBaseVersion())?.id === seed.id && restored.stockImportId === runBefore?.stockImportId && restored.purchaseImportId === runBefore?.purchaseImportId
+    );
+    await withBase(() => page.reload({ waitUntil: "load" }));
+    check("aviso some e o botão fica desabilitado (base inicial em uso)", (await page.locator("[data-testid=mrp-base-mismatch]").count()) === 0 && (await page.locator("[data-testid=mrp-base-restore]").isDisabled()));
+    check("resumo volta à base inicial (4.280)", (await metric("total")) === "4.280 materiais");
+
+    // Permissões: VISUALIZADOR vê, mas não altera.
+    const viewerToken = await signSession({ sub: "e2e-analise-mrp-viewer", name: "Teste E2E MRP Viewer", role: "VISUALIZADOR" }, secret, 60 * 60);
+    const viewerCtx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "pt-BR" });
+    await viewerCtx.addCookies([{ name: "zucchi-auth", value: viewerToken, domain: "localhost", path: "/" }]);
+    const vp = await viewerCtx.newPage();
+    await Promise.all([vp.waitForResponse((r) => r.url().includes("/api/mrp/base/current/items"), { timeout: 60_000 }), vp.goto(`${BASE}/dashboard/analise-mrp?tab=base`, { waitUntil: "load", timeout: 120_000 })]);
+    await vp.waitForTimeout(300);
+    check("VISUALIZADOR vê resumo e tabela", (await vp.locator("[data-testid=mrp-base-summary]").isVisible()) && (await vp.locator("[data-testid=mrp-base-table] tbody tr").count()) > 0);
+    check("VISUALIZADOR não vê envio nem restaurar", (await vp.locator("[data-testid=mrp-base-file]").count()) === 0 && (await vp.locator("[data-testid=mrp-base-restore]").count()) === 0);
+    const vh = { cookie: `zucchi-auth=${viewerToken}`, "content-type": "application/json" };
+    const vReplace = await fetch(`${BASE}/api/mrp/base/replace`, { method: "POST", headers: vh, body: JSON.stringify({ importId: "x" }) });
+    const vRestore = await fetch(`${BASE}/api/mrp/base/restore`, { method: "POST", headers: vh, body: "{}" });
+    const vGet = await fetch(`${BASE}/api/mrp/base/current`, { headers: vh });
+    check("VISUALIZADOR: POST replace/restore → 403; GET base → 200", vReplace.status === 403 && vRestore.status === 403 && vGet.status === 200, `${vReplace.status}/${vRestore.status}/${vGet.status}`);
+    const anon = await fetch(`${BASE}/api/mrp/base/current`, { redirect: "manual" });
+    check("sem sessão: GET base não é servido (401/redirect)", anon.status === 401 || (anon.status >= 300 && anon.status < 400), String(anon.status));
+    await viewerCtx.close();
+
     console.log("\n10. Celular");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${BASE}/dashboard/analise-mrp`, { waitUntil: "load", timeout: 120_000 });
@@ -400,6 +533,11 @@ async function main() {
     const overflowIdle = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check("Estoque parado no celular sem rolagem horizontal", overflowIdle <= 0, `excesso ${overflowIdle}px`);
     await shot(page, "11-parado-celular");
+    await page.goto(`${BASE}/dashboard/analise-mrp?tab=base`, { waitUntil: "load", timeout: 120_000 });
+    await page.locator("[data-testid=mrp-base-table]").waitFor({ timeout: 60_000 });
+    const overflowBase = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    check("Base MRP no celular sem rolagem horizontal", overflowBase <= 0, `excesso ${overflowBase}px`);
+    await shot(page, "14-base-celular");
   } finally {
     await browser.close();
     server.kill();

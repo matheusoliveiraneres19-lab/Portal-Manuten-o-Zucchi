@@ -58,7 +58,9 @@
     "test:mrp-e2e": "tsx scripts/mrp/e2e-mrp-screen.ts",
     "test:mrp-areas": "tsx scripts/test-mrp-areas.ts",
     "test:mrp-transit": "tsx scripts/test-mrp-transit.ts",
-    "test:mrp-idle-stock": "tsx scripts/test-mrp-idle-stock.ts"
+    "test:mrp-idle-stock": "tsx scripts/test-mrp-idle-stock.ts",
+    "test:mrp-base-view": "tsx scripts/test-mrp-base-view.ts",
+    "test:mrp-base-db": "tsx scripts/mrp/test-mrp-base-db.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

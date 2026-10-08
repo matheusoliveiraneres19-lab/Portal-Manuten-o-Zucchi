@@ -5,6 +5,8 @@ import { getSession } from "@/lib/auth-guard";
 import { parseMrpBuyFilters } from "@/lib/mrp/buy-list";
 import { parseMrpTransitFilters } from "@/lib/mrp/transit";
 import { parseMrpIdleFilters } from "@/lib/mrp/idle";
+import { parseMrpBaseViewFilters } from "@/lib/mrp/base-view";
+import { getMrpBaseView } from "@/services/mrp-base-view.service";
 import { getCurrentMrpAnalysisSummary } from "@/services/mrp-analysis.service";
 import { getMrpAreasSummary, getMrpBuyListing } from "@/services/mrp-listing.service";
 import { getActiveMrpBaseVersion, getMrpDefaultDeposit } from "@/services/mrp-persistence.service";
@@ -36,6 +38,8 @@ export default async function AnaliseMrpRoute({ searchParams = {} }: { searchPar
   // Mesmo cache por runId da lista: sem consulta extra.
   const areas = current ? (await getMrpAreasSummary(current.runId)).summary : null;
   const hasActiveBase = canImport ? !!(await getActiveMrpBaseVersion()) : false;
+  // Base da aba Base MRP: a da análise vigente (snapshot) ou, sem análise, a ativa.
+  const baseView = await getMrpBaseView();
   const defaultDeposit = canImport ? await getMrpDefaultDeposit() : "";
 
   const summary: MrpSummaryView | null = current
@@ -76,6 +80,8 @@ export default async function AnaliseMrpRoute({ searchParams = {} }: { searchPar
       filters={filters}
       transitFilters={parseMrpTransitFilters((key) => first(searchParams[key]))}
       idleFilters={parseMrpIdleFilters((key) => first(searchParams[key]))}
+      baseView={baseView}
+      baseFilters={parseMrpBaseViewFilters((key) => first(searchParams[key]))}
       initialTab={parseMrpTab(first(searchParams.tab))}
       canImport={canImport}
       hasActiveBase={hasActiveBase}

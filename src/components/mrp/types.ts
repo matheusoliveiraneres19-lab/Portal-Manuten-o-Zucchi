@@ -3,6 +3,8 @@ import type { MrpAreasSummary } from "@/lib/mrp/areas";
 import type { MrpBuyFilters } from "@/lib/mrp/buy-list";
 import type { MrpTransitFilters } from "@/lib/mrp/transit";
 import type { MrpIdleFilters } from "@/lib/mrp/idle";
+import type { MrpBaseViewFilters } from "@/lib/mrp/base-view";
+import type { MrpBaseView } from "@/services/mrp-base-view.service";
 import type { MrpBuyListing } from "@/services/mrp-listing.service";
 
 /** Abas do módulo (`?tab=`). Só as `ready` são funcionais. */
@@ -11,13 +13,13 @@ export const MRP_TABS = [
   { key: "areas", label: "Áreas & Conjuntos", ready: true },
   { key: "transit", label: "Em trânsito", ready: true },
   { key: "idle", label: "Estoque parado", ready: true },
-  { key: "base", label: "Base MRP", ready: false }
+  { key: "base", label: "Base MRP", ready: true }
 ] as const;
 
-export type MrpTab = "buy" | "areas" | "transit" | "idle";
+export type MrpTab = "buy" | "areas" | "transit" | "idle" | "base";
 
 export function parseMrpTab(value: string | null | undefined): MrpTab {
-  return value === "areas" || value === "transit" || value === "idle" ? value : "buy";
+  return value === "areas" || value === "transit" || value === "idle" || value === "base" ? value : "buy";
 }
 
 /** KPIs da aba Em trânsito (do run): 4 de compras + "Saíram do MRP". */
@@ -63,6 +65,9 @@ export type MrpPageProps = {
   filters: MrpBuyFilters;
   transitFilters: MrpTransitFilters;
   idleFilters: MrpIdleFilters;
+  /** Base exibida na aba Base MRP (da análise vigente ou, sem análise, a ativa). */
+  baseView: MrpBaseView | null;
+  baseFilters: MrpBaseViewFilters;
   initialTab: MrpTab;
   canImport: boolean;
   hasActiveBase: boolean;

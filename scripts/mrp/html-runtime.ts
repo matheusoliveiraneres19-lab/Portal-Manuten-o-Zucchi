@@ -127,6 +127,8 @@ globalThis.__mrp = {
         renderTransitoHtml(lim){ limTrans = lim || 200; renderTransito(); return { kpis: document.getElementById('kpisTrans').innerHTML, table: document.getElementById('tblTrans').innerHTML }; },
         setCompras(list){ compras = list; _cmpIdx=null; _pendIdx=null; },
         renderParadoHtml(lim){ limParado = lim || 200; renderParado(); return { kpis: document.getElementById('kpisParado').innerHTML, table: document.getElementById('tblParado').innerHTML }; },
+        renderBaseHtml(lim){ limBase = lim || 200; renderBase(); return { sub: document.getElementById('baseSub').innerHTML, table: document.getElementById('tblBase').innerHTML }; },
+        baseFiltrada(){ return baseFiltrada(); },
         setValue(id, v){ document.getElementById(id).value = v; },
         filtrarCompra(){ return filtrarCompra(); },
         bgStatus(a){ return bgStatus(a); },

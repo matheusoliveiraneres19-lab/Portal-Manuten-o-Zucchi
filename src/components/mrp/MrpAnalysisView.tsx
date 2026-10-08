@@ -7,6 +7,7 @@ import { MrpAreasTab } from "@/components/mrp/MrpAreasTab";
 import { MrpBuyTab } from "@/components/mrp/MrpBuyTab";
 import { MrpTransitTab } from "@/components/mrp/MrpTransitTab";
 import { MrpIdleTab } from "@/components/mrp/MrpIdleTab";
+import { MrpBaseTab } from "@/components/mrp/MrpBaseTab";
 import { MrpImportModal } from "@/components/mrp/MrpImportModal";
 import { mrpGet } from "@/components/mrp/mrp-api";
 import { MRP_TABS, parseMrpTab, type MrpPageProps, type MrpTab } from "@/components/mrp/types";
@@ -54,9 +55,11 @@ export function MrpAnalysisView(props: MrpPageProps) {
   // A aba Em trânsito monta na 1ª visita e fica montada (filtros preservados entre abas).
   const [transitMounted, setTransitMounted] = useState(props.initialTab === "transit");
   const [idleMounted, setIdleMounted] = useState(props.initialTab === "idle");
+  const [baseMounted, setBaseMounted] = useState(props.initialTab === "base");
   useEffect(() => {
     if (tab === "transit") setTransitMounted(true);
     if (tab === "idle") setIdleMounted(true);
+    if (tab === "base") setBaseMounted(true);
   }, [tab]);
   // Filtros da lista montada (para o voltar/avançar decidir se precisa recarregar).
   const buyFiltersRef = useRef(buy.filters);
@@ -205,7 +208,7 @@ export function MrpAnalysisView(props: MrpPageProps) {
             {idleMounted ? <MrpIdleTab key={summary.runId} kpis={summary.kpis.idle} initialFilters={props.idleFilters} /> : null}
           </div>
         </>
-      ) : (
+      ) : tab !== "base" ? (
         <div className="relative overflow-hidden rounded-lg border border-gold/20 bg-ink p-10 text-center shadow-premium">
           <div className="login-marble-bg absolute inset-0 opacity-80" />
           <div className="relative z-10 mx-auto flex max-w-xl flex-col items-center gap-4">
@@ -229,7 +232,21 @@ export function MrpAnalysisView(props: MrpPageProps) {
             ) : null}
           </div>
         </div>
-      )}
+      ) : null}
+
+      {/* Base MRP funciona também sem análise vigente (as outras abas ficam no estado vazio). */}
+      <div hidden={tab !== "base"}>
+        {baseMounted ? (
+          <MrpBaseTab
+            key={props.baseView?.version.id ?? "sem-base"}
+            view={props.baseView}
+            initialFilters={props.baseFilters}
+            canImport={props.canImport}
+            hasRun={!!summary}
+            onChanged={() => router.refresh()}
+          />
+        ) : null}
+      </div>
 
       {props.canImport ? (
         <MrpImportModal
