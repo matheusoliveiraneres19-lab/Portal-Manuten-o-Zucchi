@@ -166,6 +166,14 @@ export function MrpImportModal({ open, onClose, onUpdated, hasActiveBase, defaul
     const res = await mrpPost<{ message: string }>("/api/mrp/update-all", { items, depositFilter: deposit, defaultArea });
     setBusy(null);
     if (!res.ok) {
+      if (res.status === 422) {
+        // Planilhas importadas (ficam no histórico, sem uso), análise NÃO aplicada:
+        // a mensagem do servidor já diz que a análise anterior continua vigente.
+        setError(res.error);
+        setSlots(EMPTY);
+        setNotes([]);
+        return;
+      }
       setError(`${res.error} A análise anterior continua vigente.`);
       return;
     }

@@ -25,7 +25,7 @@ import { getCurrentMrpAnalysisSummary } from "../../src/services/mrp-analysis.se
 import { clearMrpBuyListingCache, getCurrentMrpBuyListing, getMrpAreasSummary } from "../../src/services/mrp-listing.service";
 import { fmtMrp } from "../../src/lib/mrp/format";
 import { activateMrpBaseVersion, getActiveMrpBaseVersion, getMrpDefaultDeposit, setCurrentMrpAnalysisRun } from "../../src/services/mrp-persistence.service";
-import { updateAllMrp } from "../../src/services/mrp-update.service";
+import { MRP_ANALYSIS_NOT_APPLIED_MESSAGE, MrpAnalysisNotAppliedError, updateAllMrp } from "../../src/services/mrp-update.service";
 import { IMPORT_STAGES } from "../../src/types/imports";
 import * as F from "./fixtures";
 import { createHtmlRuntime } from "./html-runtime";
@@ -276,18 +276,29 @@ async function main() {
 
     console.log("\n3. Falha na análise (depois da importação)");
     let msg = "";
+    let failed: unknown = null;
+    const failItems = [await openHistory("base", F.baseFixture(), "MRP Analise manutenção"), await openHistory("est", F.stockFixture(), "Sheet1"), await openHistory("cmp", F.purchaseFixture(), "Compras")];
     try {
       await updateAllMrp({
-        items: [await openHistory("base", F.baseFixture(), "MRP Analise manutenção"), await openHistory("est", F.stockFixture(), "Sheet1"), await openHistory("cmp", F.purchaseFixture(), "Compras")],
+        items: failItems,
         depositFilter: "1400",
         userId: TAG,
         download,
         hooks: { beforeAnalysisCommit: async () => { throw new Error("falha simulada na análise"); } }
       });
     } catch (error) {
+      failed = error;
       msg = (error as Error).message;
     }
     check("erro propagado", msg === "falha simulada na análise", msg);
+    // FASE K.1: importação concluída x análise não aplicada.
+    const notApplied = failed instanceof MrpAnalysisNotAppliedError ? failed : null;
+    check("falha na ANÁLISE identificada (MrpAnalysisNotAppliedError, etapa analysis) com as fontes importadas", !!notApplied && notApplied.stage === "analysis" && !!notApplied.imported.stockImportId && !!notApplied.imported.purchaseImportId && !!notApplied.imported.baseVersionId);
+    const histories = await prisma.importHistory.findMany({ where: { id: { in: failItems.map((i) => i.importId) } }, select: { status: true } });
+    check("histórico de importação = SUCESSO (as fontes foram gravadas)", histories.length === 3 && histories.every((h) => h.status === ImportStatus.SUCESSO), histories.map((h) => h.status).join(","));
+    const cur3 = await prisma.mrpAnalysisRun.findFirst({ where: { isCurrent: true } });
+    check("fontes novas preservadas e NÃO usadas pela análise vigente; base nova inativa", !!notApplied && cur3?.stockImportId !== notApplied.imported.stockImportId && cur3?.purchaseImportId !== notApplied.imported.purchaseImportId && !(await prisma.mrpBaseVersion.findUniqueOrThrow({ where: { id: notApplied.imported.baseVersionId! } })).isActive && (await prisma.mrpStockImport.count({ where: { id: notApplied.imported.stockImportId } })) === 1);
+    check("mensagem ao usuário", MRP_ANALYSIS_NOT_APPLIED_MESSAGE === "Os arquivos foram importados, mas a nova análise não pôde ser aplicada. A análise anterior continua vigente.");
     check("análise anterior continua vigente", (await prisma.mrpAnalysisRun.findFirst({ where: { isCurrent: true } }))?.id === run2.id);
     check("base anterior continua ativa (a nova NÃO foi ativada)", (await getActiveMrpBaseVersion())?.id === active2?.id);
     check("tela continua mostrando a análise anterior", (await getCurrentMrpAnalysisSummary())?.runId === run2.id);
