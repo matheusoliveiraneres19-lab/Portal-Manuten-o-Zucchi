@@ -60,7 +60,9 @@
     "test:mrp-transit": "tsx scripts/test-mrp-transit.ts",
     "test:mrp-idle-stock": "tsx scripts/test-mrp-idle-stock.ts",
     "test:mrp-base-view": "tsx scripts/test-mrp-base-view.ts",
-    "test:mrp-base-db": "tsx scripts/mrp/test-mrp-base-db.ts"
+    "test:mrp-base-db": "tsx scripts/mrp/test-mrp-base-db.ts",
+    "test:mrp-export": "tsx scripts/test-mrp-export.ts",
+    "test:mrp-export-db": "tsx scripts/mrp/test-mrp-export-db.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

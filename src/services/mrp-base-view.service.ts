@@ -145,6 +145,15 @@ export async function getMrpBaseListing(versionId: string, filters: MrpBaseViewF
   };
 }
 
+/** baseFiltrada() COMPLETA da base exibida pela aba (exportação Excel da base). */
+export async function getCurrentMrpBaseRows(filters: MrpBaseViewFilters): Promise<{ versionId: string; rows: MrpBaseViewRow[]; queries: number } | null> {
+  const resolved = await resolveMrpBaseForView();
+  if (!resolved.versionId) return null;
+  const { data, queries } = await loadVersion(resolved.versionId);
+  if (!data) return null;
+  return { versionId: resolved.versionId, rows: filterMrpBase(data.rows, filters), queries: resolved.queries + queries };
+}
+
 /** Só para testes: esvazia o cache. */
 export function clearMrpBaseViewCache() {
   cache.clear();

@@ -17,13 +17,16 @@
  *   7. celular (390 px): sem rolagem horizontal da página.
  *   9b. Base MRP (FASE I): resumo, 6 colunas, filtros, paginação, URL, envio,
  *       aviso de base ativa diferente, restaurar pela tela, VISUALIZADOR (403).
+ *   9c. Exportações (FASE J): os 6 botões baixam o .xlsx (nome, MIME, tamanho,
+ *       abas e linhas = API), duplo clique, VISUALIZADOR exporta, anônimo não.
  * Limpa tudo o que criou (runs, importações, históricos, arquivos no Storage).
  * As linhas de AuditLog do usuário de teste são MANTIDAS (auditoria não se apaga).
  */
 import "./force-utc";
 import { SCRIPT_DB_MODE, connectWithRetry, loadDotEnv } from "./script-db";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import * as XLSX from "xlsx";
 import { join } from "node:path";
 import { chromium, type Page } from "playwright";
 import { prisma } from "../../src/lib/prisma";
@@ -429,7 +432,7 @@ async function main() {
     await withBase(() => page.fill("[data-testid=mrp-base-search]", "zzz-nao-existe"));
     check("filtro sem resultado: mensagem própria", await page.locator("[data-testid=mrp-base-empty]").getByText("Nenhum material neste filtro").isVisible());
     await withBase(() => page.fill("[data-testid=mrp-base-search]", "breton"));
-    check("Excel da base desabilitado (em breve)", await page.getByRole("button", { name: /Excel da base/ }).isDisabled());
+    check("Excel da base habilitado (FASE J)", await page.locator("[data-testid=mrp-export-base]").isEnabled());
     await page.reload({ waitUntil: "load" });
     await page.locator("[data-testid=mrp-base-summary]").waitFor({ timeout: 60_000 });
     await page.waitForTimeout(800);
@@ -511,6 +514,85 @@ async function main() {
     const anon = await fetch(`${BASE}/api/mrp/base/current`, { redirect: "manual" });
     check("sem sessão: GET base não é servido (401/redirect)", anon.status === 401 || (anon.status >= 300 && anon.status < 400), String(anon.status));
     await viewerCtx.close();
+
+    console.log("\n9c. Exportações Excel (FASE J)");
+    const dlDir = join(process.cwd(), ".e2e-downloads");
+    mkdirSync(dlDir, { recursive: true });
+    const exportVia = async (testId: string) => {
+      const [dl, res] = await Promise.all([
+        page.waitForEvent("download", { timeout: 120_000 }),
+        page.waitForResponse((r) => r.url().includes("/api/mrp/export"), { timeout: 120_000 }),
+        page.locator(`[data-testid=${testId}]`).click()
+      ]);
+      const path = join(dlDir, dl.suggestedFilename());
+      await dl.saveAs(path);
+      const data = readFileSync(path);
+      const wb = XLSX.read(data, { type: "buffer" });
+      return { name: dl.suggestedFilename(), mime: res.headers()["content-type"] ?? "", bytes: data.length, names: wb.SheetNames, rows: wb.SheetNames.map((n) => XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[n], { header: 1, raw: true, defval: "" })) };
+    };
+    const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    const expectFile = (label: string, f: Awaited<ReturnType<typeof exportVia>>, name: RegExp, sheets: string) =>
+      check(`${label}: ${f.name} · ${f.mime === XLSX_MIME ? "MIME xlsx" : f.mime} · ${(f.bytes / 1024).toFixed(1)} KB · abas ${f.names.join("|")}`, name.test(f.name) && f.mime === XLSX_MIME && f.bytes > 0 && f.names.join("|") === sheets);
+
+    await page.goto(`${BASE}/dashboard/analise-mrp?tab=buy&status=all&area=${encodeURIComponent("Elétrica")}&sort=desc`, { waitUntil: "load", timeout: 120_000 });
+    await page.locator("[data-testid=mrp-buy-table]").waitFor({ timeout: 60_000 });
+    await page.waitForTimeout(500);
+    const fBuy = await exportVia("mrp-export-buy");
+    expectFile("Excel da lista (Todos + Elétrica + A→Z)", fBuy, /^Lista_Compra_MRP_\d{8}\.xlsx$/, "Lista de compra");
+    const apiBuy = await getCurrentMrpBuyListing({ q: "", status: "all", area: "Elétrica", family: "", sort: "desc" }, 100_000);
+    const shownBuy = await rowCodes(page);
+    check(`lista: Excel = API = tela (${apiBuy!.filteredCount} linhas, mesma ordem)`, fBuy.rows[0].slice(1).map((r) => String(r[0])).join() === apiBuy!.items.map((i) => i.code).join() && apiBuy!.items.slice(0, shownBuy.length).map((i) => i.code).join() === shownBuy.join());
+    const fArea = await exportVia("mrp-export-buy-by-area");
+    expectFile("Por área com área=Elétrica na tela", fArea, /^Lista_Compra_MRP_\d{8}\.xlsx$/, "Elétrica");
+    // Duplo clique não gera dois downloads.
+    let exportRequests = 0;
+    const countExports = (r: { url(): string }) => {
+      if (r.url().includes("/api/mrp/export")) exportRequests++;
+    };
+    page.on("request", countExports);
+    const dlDouble = page.waitForEvent("download", { timeout: 120_000 });
+    await page.locator("[data-testid=mrp-export-buy]").dblclick();
+    await dlDouble;
+    await page.waitForTimeout(1500);
+    page.off("request", countExports);
+    check("duplo clique: 1 requisição (botão em carregamento)", exportRequests === 1, String(exportRequests));
+
+    await page.goto(`${BASE}/dashboard/analise-mrp?tab=areas`, { waitUntil: "load", timeout: 120_000 });
+    await page.locator("[data-testid=mrp-areas]").waitFor({ timeout: 60_000 });
+    const fFam = await exportVia("mrp-export-families");
+    expectFile("Excel por conjunto", fFam, /^Satelites_Coroas_\d{8}\.xlsx$/, "Satélite Simec 6|Satélite Breton 8|Satélite Breton 6|Satélites Breton|Coroa Cemar");
+
+    await page.goto(`${BASE}/dashboard/analise-mrp?tab=transit&transitQ=zzz-nada`, { waitUntil: "load", timeout: 120_000 });
+    await page.locator("[data-testid=mrp-transit]").waitFor({ timeout: 60_000 });
+    const fTr = await exportVia("mrp-export-transit");
+    expectFile("Compras (com a tela filtrada)", fTr, /^Compras_Realizadas_\d{8}\.xlsx$/, "Compras");
+    const runTr = await prisma.mrpAnalysisRun.findFirst({ where: { isCurrent: true } });
+    const trAll = await getCurrentMrpTransitListing({ q: "", status: "all", onlyMrp: false }, 100_000);
+    check(`Compras: TODOS os ${trAll!.totalGroups} grupos apesar do filtro da tela; 12 colunas`, fTr.rows[0].length - 1 === trAll!.totalGroups && fTr.rows[0][0].length === 12 && !!runTr);
+
+    await page.goto(`${BASE}/dashboard/analise-mrp?tab=idle&idleType=all`, { waitUntil: "load", timeout: 120_000 });
+    await page.locator("[data-testid=mrp-idle-table]").waitFor({ timeout: 60_000 });
+    const fIdle = await exportVia("mrp-export-idle");
+    expectFile("Estoque parado (Todos)", fIdle, /^Estoque_Parado_\d{8}\.xlsx$/, "Sem movimentacao");
+    const apiIdleAll = await getCurrentMrpIdleListing({ q: "", type: "all", area: "" }, 100_000);
+    check(`Estoque parado: 12 colunas, ${apiIdleAll!.filteredCount} linhas na ordem da tela`, fIdle.rows[0][0].length === 12 && fIdle.rows[0].slice(1).map((r) => String(r[0])).join() === apiIdleAll!.items.map((i) => i.code).join());
+
+    await page.goto(`${BASE}/dashboard/analise-mrp?tab=base&baseFilter=conj`, { waitUntil: "load", timeout: 120_000 });
+    await page.locator("[data-testid=mrp-base-table]").waitFor({ timeout: 60_000 });
+    const fBase = await exportVia("mrp-export-base");
+    expectFile("Excel da base (só satélites e coroas)", fBase, /^Base_MRP_\d{8}\.xlsx$/, "Base MRP");
+    const apiBaseConj = await getCurrentMrpBaseListing({ q: "", area: "", filter: "conj" }, 100_000);
+    check(`Excel da base: 9 colunas, ${apiBaseConj!.filteredCount} linhas = aba`, fBase.rows[0][0].length === 9 && fBase.rows[0].slice(1).map((r) => String(r[0])).join() === apiBaseConj!.items.map((i) => i.code).join());
+
+    // Permissões: leitura para qualquer usuário autenticado.
+    const viewerExport = await fetch(`${BASE}/api/mrp/export?type=buy&status=all`, { headers: { cookie: `zucchi-auth=${viewerToken}` } });
+    const viewerBytes = (await viewerExport.arrayBuffer()).byteLength;
+    check("VISUALIZADOR exporta (200, xlsx)", viewerExport.status === 200 && (viewerExport.headers.get("content-type") ?? "") === XLSX_MIME && viewerBytes > 0, `${viewerExport.status} ${viewerBytes} bytes`);
+    const anonExport = await fetch(`${BASE}/api/mrp/export?type=buy`, { redirect: "manual" });
+    check("sem sessão: exportação negada", anonExport.status === 401 || (anonExport.status >= 300 && anonExport.status < 400), String(anonExport.status));
+    const badType = await fetch(`${BASE}/api/mrp/export?type=xyz`, { headers: { cookie: `zucchi-auth=${token}` } });
+    check("tipo inválido → 400", badType.status === 400, String(badType.status));
+    rmSync(dlDir, { recursive: true, force: true });
 
     console.log("\n10. Celular");
     await page.setViewportSize({ width: 390, height: 844 });

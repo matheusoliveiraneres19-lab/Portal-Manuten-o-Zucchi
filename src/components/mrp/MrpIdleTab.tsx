@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Cog, Download, Loader2, PackageX, Search, Zap } from "lucide-react";
+import { Cog, Loader2, PackageX, Search, Zap } from "lucide-react";
 import { fmtMrp } from "@/lib/mrp/format";
 import { MRP_BUY_AREAS } from "@/lib/mrp/buy-list";
 import {
@@ -17,6 +17,7 @@ import {
 import type { MrpIdleItem, MrpIdleListing } from "@/services/mrp-idle.service";
 import type { MrpIdleKpisView } from "@/components/mrp/types";
 import { mrpGet } from "@/components/mrp/mrp-api";
+import { MrpExportButton } from "@/components/mrp/MrpExportButton";
 
 /**
  * Aba ESTOQUE PARADO — reprodução de renderParado() do HTML: 4 KPIs globais
@@ -96,14 +97,7 @@ export function MrpIdleTab({ kpis, initialFilters }: Props) {
               Mínimo e máximo zerados no MRP ou status de sem saída. Os que têm saldo são capital parado; os zerados são candidatos a inativação.
             </p>
           </div>
-          <button
-            type="button"
-            disabled
-            title="Exportação em breve (próxima etapa)"
-            className="inline-flex h-9 cursor-not-allowed items-center gap-2 rounded-lg border border-gold/15 px-3 text-xs font-semibold text-parchment-dim/70"
-          >
-            <Download className="h-3.5 w-3.5" /> Excel <span className="text-[10px] uppercase">em breve</span>
-          </button>
+          <MrpExportButton type="idle" label="Excel" testId="mrp-export-idle" params={{ idleQ: filters.q, idleType: filters.type, idleArea: filters.area }} />
         </div>
 
         {kpis.semMov === 0 ? (

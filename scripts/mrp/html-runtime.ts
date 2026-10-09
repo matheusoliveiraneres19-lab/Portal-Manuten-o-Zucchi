@@ -129,6 +129,18 @@ globalThis.__mrp = {
         renderParadoHtml(lim){ limParado = lim || 200; renderParado(); return { kpis: document.getElementById('kpisParado').innerHTML, table: document.getElementById('tblParado').innerHTML }; },
         renderBaseHtml(lim){ limBase = lim || 200; renderBase(); return { sub: document.getElementById('baseSub').innerHTML, table: document.getElementById('tblBase').innerHTML }; },
         baseFiltrada(){ return baseFiltrada(); },
+        /* Exportações: captura o workbook de exportX() (sem baixar). */
+        exportar(kind, withFile){
+          let out=null, msg=null; const w=XLSX.writeFile, t=toast, a2s=XLSX.utils.aoa_to_sheet;
+          XLSX.utils.aoa_to_sheet=function(aoa){ const ws=a2s(aoa); Object.defineProperty(ws,'__aoa',{value:aoa,enumerable:false}); return ws; };
+          XLSX.writeFile=function(wb,nome){ out={ nome, sheets: wb.SheetNames.map(n=>({ name:n, rows: wb.Sheets[n].__aoa, cols: wb.Sheets[n]['!cols']||null })), b64: withFile ? XLSX.write(wb,{type:'base64',bookType:'xlsx'}) : null }; };
+          toast=function(m){ msg=m; };
+          try{
+            if(kind==='buy') exportCompra(false); else if(kind==='buy-by-area') exportCompra(true); else if(kind==='families') exportConjuntos();
+            else if(kind==='idle') exportParado(); else if(kind==='transit') exportTransito(); else if(kind==='base') exportBase();
+          } finally { XLSX.writeFile=w; toast=t; XLSX.utils.aoa_to_sheet=a2s; }
+          return JSON.stringify({ file: out, toast: msg });
+        },
         setValue(id, v){ document.getElementById(id).value = v; },
         filtrarCompra(){ return filtrarCompra(); },
         bgStatus(a){ return bgStatus(a); },

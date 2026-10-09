@@ -131,6 +131,12 @@ export async function getMrpTransitListing(
   };
 }
 
+/** Todos os grupos de comprasIndex() do run, na ordem de 1ª aparição (exportação de Compras). */
+export async function getMrpTransitGroups(runId: string, purchaseImportId: string): Promise<{ groups: MrpTransitGroup[]; queries: number }> {
+  const { data, queries } = await loadTransit(runId, purchaseImportId);
+  return { groups: data.groups, queries };
+}
+
 /** Só para testes: esvazia o cache. */
 export function clearMrpTransitCache() {
   cache.clear();

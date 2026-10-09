@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Cog, Download, Loader2, Search, Truck, Zap } from "lucide-react";
+import { Cog, Loader2, Search, Truck, Zap } from "lucide-react";
 import { dataBR } from "@/lib/mrp/date-parser";
 import { fmtMrp } from "@/lib/mrp/format";
 import {
@@ -16,6 +16,7 @@ import {
 import type { MrpTransitItem, MrpTransitListing } from "@/services/mrp-transit.service";
 import type { MrpTransitKpisView } from "@/components/mrp/types";
 import { mrpGet } from "@/components/mrp/mrp-api";
+import { MrpExportButton } from "@/components/mrp/MrpExportButton";
 
 /**
  * Aba EM TRÂNSITO — reprodução de renderTransito() do HTML: 5 KPIs (os 4 de
@@ -111,14 +112,7 @@ export function MrpTransitTab({ kpis, initialFilters, onOpenBought }: Props) {
               Com pedido ou requisição e <strong className="text-champagne">sem data de recebimento</strong> = material em trânsito, retirado da lista de compra.
             </p>
           </div>
-          <button
-            type="button"
-            disabled
-            title="Exportação em breve (próxima etapa)"
-            className="inline-flex h-9 cursor-not-allowed items-center gap-2 rounded-lg border border-gold/15 px-3 text-xs font-semibold text-parchment-dim/70"
-          >
-            <Download className="h-3.5 w-3.5" /> Excel <span className="text-[10px] uppercase">em breve</span>
-          </button>
+          <MrpExportButton type="transit" label="Excel" testId="mrp-export-transit" />
         </div>
 
         <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(14rem,1fr)_auto] lg:grid-cols-[minmax(14rem,1fr)_auto_auto]">

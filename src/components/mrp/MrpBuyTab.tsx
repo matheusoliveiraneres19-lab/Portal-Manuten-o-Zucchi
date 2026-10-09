@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Cog, Download, Loader2, Search, ShoppingCart, Zap } from "lucide-react";
+import { Cog, Loader2, Search, ShoppingCart, Zap } from "lucide-react";
 import {
   MRP_BUY_AREAS,
   MRP_BUY_DEFAULT_FILTERS,
@@ -19,6 +19,7 @@ import { fmtMrp } from "@/lib/mrp/format";
 import type { MrpBuyListing, MrpBuyListItem } from "@/services/mrp-listing.service";
 import type { MrpKpisView } from "@/components/mrp/types";
 import { mrpGet } from "@/components/mrp/mrp-api";
+import { MrpExportButton } from "@/components/mrp/MrpExportButton";
 
 /**
  * Aba COMPRAR — reprodução funcional de renderCompra() do HTML: KPIs
@@ -110,17 +111,8 @@ export function MrpBuyTab({ kpis, initialListing, initialFilters }: Props) {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {["Excel da lista", "Por área (abas)"].map((label) => (
-              <button
-                key={label}
-                type="button"
-                disabled
-                title="Exportação em breve (próxima etapa)"
-                className="inline-flex h-9 cursor-not-allowed items-center gap-2 rounded-lg border border-gold/15 px-3 text-xs font-semibold text-parchment-dim/70"
-              >
-                <Download className="h-3.5 w-3.5" /> {label} <span className="text-[10px] uppercase">em breve</span>
-              </button>
-            ))}
+            <MrpExportButton type="buy" label="Excel da lista" testId="mrp-export-buy" params={{ q: filters.q, status: filters.status, area: filters.area, family: filters.family, sort: filters.sort }} />
+            <MrpExportButton type="buy-by-area" label="Por área (abas)" testId="mrp-export-buy-by-area" params={{ q: filters.q, status: filters.status, area: filters.area, family: filters.family, sort: filters.sort }} />
           </div>
         </div>
 

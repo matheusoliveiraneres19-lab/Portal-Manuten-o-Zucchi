@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Cog, Database, Download, Loader2, RotateCcw, Search, UploadCloud, Zap } from "lucide-react";
+import { AlertTriangle, Cog, Database, Loader2, RotateCcw, Search, UploadCloud, Zap } from "lucide-react";
 import { fmtMrp } from "@/lib/mrp/format";
 import { MRP_BUY_AREAS } from "@/lib/mrp/buy-list";
 import {
@@ -17,6 +17,7 @@ import {
 import type { MrpFilePreview } from "@/lib/mrp/import-plan";
 import type { MrpBaseItem, MrpBaseListing, MrpBaseView } from "@/services/mrp-base-view.service";
 import { mrpGet, mrpPost } from "@/components/mrp/mrp-api";
+import { MrpExportButton } from "@/components/mrp/MrpExportButton";
 
 /**
  * Aba BASE MRP — reprodução de renderBase()/baseFiltrada() + envio da planilha
@@ -117,14 +118,7 @@ export function MrpBaseTab({ view, initialFilters, canImport, hasRun, onChanged 
             <h2 className="font-serif text-xl text-white">Materiais cadastrados</h2>
             {view ? <BaseSummary view={view} /> : null}
           </div>
-          <button
-            type="button"
-            disabled
-            title="Exportação em breve (próxima etapa)"
-            className="inline-flex h-9 cursor-not-allowed items-center gap-2 rounded-lg border border-gold/15 px-3 text-xs font-semibold text-parchment-dim/70"
-          >
-            <Download className="h-3.5 w-3.5" /> Excel da base <span className="text-[10px] uppercase">em breve</span>
-          </button>
+          {view ? <MrpExportButton type="base" label="Excel da base" testId="mrp-export-base" params={{ baseQ: filters.q, baseArea: filters.area, baseFilter: filters.filter }} /> : null}
         </div>
 
         {!view ? (

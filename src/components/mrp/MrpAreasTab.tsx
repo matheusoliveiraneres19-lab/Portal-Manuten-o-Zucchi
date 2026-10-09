@@ -3,6 +3,7 @@
 import { Cog, Factory, Layers, Orbit, Zap } from "lucide-react";
 import type { MrpAreasCard, MrpAreasSummary, MrpAreaTarget } from "@/lib/mrp/areas";
 import { fmtMrp } from "@/lib/mrp/format";
+import { MrpExportButton } from "@/components/mrp/MrpExportButton";
 
 /**
  * Aba ÁREAS & CONJUNTOS — reprodução de renderAreas()/cardHTML() do HTML.
@@ -37,14 +38,7 @@ export function MrpAreasTab({ summary, onOpen }: Props) {
             </h2>
             <p className="mt-1 text-xs text-parchment-dim">Recorte dos conjuntos identificados na base do MRP. Clique para filtrar a lista de compra.</p>
           </div>
-          <button
-            type="button"
-            disabled
-            title="Exportação em breve (próxima etapa)"
-            className="inline-flex h-9 cursor-not-allowed items-center gap-2 rounded-lg border border-gold/15 px-3 text-xs font-semibold text-parchment-dim/70"
-          >
-            Excel por conjunto <span className="text-[10px] uppercase">em breve</span>
-          </button>
+          <MrpExportButton type="families" label="Excel por conjunto" testId="mrp-export-families" />
         </div>
         {summary.families.length === 0 ? (
           <p className="mt-4 rounded-md border border-gold/15 bg-black/25 px-4 py-4 text-center text-sm text-parchment-dim" data-testid="mrp-no-families">
