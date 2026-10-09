@@ -173,6 +173,12 @@ enum ImportType {
   /// Locais de Instalação (SAP PM). Antes da infra Supabase Pro os locais eram
   /// gravados como EQUIPAMENTOS; o valor antigo segue válido no histórico.
   LOCAL_INSTALACAO
+  /// Análise MRP: planilha do MRP (Base MRP versionada).
+  MRP_BASE
+  /// Análise MRP: planilha de estoque (utilização livre por depósito).
+  MRP_STOCK
+  /// Análise MRP: compras realizadas enviadas na própria Análise MRP.
+  MRP_PURCHASES
 }
 
 enum ImportStatus {
@@ -997,6 +1003,10 @@ model ImportHistory {
 
   stagingRows ImportStagingRow[]
 
+  mrpBaseVersions    MrpBaseVersion[]
+  mrpStockImports    MrpStockImport[]
+  mrpPurchaseImports MrpPurchaseImport[]
+
   @@index([type])
   @@index([status])
   @@index([createdAt])
@@ -1202,4 +1212,236 @@ model PcFactoryAvailabilityNoteServiceOrder {
   @@unique([availabilityNoteId, osNumber])
   @@index([osNumber])
   @@index([serviceOrderId])
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// ANÁLISE MRP (FASE B) — persistência da migração do "Analise_MRP_Compacto.html".
+//
+// O HTML é a fonte de verdade funcional; estes modelos apenas PERSISTEM o que ele
+// mantinha no localStorage, sem mudar regra nenhuma:
+//   - Base MRP versionada (antes: base embutida SEED_MAN/SEED_ELE ou baseCustom);
+//   - estoque e compras importados (antes: `estoque` e `compras` em memória);
+//   - cada execução da análise com o resultado por material (antes: `analysis`).
+//
+// Convenções de paridade (ver docs/analise-mrp-persistencia.md):
+//   - Quantidades em Decimal (numeric(65,30)): ida e volta EXATA do Number do
+//     JS. O Float NÃO é exato neste banco (extra_float_digits = 0 corta o float8
+//     em 15 dígitos na leitura e na gravação) — ver
+//     scripts/mrp/test-numeric-precision.ts. Única perda: -0 vira 0.
+//   - Datas de compra em TEXTO ISO "YYYY-MM-DD" (ou ""): cmpOrdem() compara a
+//     chave como string. Nenhum DateTime auxiliar participa do motor.
+//   - Status/origens/gatilhos em String (sem enum PostgreSQL), como AuditLog.
+//   - Códigos de material guardados como o HTML os produz (cleanCode), SEM
+//     remover zeros à esquerda.
+//   - "Uma versão ativa" e "uma análise current" são garantidos no banco por
+//     índices únicos parciais (migration SQL) e pela transação de ativação em
+//     src/services/mrp-persistence.service.ts.
+// Nada aqui é ligado a Purchase/PurchaseRecord/Material/MaterialMovement.
+// ════════════════════════════════════════════════════════════════════════
+
+/// Versão da Base MRP (material + mín/máx + área + conjunto). Exatamente uma
+/// versão tem `isActive = true` depois da primeira carga; versões antigas ficam
+/// para auditoria e restauração (nunca apagadas silenciosamente).
+model MrpBaseVersion {
+  id              String         @id @default(cuid())
+  importHistoryId String?
+  importHistory   ImportHistory? @relation(fields: [importHistoryId], references: [id], onDelete: SetNull)
+  fileName        String
+  /// SEED_HTML (base embutida do HTML) | UPLOAD (planilha do MRP enviada).
+  source          String
+  /// Abas/blocos importados: [{ name, area, rows, materials }].
+  sheets          Json
+  /// Abas ignoradas pela regra gyan/usogeral/automatico (nomes).
+  ignoredSheets   Json
+  /// Área usada quando o nome da aba não indica Mecânica/Elétrica.
+  defaultArea     String
+  materialCount   Int
+  isActive        Boolean        @default(false)
+  /// Contadores da carga (linhas brutas, duplicados, por área…).
+  metadata        Json?
+  createdBy       String?
+  createdAt       DateTime       @default(now())
+  activatedAt     DateTime?
+  deactivatedAt   DateTime?
+
+  materials    MrpBaseMaterial[]
+  analysisRuns MrpAnalysisRun[]
+
+  @@index([isActive])
+  @@index([createdAt])
+}
+
+/// Material de uma versão da Base MRP (um registro de materiais() do HTML).
+model MrpBaseMaterial {
+  id          String         @id @default(cuid())
+  versionId   String
+  version     MrpBaseVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  /// cleanCode() do HTML — sem remover zeros à esquerda.
+  code        String
+  description String
+  group       String
+  unit        String
+  min         Decimal
+  max         Decimal
+  statusMrp   String
+  /// Conjunto (Satélite Simec 6, Satélite Breton 8…) ou "".
+  family      String
+  /// "Mecânica" | "Elétrica" (texto exato do HTML).
+  area        String
+  sourceSheet String?
+  /// Linha de origem (1-based) na aba / posição no array da base embutida.
+  sourceRow   Int?
+
+  @@unique([versionId, code])
+}
+
+/// Importação da planilha de ESTOQUE (MB52 ou equivalente) usada pela análise.
+model MrpStockImport {
+  id                 String         @id @default(cuid())
+  importHistoryId    String?
+  importHistory      ImportHistory? @relation(fields: [importHistoryId], references: [id], onDelete: SetNull)
+  fileName           String
+  sheet              String
+  /// Valor digitado no filtro de depósito ("" = todos os depósitos).
+  depositFilter      String
+  /// Texto do HTML: "depósito 1400" | "todos os depósitos" | "coluna de depósito não encontrada…".
+  depositInfo        String
+  depositColumnFound Boolean
+  rowsRead           Int
+  /// Códigos únicos aceitos (= infoEst.linhas do HTML).
+  rowsAccepted       Int
+  /// Linhas repetidas ignoradas — a PRIMEIRA ocorrência vence, como no HTML.
+  duplicateRows      Int
+  otherDepositRows   Int
+  createdBy          String?
+  createdAt          DateTime       @default(now())
+
+  items        MrpStockItem[]
+  analysisRuns MrpAnalysisRun[]
+
+  @@index([createdAt])
+}
+
+/// Saldo de utilização livre por material (um por código: a primeira ocorrência).
+model MrpStockItem {
+  id        String         @id @default(cuid())
+  importId  String
+  import    MrpStockImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  code      String
+  freeQty   Decimal
+  sourceRow Int
+
+  @@unique([importId, code])
+}
+
+/// Importação da planilha de COMPRAS REALIZADAS enviada pelo usuário.
+/// Independente da importação diária de compras (Purchase/PurchaseRecord).
+model MrpPurchaseImport {
+  id              String         @id @default(cuid())
+  importHistoryId String?
+  importHistory   ImportHistory? @relation(fields: [importHistoryId], references: [id], onDelete: SetNull)
+  fileName        String
+  sheet           String
+  rowsRead        Int
+  rowsAccepted    Int
+  createdBy       String?
+  createdAt       DateTime       @default(now())
+
+  items        MrpPurchaseItem[]
+  analysisRuns MrpAnalysisRun[]
+
+  @@index([createdAt])
+}
+
+/// Linha de compra normalizada (um objeto de `compras` do HTML). Sem dedup:
+/// o mesmo material pode ter várias linhas.
+model MrpPurchaseItem {
+  id                   String            @id @default(cuid())
+  importId             String
+  import               MrpPurchaseImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  /// `c.i` do HTML: posição sequencial entre as linhas aceitas (desempate final de cmpOrdem).
+  seq                  Int
+  code                 String
+  text                 String
+  quantity             Decimal
+  /// Datas em texto ISO "YYYY-MM-DD" ou "" (parseData do HTML).
+  requisitionDate      String
+  receiptDate          String
+  expectedDeliveryDate String
+  requisitionNumber    String
+  purchaseOrderNumber  String
+  supplier             String
+  sourceRow            Int?
+
+  @@unique([importId, seq])
+  @@index([importId, code])
+}
+
+/// Uma execução de analisar() sobre (base vigente + estoque + compras).
+/// Exatamente uma execução tem `isCurrent = true`; as anteriores ficam como
+/// snapshot auditável.
+model MrpAnalysisRun {
+  id               String            @id @default(cuid())
+  baseVersionId    String
+  baseVersion      MrpBaseVersion    @relation(fields: [baseVersionId], references: [id], onDelete: Restrict)
+  stockImportId    String
+  stockImport      MrpStockImport    @relation(fields: [stockImportId], references: [id], onDelete: Restrict)
+  purchaseImportId String
+  purchaseImport   MrpPurchaseImport @relation(fields: [purchaseImportId], references: [id], onDelete: Restrict)
+  /// Depósito efetivamente usado ("" = todos).
+  depositFilter    String
+  /// FULL_UPDATE | BASE_REIMPORT | BASE_RESTORE
+  trigger          String
+  /// Totais de contar() e da aba Em trânsito no momento da execução.
+  kpis             Json
+  isCurrent        Boolean           @default(false)
+  createdBy        String?
+  createdAt        DateTime          @default(now())
+
+  items MrpAnalysisItem[]
+
+  @@index([isCurrent])
+  @@index([createdAt])
+}
+
+/// Resultado de analisar() para um material (um elemento de `analysis` do HTML).
+model MrpAnalysisItem {
+  id                  String         @id @default(cuid())
+  runId               String
+  run                 MrpAnalysisRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  /// Posição na ordem de materiais() (0-based). Necessária para os desempates
+  /// das ordenações estáveis e para somas na mesma ordem do HTML.
+  position            Int            @default(0)
+  code                String
+  description         String
+  group               String
+  unit                String
+  area                String
+  family              String
+  min                 Decimal
+  max                 Decimal
+  /// Saldo de utilização livre (0 quando não encontrado no estoque).
+  free                Decimal
+  notFound            Boolean
+  noParams            Boolean
+  noMovement          Boolean
+  /// Comprar | Verificar | Comprado | OK
+  status              String
+  statusOriginal      String
+  suggested           Decimal
+  suggestedOriginal   Decimal
+  missing             Decimal
+  purchaseQty         Decimal?
+  purchaseOrder       String?
+  purchaseRequisition String?
+  purchaseForecast    String?
+  purchaseSupplier    String?
+  purchaseDate        String?
+
+  @@unique([runId, code])
+  @@index([runId, position])
+  @@index([runId, status])
+  @@index([runId, area])
+  @@index([runId, family])
+  @@index([runId, noMovement])
 }

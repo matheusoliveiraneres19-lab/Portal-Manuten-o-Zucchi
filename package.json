@@ -44,7 +44,26 @@
     "backup:pc-factory": "tsx scripts/backup-pc-factory.ts",
     "backfill:pc-factory-fingerprint": "tsx scripts/backfill-pcfactory-fingerprint.ts",
     "validate:pc-factory-incremental": "tsx scripts/validate-pcfactory-incremental-import.ts",
-    "validate:critical-evolution": "tsx scripts/validate-critical-equipment-evolution.ts"
+    "validate:critical-evolution": "tsx scripts/validate-critical-equipment-evolution.ts",
+    "seed:mrp-html-base": "tsx scripts/seed-mrp-html-base.ts",
+    "test:mrp-persistence": "tsx scripts/mrp/test-mrp-persistence.ts",
+    "test:mrp-precision": "tsx scripts/mrp/test-numeric-precision.ts",
+    "mrp:db-counts": "tsx scripts/mrp/db-counts.ts",
+    "test:mrp-import": "tsx scripts/test-mrp-import.ts",
+    "test:mrp-import-db": "tsx scripts/mrp/test-mrp-import-db.ts",
+    "test:mrp-engine": "tsx scripts/test-mrp-engine.ts",
+    "test:mrp-analysis-db": "tsx scripts/mrp/test-mrp-analysis-db.ts",
+    "test:mrp-buy-list": "tsx scripts/test-mrp-buy-list.ts",
+    "test:mrp-screen-db": "tsx scripts/mrp/test-mrp-screen-db.ts",
+    "test:mrp-e2e": "tsx scripts/mrp/e2e-mrp-screen.ts",
+    "test:mrp-areas": "tsx scripts/test-mrp-areas.ts",
+    "test:mrp-transit": "tsx scripts/test-mrp-transit.ts",
+    "test:mrp-idle-stock": "tsx scripts/test-mrp-idle-stock.ts",
+    "test:mrp-base-view": "tsx scripts/test-mrp-base-view.ts",
+    "test:mrp-base-db": "tsx scripts/mrp/test-mrp-base-db.ts",
+    "test:mrp-export": "tsx scripts/test-mrp-export.ts",
+    "test:mrp-export-db": "tsx scripts/mrp/test-mrp-export-db.ts",
+    "validate:mrp-parity": "tsx scripts/validate-mrp-parity.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

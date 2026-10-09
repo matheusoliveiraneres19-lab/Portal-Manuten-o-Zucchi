@@ -33,7 +33,10 @@ export const IMPORT_MODULES = {
   ORDENS_SERVICO: ImportType.ORDENS_SERVICO,
   LUBRIFICANTES: ImportType.LUBRIFICANTES,
   LOCAL_INSTALACAO: ImportType.LOCAL_INSTALACAO,
-  PROCEDIMENTOS: ImportType.PROCEDIMENTOS
+  PROCEDIMENTOS: ImportType.PROCEDIMENTOS,
+  MRP_BASE: ImportType.MRP_BASE,
+  MRP_STOCK: ImportType.MRP_STOCK,
+  MRP_PURCHASES: ImportType.MRP_PURCHASES
 } as const;
 
 export type ImportModule = (typeof IMPORT_MODULES)[keyof typeof IMPORT_MODULES];
@@ -46,7 +49,12 @@ export const IMPORT_MODULE_SLUGS: Record<ImportModule, string> = {
   [ImportType.ORDENS_SERVICO]: "ordens-servico",
   [ImportType.LUBRIFICANTES]: "lubrificantes",
   [ImportType.LOCAL_INSTALACAO]: "local-instalacao",
-  [ImportType.PROCEDIMENTOS]: "procedimentos"
+  [ImportType.PROCEDIMENTOS]: "procedimentos",
+  // Análise MRP: o tipo da planilha só é conhecido DEPOIS do upload (detecção
+  // pelos cabeçalhos), então as três compartilham a mesma pasta.
+  [ImportType.MRP_BASE]: "analise-mrp",
+  [ImportType.MRP_STOCK]: "analise-mrp",
+  [ImportType.MRP_PURCHASES]: "analise-mrp"
 };
 
 /** true quando o valor é um módulo coberto pela infra de Storage/staging. */

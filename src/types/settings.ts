@@ -12,7 +12,8 @@ export type SettingCategory =
   | "pc_factory"
   | "compras"
   | "procedimentos"
-  | "alertas";
+  | "alertas"
+  | "mrp";
 
 /** Configuração serializável enviada ao client (sem objetos Prisma/Date). */
 export type PortalSettingDTO = {
