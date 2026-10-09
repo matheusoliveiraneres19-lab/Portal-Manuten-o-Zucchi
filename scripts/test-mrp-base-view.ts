@@ -72,7 +72,7 @@ function parseRows(table: string): Row[] {
     });
 }
 
-function scenario(label: string, rt: HtmlRuntime, records: Rec[], sheetOrder: string[]) {
+export function scenario(label: string, rt: HtmlRuntime, records: Rec[], sheetOrder: string[]) {
   console.log(`\n${label}`);
   const html = (rt.fn.materiais() as Any[]).map((m) => m.codigo);
 
@@ -173,4 +173,8 @@ function main() {
   if (failures) process.exitCode = 1;
 }
 
-main();
+/** Contagem de checagens deste módulo (usada pelo comparador oficial scripts/validate-mrp-parity.ts). */
+export const tally = () => ({ checks, failures });
+
+// Só executa quando chamado direto (npm run test:mrp-*); importável pelo comparador oficial.
+if (require.main === module) main();

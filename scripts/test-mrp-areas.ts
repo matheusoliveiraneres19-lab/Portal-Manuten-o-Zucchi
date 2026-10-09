@@ -52,7 +52,7 @@ function compareCard(label: string, html: HtmlCard, card: MrpAreasCard, showNoPa
   return problems.length ? 1 : 0;
 }
 
-function scenario(label: string, materials: MrpEngineMaterial[], stock: Map<string, number>, purchases: MrpEnginePurchase[]) {
+export function scenario(label: string, materials: MrpEngineMaterial[], stock: Map<string, number>, purchases: MrpEnginePurchase[]) {
   console.log(`\n${label}`);
   const portal = analyzeMrp(materials, stock, purchases);
   const rt = createHtmlRuntime();
@@ -143,4 +143,8 @@ function main() {
   if (failures) process.exitCode = 1;
 }
 
-main();
+/** Contagem de checagens deste módulo (usada pelo comparador oficial scripts/validate-mrp-parity.ts). */
+export const tally = () => ({ checks, failures });
+
+// Só executa quando chamado direto (npm run test:mrp-*); importável pelo comparador oficial.
+if (require.main === module) main();

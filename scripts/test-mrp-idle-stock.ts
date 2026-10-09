@@ -55,7 +55,7 @@ function parseKpis(html: string) {
 
 type Item = ReturnType<typeof analyzeMrp>[number];
 
-function scenario(label: string, rt: HtmlRuntime, items: Item[]) {
+export function scenario(label: string, rt: HtmlRuntime, items: Item[]) {
   console.log(`\n${label}`);
   const c = countMrp(items);
   rt.fn.setValue("pQ", "");
@@ -173,4 +173,8 @@ function main() {
   if (failures) process.exitCode = 1;
 }
 
-main();
+/** Contagem de checagens deste módulo (usada pelo comparador oficial scripts/validate-mrp-parity.ts). */
+export const tally = () => ({ checks, failures });
+
+// Só executa quando chamado direto (npm run test:mrp-*); importável pelo comparador oficial.
+if (require.main === module) main();

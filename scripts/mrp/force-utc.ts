@@ -5,4 +5,5 @@
  * O comportamento do HTML no fuso do navegador (America/Sao_Paulo) é medido à
  * parte pela sonda scripts/mrp/tz-probe.ts.
  */
-process.env.TZ = "UTC";
+// O comparador oficial (scripts/validate-mrp-parity.ts) roda também em America/Sao_Paulo.
+process.env.TZ = process.env.MRP_PARITY_TZ || "UTC";

@@ -39,7 +39,7 @@ function check(label: string, ok: boolean, detail = "") {
 }
 const toHtmlPurchase = (p: MrpEnginePurchase) => ({ i: p.seq, codigo: p.code, texto: p.text, qtd: p.quantity, dataReq: p.requisitionDate, requisicao: p.requisitionNumber, pedido: p.purchaseOrderNumber, recebimento: p.receiptDate, previsao: p.expectedDeliveryDate, fornecedor: p.supplier });
 
-function runScenario(label: string, rt: HtmlRuntime, materials: MrpEngineMaterial[], stock: Map<string, number>, purchases: MrpEnginePurchase[], prepared = false) {
+export function runScenario(label: string, rt: HtmlRuntime, materials: MrpEngineMaterial[], stock: Map<string, number>, purchases: MrpEnginePurchase[], prepared = false) {
   console.log(`\n${label}`);
   if (!prepared) {
     rt.fn.setBase(materials.map((m) => ({ codigo: m.code, descricao: m.description, grupo: m.group, min: m.min, max: m.max, um: m.unit, statusMrp: m.statusMrp, familia: m.family, area: m.area })));
@@ -189,4 +189,8 @@ function main() {
   if (failures) process.exitCode = 1;
 }
 
-main();
+/** Contagem de checagens deste módulo (usada pelo comparador oficial scripts/validate-mrp-parity.ts). */
+export const tally = () => ({ checks, failures });
+
+// Só executa quando chamado direto (npm run test:mrp-*); importável pelo comparador oficial.
+if (require.main === module) main();

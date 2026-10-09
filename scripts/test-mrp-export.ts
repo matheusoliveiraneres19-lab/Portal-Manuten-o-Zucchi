@@ -170,7 +170,7 @@ const toBaseRow = (m: MrpEngineMaterial): MrpBaseViewRow => ({
 type Perf = { label: string; ms: number; bytes: number; rows: number };
 const perf: Perf[] = [];
 
-function scenario(label: string, rt: HtmlRuntime, materials: MrpEngineMaterial[], stock: Map<string, number>, purchases: MrpEnginePurchase[], files = false) {
+export function scenario(label: string, rt: HtmlRuntime, materials: MrpEngineMaterial[], stock: Map<string, number>, purchases: MrpEnginePurchase[], files = false) {
   console.log(`\n${label}`);
   const analysis = analyzeMrp(materials, stock, purchases);
   const rows = analysis.map(toLine);
@@ -446,4 +446,8 @@ function main() {
   if (failures) process.exitCode = 1;
 }
 
-main();
+/** Contagem de checagens deste módulo (usada pelo comparador oficial scripts/validate-mrp-parity.ts). */
+export const tally = () => ({ checks, failures });
+
+// Só executa quando chamado direto (npm run test:mrp-*); importável pelo comparador oficial.
+if (require.main === module) main();

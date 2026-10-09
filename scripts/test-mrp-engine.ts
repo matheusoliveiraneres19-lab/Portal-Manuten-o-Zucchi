@@ -142,7 +142,7 @@ function testRules() {
 /*  Paridade                                                                   */
 /* -------------------------------------------------------------------------- */
 
-function fromHtml(a: Any): MrpAnalysisResult {
+export function fromHtml(a: Any): MrpAnalysisResult {
   return {
     code: a.codigo, description: a.descricao, group: a.grupo, unit: a.um, area: a.area, family: a.familia,
     min: a.min, max: a.max, free: a.livre, notFound: a.naoEnc, noParams: a.semParam, noMovement: a.semMov,
@@ -159,13 +159,13 @@ const toHtmlMaterial = (m: MrpEngineMaterial) => ({
   codigo: m.code, descricao: m.description, grupo: m.group, min: m.min, max: m.max, um: m.unit, statusMrp: m.statusMrp, familia: m.family, area: m.area
 });
 
-const FIELDS: (keyof MrpAnalysisResult)[] = [
+export const FIELDS: (keyof MrpAnalysisResult)[] = [
   "code", "description", "group", "unit", "area", "family", "min", "max", "free", "notFound", "noParams", "noMovement",
   "statusOriginal", "status", "suggestedOriginal", "suggested", "missing"
 ];
 
 /** Compara item a item (Object.is), a compra campo a campo, obsDe e contar. */
-function compare(label: string, html: Any[], portal: MrpAnalysisResult[], rt: ReturnType<typeof createHtmlRuntime>) {
+export function compare(label: string, html: Any[], portal: MrpAnalysisResult[], rt: ReturnType<typeof createHtmlRuntime>) {
   let diverg = 0;
   const samples: string[] = [];
   const n = Math.max(html.length, portal.length);
@@ -306,4 +306,8 @@ function main() {
   if (failures) process.exitCode = 1;
 }
 
-main();
+/** Contagem de checagens deste módulo (usada pelo comparador oficial scripts/validate-mrp-parity.ts). */
+export const tally = () => ({ checks, failures });
+
+// Só executa quando chamado direto (npm run test:mrp-*); importável pelo comparador oficial.
+if (require.main === module) main();
