@@ -16,7 +16,7 @@ import {
 } from "@/lib/mrp/base-view";
 import type { MrpFilePreview } from "@/lib/mrp/import-plan";
 import type { MrpBaseItem, MrpBaseListing, MrpBaseView } from "@/services/mrp-base-view.service";
-import { mrpGet, mrpPost } from "@/components/mrp/mrp-api";
+import { mrpGet, mrpPost, mrpUploadFiles } from "@/components/mrp/mrp-api";
 import { MrpExportButton } from "@/components/mrp/MrpExportButton";
 
 /**
@@ -331,21 +331,19 @@ function BaseUpload({ hasRun, onChanged }: { hasRun: boolean; onChanged: () => v
       if (pending) await mrpPost("/api/mrp/import/cancel", { importIds: [pending.importId] });
       setPending(null);
       setBusy("Enviando a planilha…");
-      const signed = await mrpPost<{ uploadUrl: string; path: string; bucket: string; contentType: string; apiKey: string }>("/api/mrp/import/upload-url", { fileName: file.name });
-      if (!signed.ok) throw new Error(signed.error);
-      const put = await fetch(signed.data.uploadUrl, { method: "PUT", headers: { "content-type": signed.data.contentType, apikey: signed.data.apiKey, "x-upsert": "false" }, body: file });
-      if (!put.ok) throw new Error(`Falha ao enviar ${file.name} para o armazenamento (HTTP ${put.status}).`);
+      const uploaded = await mrpUploadFiles([file]);
+      if (!uploaded.ok) throw new Error(uploaded.error);
       setBusy("Lendo a planilha do MRP…");
       const ins = await mrpPost<{ slots: Record<string, { importId: string; kind: string; preview: MrpFilePreview } | null>; rejected: { reason: string }[] }>("/api/mrp/import/inspect", {
-        files: [{ fileName: file.name, filePath: signed.data.path, bucket: signed.data.bucket, fileSize: file.size, mimeType: signed.data.contentType }],
+        files: uploaded.refs,
         defaultArea
       });
-      if (!ins.ok) throw new Error(ins.error);
+      if (!ins.ok) throw new Error(`Não foi possível analisar o arquivo enviado: ${ins.error}`);
       const slot = Object.values(ins.data.slots).find(Boolean);
       if (!slot) throw new Error(ins.data.rejected[0]?.reason ?? `Não foi possível ler ${file.name}`);
       // O envio por esta aba é sempre a planilha do MRP (como o campo próprio do HTML).
       const prev = await mrpPost<{ preview: MrpFilePreview }>("/api/mrp/import/preview", { importId: slot.importId, kind: "base", defaultArea });
-      if (!prev.ok) throw new Error(prev.error);
+      if (!prev.ok) throw new Error(`Não foi possível analisar o arquivo enviado: ${prev.error}`);
       setPending({ importId: slot.importId, fileName: file.name, preview: prev.data.preview });
     } catch (err) {
       setError((err as Error).message);

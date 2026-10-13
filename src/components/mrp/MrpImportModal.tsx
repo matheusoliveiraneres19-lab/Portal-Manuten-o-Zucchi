@@ -8,7 +8,7 @@ import { evaluateMrpLockFlags } from "@/lib/mrp/lock";
 import { MRP_FILE_KINDS, MRP_FILE_KIND_LABELS, type MrpFileKind } from "@/lib/mrp/types";
 import { fmtMrp } from "@/lib/mrp/format";
 import type { MrpFilePreview } from "@/lib/mrp/import-plan";
-import { mrpPost } from "@/components/mrp/mrp-api";
+import { mrpPost, mrpUploadFiles } from "@/components/mrp/mrp-api";
 
 /**
  * "Atualizar planilhas" — o painel de envio do HTML sobre o fluxo do servidor:
@@ -75,21 +75,9 @@ export function MrpImportModal({ open, onClose, onUpdated, hasActiveBase, defaul
     setNotes(Array.from(list).length > MAX_FILES ? [`Só os ${MAX_FILES} primeiros arquivos foram considerados.`] : []);
     try {
       setBusy("Enviando arquivos…");
-      const refs = [];
-      for (const file of files) {
-        const signed = await mrpPost<{ uploadUrl: string; path: string; bucket: string; contentType: string; apiKey: string }>(
-          "/api/mrp/import/upload-url",
-          { fileName: file.name }
-        );
-        if (!signed.ok) throw new Error(signed.error);
-        const put = await fetch(signed.data.uploadUrl, {
-          method: "PUT",
-          headers: { "content-type": signed.data.contentType, apikey: signed.data.apiKey, "x-upsert": "false" },
-          body: file
-        });
-        if (!put.ok) throw new Error(`Falha ao enviar ${file.name} para o armazenamento (HTTP ${put.status}).`);
-        refs.push({ fileName: file.name, filePath: signed.data.path, bucket: signed.data.bucket, fileSize: file.size, mimeType: signed.data.contentType });
-      }
+      const uploaded = await mrpUploadFiles(files);
+      if (!uploaded.ok) throw new Error(uploaded.error);
+      const refs = uploaded.refs;
       setBusy("Identificando planilhas…");
       const current = slotsRef.current;
       const currentSlots = Object.fromEntries(MRP_FILE_KINDS.filter((k) => current[k]).map((k) => [k, current[k]!.importId]));
@@ -97,7 +85,7 @@ export function MrpImportModal({ open, onClose, onUpdated, hasActiveBase, defaul
         "/api/mrp/import/inspect",
         { files: refs, depositFilter: deposit, defaultArea, currentSlots }
       );
-      if (!res.ok) throw new Error(res.error);
+      if (!res.ok) throw new Error(`Não foi possível analisar o arquivo enviado: ${res.error}`);
       setSlots((prev) => {
         const next = { ...prev };
         for (const k of MRP_FILE_KINDS) if (res.data.slots[k]) next[k] = res.data.slots[k];
