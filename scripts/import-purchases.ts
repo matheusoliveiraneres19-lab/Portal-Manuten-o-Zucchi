@@ -1,6 +1,7 @@
 import path from "node:path";
 import { prisma } from "../src/lib/prisma";
 import { importPurchasesFromExcel } from "../src/services/importacao/purchases-import.service";
+import { syncMrpAfterPurchaseImport } from "../src/services/mrp-portal-purchases.service";
 
 const defaultFilePath = path.resolve(process.cwd(), "imports", "purchases", "BASE DE DADOS PORTAL COMPRAS.xlsx");
 
@@ -35,6 +36,10 @@ async function main() {
       console.log(`- ${warning}`);
     }
   }
+
+  // Mesma sincronização da rota: recalcula a Análise MRP vigente com as compras novas.
+  const mrpSync = await syncMrpAfterPurchaseImport({ userId: null, userName: importedBy });
+  console.log(`- Análise MRP: ${mrpSync.status}${"reason" in mrpSync ? ` (${mrpSync.reason})` : ""}${"error" in mrpSync ? ` — ${mrpSync.error}` : ""}`);
 
   if (result.errors.length) {
     console.log("Erros encontrados:");

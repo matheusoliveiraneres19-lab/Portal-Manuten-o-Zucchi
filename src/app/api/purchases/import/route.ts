@@ -2,6 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { importPurchasesFromExcel } from "@/services/importacao/purchases-import.service";
 import { getSession, requireRole } from "@/lib/auth-guard";
 import { auditImport } from "@/lib/audit-import";
+import { revalidatePath } from "next/cache";
+import { getClientIp } from "@/lib/request-ip";
+import { syncMrpAfterPurchaseImport } from "@/services/mrp-portal-purchases.service";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,6 +24,7 @@ export async function POST(request: NextRequest) {
   if (denied) return denied;
 
   const session = await getSession();
+  const startedAt = Date.now();
   let fileName = "(desconhecido)";
   try {
     const contentType = request.headers.get("content-type") ?? "";
@@ -47,7 +51,17 @@ export async function POST(request: NextRequest) {
     const result = await importPurchasesFromExcel(buffer, { fileName: file.name, importedBy: "portal-web" });
 
     await auditImport({ request, session, module: "Compras", fileName, result });
-    return NextResponse.json({ success: true, ...result });
+
+    // Compras gravadas: recalcula a Análise MRP vigente com o novo retrato (mesma
+    // base e estoque). Nunca derruba a importação — falhas ficam só na auditoria.
+    const mrpSync = await syncMrpAfterPurchaseImport({
+      userId: session?.sub ?? null,
+      userName: session?.name ?? null,
+      ipAddress: getClientIp(request),
+      importStartedAt: startedAt
+    });
+    if (mrpSync.status === "applied") revalidatePath("/dashboard/analise-mrp");
+    return NextResponse.json({ success: true, ...result, mrpSync: { status: mrpSync.status } });
   } catch (error) {
     const details = error instanceof Error ? error.message : "Erro desconhecido ao importar a planilha.";
     // Log apenas no servidor (sem stack para o cliente em produção).

@@ -20,7 +20,8 @@ import { createHash } from "node:crypto";
 import { ImportStatus, ImportType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { MrpImportError, buildMrpFilePreview, buildMrpImportPlan, type MrpImportPlan, type MrpPlanFile } from "@/lib/mrp/import-plan";
-import { analyzeMrpWorkbook, assignMrpSlots, emptyMrpSlots, evaluateMrpLock } from "@/lib/mrp/file-detection";
+import { analyzeMrpWorkbook, assignMrpSlots, emptyMrpSlots } from "@/lib/mrp/file-detection";
+import { evaluateMrpPortalLockFlags } from "@/lib/mrp/lock";
 import { MRP_FILE_KIND_IMPORT_TYPE, MRP_FILE_KINDS, isMrpFileKind, type MrpFileKind, type MrpSlots } from "@/lib/mrp/types";
 import { readMrpWorkbook } from "@/lib/mrp/workbook";
 import { createMrpBaseVersion, getActiveMrpBaseVersion, getMrpDefaultDeposit, toMrpDecimal } from "@/services/mrp-persistence.service";
@@ -107,7 +108,7 @@ export type MrpInspectResult = {
   ignoredFiles: string[];
   /** Importações que já estavam nos slots e foram substituídas (canceladas). */
   displaced: string[];
-  lock: ReturnType<typeof evaluateMrpLock>;
+  lock: ReturnType<typeof evaluateMrpPortalLockFlags>;
   hasActiveBase: boolean;
   depositFilter: string;
   defaultArea: string;
@@ -211,8 +212,12 @@ export async function inspectMrpUploads(params: {
   }
 
   const hasActiveBase = !!(await getActiveMrpBaseVersion());
-  const lock = evaluateMrpLock(
-    { base: slots.base && { headers: slots.base.preview.headers }, est: slots.est && { headers: slots.est.preview.headers }, cmp: slots.cmp && { headers: slots.cmp.preview.headers } },
+  // Trava da tela (compras vêm do Portal): estoque obrigatório, planilha do MRP opcional.
+  const lock = evaluateMrpPortalLockFlags(
+    {
+      base: slots.base && { requiredColumnsOk: slots.base.preview.diagnosis.requiredColumnsOk },
+      est: slots.est && { requiredColumnsOk: slots.est.preview.diagnosis.requiredColumnsOk }
+    },
     hasActiveBase
   );
   return { slots, rejected, ignoredFiles, displaced, lock, hasActiveBase, depositFilter, defaultArea };

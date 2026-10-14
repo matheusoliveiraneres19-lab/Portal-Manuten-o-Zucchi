@@ -40,3 +40,34 @@ export function evaluateMrpLockFlags(
   }
   return { ready, message, filled };
 }
+
+/**
+ * Trava do "Atualizar MRP" do Portal (compras lidas do Portal, sem planilha de
+ * compras): estoque (MB52) presente e válido; planilha do MRP opcional, válida se
+ * anexada, e exigida só sem Base MRP vigente. `evaluateMrpLockFlags` acima segue
+ * sendo a regra do HTML (paridade), não a da tela.
+ */
+export function evaluateMrpPortalLockFlags(
+  slots: Pick<Record<MrpFileKind, { requiredColumnsOk: boolean } | null>, "base" | "est">,
+  hasActiveBase: boolean
+): MrpLockState {
+  const okB = !slots.base || slots.base.requiredColumnsOk,
+    okE = !slots.est || slots.est.requiredColumnsOk;
+  const temB = !!slots.base,
+    temE = !!slots.est;
+  const filled = (temB ? 1 : 0) + (temE ? 1 : 0);
+  const needsBase = !temB && !hasActiveBase;
+  const ready = temE && okE && okB && !needsBase;
+
+  let message: string;
+  if (ready) {
+    message = `Estoque pronto${temB ? " (com base do MRP nova)" : " (base do MRP vigente)"} + compras do Portal — clique em Atualizar MRP`;
+  } else if (!okE || !okB) {
+    message = "Alguma planilha está sem as colunas obrigatórias — troque a aba ou o tipo no cartão";
+  } else if (temE && needsBase) {
+    message = "Não há Base MRP vigente — anexe também a planilha do MRP";
+  } else {
+    message = "Trava ativa — anexe a planilha de estoque (MB52) para liberar a atualização";
+  }
+  return { ready, message, filled };
+}

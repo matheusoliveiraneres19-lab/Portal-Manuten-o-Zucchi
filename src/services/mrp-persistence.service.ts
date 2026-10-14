@@ -42,7 +42,8 @@ export function fromMrpDecimal(value: Prisma.Decimal | null): number | null {
 export const MRP_BASE_SOURCES = ["SEED_HTML", "UPLOAD"] as const;
 export type MrpBaseSource = (typeof MRP_BASE_SOURCES)[number];
 
-export const MRP_RUN_TRIGGERS = ["FULL_UPDATE", "BASE_REIMPORT", "BASE_RESTORE"] as const;
+/** PURCHASE_SYNC = compras do Portal reimportadas: mesma base e estoque, snapshot novo de compras. */
+export const MRP_RUN_TRIGGERS = ["FULL_UPDATE", "BASE_REIMPORT", "BASE_RESTORE", "PURCHASE_SYNC"] as const;
 export type MrpRunTrigger = (typeof MRP_RUN_TRIGGERS)[number];
 
 /** Lote do createMany — evita uma instrução gigante e mantém a transação curta. */

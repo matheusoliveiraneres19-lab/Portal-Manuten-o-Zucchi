@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Boxes, CalendarClock, Database, FileSpreadsheet, PackageSearch, Upload, UserRound, Warehouse } from "lucide-react";
+import { AlertTriangle, Boxes, CalendarClock, Database, FileSpreadsheet, PackageSearch, RefreshCw, ShoppingCart, UserRound, Warehouse } from "lucide-react";
 import { MrpAreasTab } from "@/components/mrp/MrpAreasTab";
 import { MrpBuyTab } from "@/components/mrp/MrpBuyTab";
 import { MrpTransitTab } from "@/components/mrp/MrpTransitTab";
@@ -17,7 +17,7 @@ import type { MrpBuyListing } from "@/services/mrp-listing.service";
 
 /**
  * ANÁLISE MRP — casca da página: cabeçalho, metadados da análise vigente, abas
- * (?tab=buy|areas) e o modal "Planilhas". Comprar e Áreas & Conjuntos são
+ * (?tab=buy|areas) e o modal "Atualizar MRP". Comprar e Áreas & Conjuntos são
  * funcionais; as demais entram nas próximas fases.
  *
  * Nenhuma regra do MRP roda aqui: KPIs e cartões vêm do run persistido e a lista
@@ -140,7 +140,7 @@ export function MrpAnalysisView(props: MrpPageProps) {
               onClick={() => setImportOpen(true)}
               className="inline-flex h-11 shrink-0 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-5 text-sm font-bold text-gold transition hover:bg-gold/25"
             >
-              <Upload className="h-4 w-4" /> Atualizar planilhas
+              <RefreshCw className="h-4 w-4" /> Atualizar MRP
             </button>
           ) : null}
         </div>
@@ -150,10 +150,28 @@ export function MrpAnalysisView(props: MrpPageProps) {
             <Meta icon={CalendarClock} label="Atualizado em" value={dateTime.format(new Date(summary.createdAt))} />
             <Meta icon={Database} label="Base MRP" value={`${summary.base.fileName} · ${summary.base.materialCount.toLocaleString("pt-BR")} materiais`} />
             <Meta icon={Warehouse} label="Estoque" value={summary.stock.fileName} />
-            <Meta icon={FileSpreadsheet} label="Compras" value={summary.purchases.fileName} />
+            {summary.purchases.source === "PORTAL_DB" ? (
+              <Meta
+                icon={ShoppingCart}
+                label="Compras"
+                value={
+                  `Portal · sincronizado em ${summary.purchases.syncedAt ? dateTime.format(new Date(summary.purchases.syncedAt)) : "—"}` +
+                  ` · ${(summary.purchases.openLines ?? 0).toLocaleString("pt-BR")} pendentes · ${(summary.purchases.receivedLines ?? 0).toLocaleString("pt-BR")} recebidas`
+                }
+                title="Linhas de Compras Pendentes e Compras Realizadas do Portal gravadas no snapshot desta análise"
+              />
+            ) : (
+              // Runs anteriores à integração: a planilha de compras enviada ao MRP.
+              <Meta icon={FileSpreadsheet} label="Compras" value={`${summary.purchases.fileName} (planilha)`} />
+            )}
             <Meta icon={Boxes} label="Depósito" value={summary.depositFilter ? summary.depositFilter : "todos"} title={summary.stock.depositInfo} />
             {summary.createdBy ? <Meta icon={UserRound} label="Por" value={summary.createdBy} /> : null}
           </dl>
+        ) : null}
+        {summary?.purchases.outdated ? (
+          <p className="relative z-10 mt-2 flex items-center gap-1.5 text-[11px] text-warning" data-testid="mrp-purchases-outdated">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> Há compras mais recentes no Portal do que nesta análise.
+          </p>
         ) : null}
       </header>
 
@@ -218,7 +236,7 @@ export function MrpAnalysisView(props: MrpPageProps) {
             <div>
               <h2 className="font-serif text-2xl text-white">Nenhuma análise MRP disponível</h2>
               <p className="mt-1 text-sm leading-relaxed text-parchment">
-                Importe as planilhas de estoque e compras e execute &quot;Atualizar tudo&quot; para gerar a análise.
+                Anexe o estoque (MB52) em &quot;Atualizar MRP&quot; para gerar a análise. As compras pendentes e realizadas são lidas automaticamente do Portal.
               </p>
             </div>
             {props.canImport ? (
@@ -227,7 +245,7 @@ export function MrpAnalysisView(props: MrpPageProps) {
                 onClick={() => setImportOpen(true)}
                 className="mt-1 inline-flex h-11 items-center gap-2 rounded-lg border border-gold/55 bg-gold/15 px-5 text-sm font-bold text-gold transition hover:bg-gold/25"
               >
-                <Upload className="h-4 w-4" /> Atualizar planilhas
+                <RefreshCw className="h-4 w-4" /> Atualizar MRP
               </button>
             ) : null}
           </div>

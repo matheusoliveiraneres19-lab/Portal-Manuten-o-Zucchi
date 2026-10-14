@@ -20,7 +20,7 @@ import { MrpExportButton } from "@/components/mrp/MrpExportButton";
 
 /**
  * Aba EM TRÂNSITO — reprodução de renderTransito() do HTML: 5 KPIs (os 4 de
- * compras sobre TODOS os códigos da planilha; "Saíram do MRP" sobre os itens da
+ * compras sobre TODOS os códigos do snapshot de compras do Portal; "Saíram do MRP" sobre os itens da
  * análise com status Comprado), filtros e "Última compra de cada material".
  * Valores prontos do servidor; aqui só há apresentação.
  */
@@ -86,8 +86,8 @@ export function MrpTransitTab({ kpis, initialFilters, onOpenBought }: Props) {
   if (kpis.linhas === 0) {
     return (
       <div className="rounded-lg border border-gold/20 bg-ink/90 p-10 text-center shadow-premium" data-testid="mrp-transit">
-        <p className="font-serif text-xl text-white">Nenhuma compra carregada.</p>
-        <p className="mt-1 text-sm text-parchment-dim">Anexe a planilha de compras realizadas para ver o que já está comprado.</p>
+        <p className="font-serif text-xl text-white">Nenhuma compra encontrada no Portal para esta análise.</p>
+        <p className="mt-1 text-sm text-parchment-dim">As compras pendentes e realizadas são lidas automaticamente do Portal a cada atualização do MRP.</p>
       </div>
     );
   }
@@ -166,7 +166,7 @@ export function MrpTransitTab({ kpis, initialFilters, onOpenBought }: Props) {
         ) : (
           <>
             <p className="mb-2 text-xs text-parchment-dim" data-testid="mrp-transit-count">
-              {fmtMrp(listing.filteredCount)} materiais no filtro · {fmtMrp(listing.totalGroups)} códigos na planilha de compras
+              {fmtMrp(listing.filteredCount)} materiais no filtro · {fmtMrp(listing.totalGroups)} códigos nas compras desta análise
             </p>
             <div className={`max-h-[70vh] overflow-auto rounded-md border border-gold/10 transition ${loading ? "opacity-60" : ""}`}>
               <table className="w-full min-w-[980px] border-collapse text-sm" data-testid="mrp-transit-table">

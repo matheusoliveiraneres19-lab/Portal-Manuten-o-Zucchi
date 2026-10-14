@@ -39,6 +39,9 @@ import {
 const ITEM_BATCH = 1000;
 const TX_OPTIONS = { maxWait: 15_000, timeout: 180_000 } as const;
 
+/** A análise vigente mudou enquanto este run era calculado (`expectedCurrentRunId`). */
+export const MRP_CURRENT_RUN_CHANGED_MESSAGE = "A análise vigente mudou durante o cálculo; esta execução foi descartada.";
+
 export type MrpAnalysisKpis = MrpCounts & {
   /** "Saíram do MRP": materiais com status final Comprado. */
   removedFromMrp: number;
@@ -73,6 +76,13 @@ export type RunMrpAnalysisParams = {
    * ("Atualizar tudo" com planilha do MRP nova): ou as duas coisas acontecem, ou nenhuma.
    */
   activateBaseVersion?: boolean;
+  /**
+   * Só aplica se ESTA ainda for a análise vigente no commit (null = não pode haver
+   * nenhuma). Usado pela sincronização automática de compras, que reaproveita a
+   * base e o estoque do run vigente: se um "Atualizar MRP" terminar no meio, a
+   * sincronização desiste em vez de recolocar o estoque antigo.
+   */
+  expectedCurrentRunId?: string | null;
   /** Só para testes: roda dentro da transação, antes do commit. */
   hooks?: { beforeCommit?: (tx: Prisma.TransactionClient) => Promise<void> };
 };
@@ -240,6 +250,14 @@ export async function runMrpAnalysis(params: RunMrpAnalysisParams): Promise<RunM
     if (written !== results.length || written !== base.materialCount) {
       throw new MrpPersistenceError(`Análise incompleta: ${written} itens gravados de ${results.length}.`);
     }
+    if (params.expectedCurrentRunId !== undefined) {
+      // O UPDATE trava a linha: uma troca concorrente já confirmada é vista aqui.
+      const stillCurrent = params.expectedCurrentRunId
+        ? (await tx.mrpAnalysisRun.updateMany({ where: { id: params.expectedCurrentRunId, isCurrent: true }, data: { isCurrent: false } })).count === 1
+        : (await tx.mrpAnalysisRun.count({ where: { isCurrent: true } })) === 0;
+      queries++;
+      if (!stillCurrent) throw new MrpPersistenceError(MRP_CURRENT_RUN_CHANGED_MESSAGE);
+    }
     if (params.activateBaseVersion) {
       await activateMrpBaseVersion(base.id, tx);
       queries += 5;
@@ -287,7 +305,7 @@ export async function getCurrentMrpAnalysisSummary() {
     include: {
       baseVersion: { select: { id: true, fileName: true, source: true, materialCount: true, isActive: true, activatedAt: true } },
       stockImport: { select: { id: true, fileName: true, sheet: true, depositFilter: true, depositInfo: true, rowsAccepted: true, createdAt: true } },
-      purchaseImport: { select: { id: true, fileName: true, sheet: true, rowsAccepted: true, createdAt: true } },
+      purchaseImport: { select: { id: true, fileName: true, sheet: true, rowsAccepted: true, createdAt: true, source: true, metadata: true } },
       _count: { select: { items: true } }
     }
   });

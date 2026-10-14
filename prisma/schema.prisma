@@ -1344,6 +1344,12 @@ model MrpPurchaseImport {
   sheet           String
   rowsRead        Int
   rowsAccepted    Int
+  /// FILE_UPLOAD = planilha de compras enviada ao MRP (runs antigos) | PORTAL_DB =
+  /// snapshot das compras do Portal (PurchaseRecord) no momento da execução.
+  /// No PORTAL_DB não há arquivo: fileName e sheet ficam vazios.
+  source          String         @default("FILE_UPLOAD")
+  /// PORTAL_DB: lote de compras lido, regra usada e contagens do snapshot.
+  metadata        Json?
   createdBy       String?
   createdAt       DateTime       @default(now())
 

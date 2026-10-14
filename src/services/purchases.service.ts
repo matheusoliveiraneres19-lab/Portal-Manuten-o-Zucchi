@@ -41,6 +41,17 @@ import {
   type PurchaseV31Group
 } from "@/utils/purchase-classification";
 import { getTodayDate } from "@/utils/date";
+import {
+  V31_ANALYSIS_BASE,
+  V31_HAS_ORDER,
+  V31_NOT_RECEIVED,
+  V31_NOT_SERVICE,
+  V31_NO_ORDER,
+  V31_RECEIVED,
+  V31_SERVICE,
+  V31_Y04,
+  getLatestPurchaseImportBatch
+} from "@/services/purchases-analysis-base.service";
 import type { PendingPurchaseData, PurchasesByMonthData } from "@/types/dashboard";
 import type {
   CompletedPurchasesPageData,
@@ -132,41 +143,7 @@ function statusWhere(status: PurchaseOperationalStatus, today: Date): Prisma.Pur
 /* REGRA OFICIAL v3.1 (HTML) — escopo da aba Compras Pendentes         */
 /* ------------------------------------------------------------------ */
 
-/**
- * Tradução para SQL da `classifyPurchaseV31HtmlRule`. As cláusulas leem as
- * COLUNAS CRUAS gravadas na importação (`goodsGroupDescription`,
- * `purchasingGroup`, `purchaseOrderNumber`, `receiptDate`,
- * `expectedDeliveryDate`) — de propósito NÃO usam as flags derivadas
- * (`ignored`, `isService`, `purchaseType`), que carregam as exclusões da regra
- * gerencial e não existem no HTML.
- *
- * Consequência prática: nenhuma reimportação é necessária para a aba passar a
- * seguir a regra v3.1, e a regra não pode "envelhecer" junto com as flags.
- *
- * Toda negação é escrita com `OR [{campo: null}, {NOT ...}]` porque em SQL
- * `NOT (coluna ILIKE ...)` é NULL quando a coluna é NULL — e a linha sumiria da
- * base de análise em vez de entrar nela.
- */
-const V31_SERVICE: Prisma.PurchaseRecordWhereInput = {
-  goodsGroupDescription: { contains: "servi", mode: "insensitive" }
-};
-const V31_NOT_SERVICE: Prisma.PurchaseRecordWhereInput = {
-  OR: [{ goodsGroupDescription: null }, { NOT: V31_SERVICE }]
-};
-const V31_Y04: Prisma.PurchaseRecordWhereInput = {
-  purchasingGroup: { equals: "Y04", mode: "insensitive" }
-};
-const V31_NOT_Y04: Prisma.PurchaseRecordWhereInput = {
-  OR: [{ purchasingGroup: null }, { NOT: V31_Y04 }]
-};
-/** Base de análise = não é serviço E não é Y04. */
-const V31_ANALYSIS_BASE: Prisma.PurchaseRecordWhereInput = { AND: [V31_NOT_SERVICE, V31_NOT_Y04] };
-
-/** "Pedido de Compra"/"Data Recebimento" preenchidos — vazio vira NULL na importação. */
-const V31_HAS_ORDER: Prisma.PurchaseRecordWhereInput = { NOT: { purchaseOrderNumber: null } };
-const V31_NO_ORDER: Prisma.PurchaseRecordWhereInput = { purchaseOrderNumber: null };
-const V31_RECEIVED: Prisma.PurchaseRecordWhereInput = { NOT: { receiptDate: null } };
-const V31_NOT_RECEIVED: Prisma.PurchaseRecordWhereInput = { receiptDate: null };
+/* Cláusulas V31_* em `purchases-analysis-base.service` (compartilhadas com a Análise MRP). */
 
 /** Cláusula Prisma de cada grupo da regra v3.1 (mutuamente exclusivos). */
 function v31Where(group: PurchaseV31Group, today: Date): Prisma.PurchaseRecordWhereInput {
@@ -216,14 +193,7 @@ function v31Where(group: PurchaseV31Group, today: Date): Prisma.PurchaseRecordWh
  * mantém o histórico completo por padrão: lá as compras das planilhas anteriores
  * são justamente o que se quer ver.
  */
-const loadLatestImportBatch = cache(async (): Promise<string | null> => {
-  const latest = await prisma.purchaseRecord.findFirst({
-    where: { importBatch: { not: null } },
-    orderBy: { updatedAt: "desc" },
-    select: { importBatch: true }
-  });
-  return latest?.importBatch ?? null;
-});
+const loadLatestImportBatch = cache(getLatestPurchaseImportBatch);
 
 /** Cláusula do retrato atual (vazia quando não há nenhuma importação). */
 async function latestImportWhere(): Promise<Prisma.PurchaseRecordWhereInput> {

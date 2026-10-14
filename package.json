@@ -63,6 +63,7 @@
     "test:mrp-base-db": "tsx scripts/mrp/test-mrp-base-db.ts",
     "test:mrp-export": "tsx scripts/test-mrp-export.ts",
     "test:mrp-export-db": "tsx scripts/mrp/test-mrp-export-db.ts",
+    "test:mrp-portal-purchases": "tsx scripts/test-mrp-portal-purchases.ts",
     "validate:mrp-parity": "tsx scripts/validate-mrp-parity.ts"
   },
   "prisma": {

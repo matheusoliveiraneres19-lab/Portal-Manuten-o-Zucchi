@@ -62,7 +62,7 @@ export const MRP_EXPORT_MESSAGES = {
   noAnalysis: "Gere a análise primeiro.",
   nothing: "Nada para exportar.",
   noFamilies: "Nenhum conjunto identificado.",
-  noPurchases: "Nenhuma compra carregada.",
+  noPurchases: "Nenhuma compra encontrada no Portal para esta análise.",
   noBase: "Nenhuma Base MRP cadastrada."
 } as const;
 

@@ -10,13 +10,15 @@ import { getMrpBaseView } from "@/services/mrp-base-view.service";
 import { getCurrentMrpAnalysisSummary } from "@/services/mrp-analysis.service";
 import { getMrpAreasSummary, getMrpBuyListing } from "@/services/mrp-listing.service";
 import { getActiveMrpBaseVersion, getMrpDefaultDeposit } from "@/services/mrp-persistence.service";
+import { isMrpPortalSnapshotOutdated, readMrpPortalSnapshotMetadata } from "@/services/mrp-portal-purchases.service";
 
 /**
  * ANÁLISE MRP — página do módulo (substitui a antiga tela de Lubrificantes,
  * cuja rota /dashboard/lubrificantes agora redireciona para cá).
  *
  * Abrir a página SÓ consulta a análise vigente (MrpAnalysisRun.isCurrent); o
- * motor roda apenas no "Atualizar tudo".
+ * motor roda apenas no "Atualizar MRP" e na sincronização automática após a
+ * importação de compras (PURCHASE_SYNC).
  */
 export const dynamic = "force-dynamic";
 
@@ -41,6 +43,9 @@ export default async function AnaliseMrpRoute({ searchParams = {} }: { searchPar
   // Base da aba Base MRP: a da análise vigente (snapshot) ou, sem análise, a ativa.
   const baseView = await getMrpBaseView();
   const defaultDeposit = canImport ? await getMrpDefaultDeposit() : "";
+  const purchaseSnapshot = current
+    ? readMrpPortalSnapshotMetadata(current.sources.purchases.source, current.sources.purchases.metadata)
+    : null;
 
   const summary: MrpSummaryView | null = current
     ? {
@@ -67,7 +72,14 @@ export default async function AnaliseMrpRoute({ searchParams = {} }: { searchPar
         },
         base: { fileName: current.sources.base.fileName, source: current.sources.base.source, materialCount: current.sources.base.materialCount },
         stock: { fileName: current.sources.stock.fileName, depositInfo: current.sources.stock.depositInfo },
-        purchases: { fileName: current.sources.purchases.fileName }
+        purchases: {
+          source: purchaseSnapshot ? "PORTAL_DB" : "FILE_UPLOAD",
+          fileName: current.sources.purchases.fileName,
+          syncedAt: purchaseSnapshot?.syncedAt ?? null,
+          openLines: purchaseSnapshot?.counts.open ?? null,
+          receivedLines: purchaseSnapshot?.counts.received ?? null,
+          outdated: (await isMrpPortalSnapshotOutdated(purchaseSnapshot)) === true
+        }
       }
     : null;
 

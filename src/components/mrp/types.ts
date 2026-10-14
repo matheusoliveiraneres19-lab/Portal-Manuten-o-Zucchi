@@ -54,7 +54,21 @@ export type MrpSummaryView = {
   kpis: MrpKpisView;
   base: { fileName: string; source: string; materialCount: number };
   stock: { fileName: string; depositInfo: string };
-  purchases: { fileName: string };
+  /**
+   * Origem das compras do run: PORTAL_DB (snapshot das compras do Portal) ou
+   * FILE_UPLOAD (planilha enviada ao MRP — runs anteriores à integração).
+   */
+  purchases: {
+    source: "PORTAL_DB" | "FILE_UPLOAD";
+    fileName: string;
+    /** PORTAL_DB: momento da leitura das compras (ISO). */
+    syncedAt: string | null;
+    /** PORTAL_DB: linhas em aberto / recebidas no snapshot. */
+    openLines: number | null;
+    receivedLines: number | null;
+    /** PORTAL_DB: há compras importadas no Portal depois do snapshot. */
+    outdated: boolean;
+  };
 };
 
 export type MrpPageProps = {

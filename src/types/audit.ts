@@ -18,7 +18,7 @@ export const AUDIT_ACTIONS = {
   DESVINCULAR_OS_JUSTIFICATIVA: "desvincular_os_justificativa",
   IMPORTAR_PLANILHA: "importar_planilha",
   ERRO_IMPORTACAO: "erro_importacao",
-  /** Análise MRP: resultado do "Atualizar tudo" (importação + aplicação da análise). */
+  /** Análise MRP: resultado do "Atualizar MRP" / sincronização de compras (aplicação da análise). */
   MRP_UPDATE_SUCCESS: "mrp_update_success",
   MRP_UPDATE_FAILED: "mrp_update_failed"
 } as const;

@@ -46,7 +46,7 @@ export type MrpTransitItem = {
 export type MrpTransitListing = {
   runId: string;
   purchaseImportId: string;
-  /** Linhas da planilha de compras (KPI "Linhas de compra"). */
+  /** Linhas do snapshot de compras do run (KPI "Linhas de compra"). */
   purchaseLines: number;
   /** Códigos únicos nas compras. */
   totalGroups: number;
