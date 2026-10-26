@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
       onlyAutomation: sp.get("onlyAutomation") === "1",
       onlyWaiting: sp.get("onlyWaiting") === "1",
       excludeOutOfPlanned: sp.get("excludeOutOfPlanned") === "1",
+      onlyWeekendMaintenance: sp.get("onlyWeekendMaintenance") === "1",
       search: optional(sp.get("search")),
       page: parseNumber(sp.get("page")),
       pageSize: parseNumber(sp.get("pageSize"))

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, Table2 } from "lucide-react";
-import type { PcFactoryRecordsResult, PcFactoryStatusCategory } from "@/types/pc-factory";
+import type { PcFactoryRecordRow, PcFactoryRecordsResult, PcFactoryStatusCategory } from "@/types/pc-factory";
 
 export type RecordsTableFilters = {
   startDate: string;
@@ -52,16 +52,20 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
   const [result, setResult] = useState(initial);
   const [pageSize, setPageSize] = useState(initial.pageSize);
   const [loading, setLoading] = useState(false);
+  // Filtro LOCAL da tabela: `initial` vem do servidor sem ele, então volta a "Todos"
+  // sempre que os filtros da página mudam.
+  const [weekendOnly, setWeekendOnly] = useState(false);
   const requestRef = useRef(0);
   const filtersSig = JSON.stringify(filters);
 
   useEffect(() => {
     setResult(initial);
     setPageSize(initial.pageSize);
+    setWeekendOnly(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtersSig]);
 
-  function load(nextPage: number, nextSize: number) {
+  function load(nextPage: number, nextSize: number, nextWeekendOnly = weekendOnly) {
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
     setLoading(true);
@@ -83,6 +87,7 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
     if (filters.onlyWaiting) params.set("onlyWaiting", "1");
     if (filters.excludeOutOfPlanned) params.set("excludeOutOfPlanned", "1");
     if (filters.search) params.set("search", filters.search);
+    if (nextWeekendOnly) params.set("onlyWeekendMaintenance", "1");
     params.set("page", String(nextPage));
     params.set("pageSize", String(nextSize));
 
@@ -110,6 +115,12 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
     load(1, size);
   }
 
+  function changeWeekendOnly(next: boolean) {
+    if (next === weekendOnly) return;
+    setWeekendOnly(next);
+    load(1, pageSize, next);
+  }
+
   return (
     <article className="panel rounded-lg p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -120,20 +131,33 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
             {result.total.toLocaleString("pt-BR")} registros
           </span>
         </div>
-        <label className="flex items-center gap-2 text-[11px] text-zinc-500">
-          Por página
-          <select
-            value={pageSize}
-            onChange={(event) => changeSize(Number(event.target.value))}
-            className="h-8 rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-700 outline-none focus:border-gold"
-          >
-            {PAGE_SIZES.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-[11px] text-zinc-500">
+            Exibir
+            <select
+              value={weekendOnly ? "weekend" : "all"}
+              onChange={(event) => changeWeekendOnly(event.target.value === "weekend")}
+              className="h-8 rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-700 outline-none focus:border-gold"
+            >
+              <option value="all">Todos</option>
+              <option value="weekend">Somente manutenção em fim de semana</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-[11px] text-zinc-500">
+            Por página
+            <select
+              value={pageSize}
+              onChange={(event) => changeSize(Number(event.target.value))}
+              className="h-8 rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-700 outline-none focus:border-gold"
+            >
+              {PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       <div className="relative overflow-x-auto rounded-lg border border-zinc-200">
@@ -142,7 +166,7 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
             <Loader2 className="h-5 w-5 animate-spin text-gold" />
           </div>
         ) : null}
-        <table className="w-full min-w-[1320px] border-collapse text-left text-xs">
+        <table className="w-full min-w-[1400px] border-collapse text-left text-xs">
           <thead>
             <tr className="border-b border-zinc-200 bg-zinc-50 text-[10px] uppercase tracking-wide text-zinc-500">
               <Th>Data início</Th>
@@ -154,6 +178,7 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
               <Th>Classificação Portal</Th>
               <Th>Tipo manutenção</Th>
               <Th className="text-right">Duração</Th>
+              <Th className="text-right">Horas FDS</Th>
               <Th className="text-center">Entra KPI Manutenção?</Th>
               <Th className="text-center">Entra Tempo Planejado?</Th>
               <Th>Observação</Th>
@@ -162,42 +187,53 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
           <tbody>
             {result.data.length === 0 ? (
               <tr>
-                <td colSpan={12} className="px-3 py-8 text-center text-zinc-500">
-                  Nenhum registro para os filtros atuais.
+                <td colSpan={13} className="px-3 py-8 text-center text-zinc-500">
+                  {weekendOnly ? "Nenhuma manutenção em fim de semana para os filtros atuais." : "Nenhum registro para os filtros atuais."}
                 </td>
               </tr>
             ) : (
-              result.data.map((row) => (
-                <tr
-                  key={row.id}
-                  onClick={() => onSelectResource(row.resourceName)}
-                  className="cursor-pointer border-b border-zinc-100 transition hover:bg-gold/5"
-                >
-                  <Td>{formatDateTime(row.startDateTime)}</Td>
-                  <Td>{formatDateTime(row.endDateTime)}</Td>
-                  <Td>{orDash(row.groupPortal)}</Td>
-                  <Td>{orDash(row.productionLine ?? row.sector)}</Td>
-                  <Td className="font-semibold text-zinc-800">
-                    {row.resourceName}
-                    {row.resourceCode ? <span className="ml-1 font-mono text-[10px] text-zinc-400">{row.resourceCode}</span> : null}
-                  </Td>
-                  <Td className="text-zinc-700">{orDash(row.statusRaw)}</Td>
-                  <Td>
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${categoryBadge[row.statusCategory]}`}>
-                      {row.classificationLabel}
-                    </span>
-                  </Td>
-                  <Td>{row.maintenanceType ? MAINTENANCE_TYPE_LABELS[row.maintenanceType] ?? row.maintenanceType : "—"}</Td>
-                  <Td className="text-right font-semibold text-zinc-700">
-                    {row.durationHours.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} h
-                  </Td>
-                  <Td className="text-center">{row.isMaintenanceKpi ? <Yes /> : <No />}</Td>
-                  <Td className="text-center">{row.isInPlannedTime ? <Yes /> : <No />}</Td>
-                  <Td className="max-w-[200px] truncate" title={row.observation ?? ""}>
-                    {orDash(row.observation)}
-                  </Td>
-                </tr>
-              ))
+              result.data.map((row) => {
+                const weekend = isWeekendMaintenance(row);
+                return (
+                  <tr
+                    key={row.id}
+                    onClick={() => onSelectResource(row.resourceName)}
+                    className={`cursor-pointer border-b border-zinc-100 transition ${
+                      weekend ? "bg-danger/[0.04] hover:bg-danger/[0.08]" : "hover:bg-gold/5"
+                    }`}
+                  >
+                    <Td className={weekend ? "border-l-[3px] border-l-danger" : "border-l-[3px] border-l-transparent"}>
+                      <span className="whitespace-nowrap">{formatDateTime(row.startDateTime)}</span>
+                      {weekend ? <WeekendBadge /> : null}
+                    </Td>
+                    <Td>{formatDateTime(row.endDateTime)}</Td>
+                    <Td>{orDash(row.groupPortal)}</Td>
+                    <Td>{orDash(row.productionLine ?? row.sector)}</Td>
+                    <Td className="font-semibold text-zinc-800">
+                      {row.resourceName}
+                      {row.resourceCode ? <span className="ml-1 font-mono text-[10px] text-zinc-400">{row.resourceCode}</span> : null}
+                    </Td>
+                    <Td className="text-zinc-700">{orDash(row.statusRaw)}</Td>
+                    <Td>
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${categoryBadge[row.statusCategory]}`}>
+                        {row.classificationLabel}
+                      </span>
+                    </Td>
+                    <Td>{row.maintenanceType ? MAINTENANCE_TYPE_LABELS[row.maintenanceType] ?? row.maintenanceType : "—"}</Td>
+                    <Td className="text-right font-semibold text-zinc-700">
+                      {row.durationHours.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} h
+                    </Td>
+                    <Td className={`text-right ${weekend ? "font-bold text-danger-strong" : ""}`}>
+                      {weekend ? `${row.weekendMaintenanceHours.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} h` : "—"}
+                    </Td>
+                    <Td className="text-center">{row.isMaintenanceKpi ? <Yes /> : <No />}</Td>
+                    <Td className="text-center">{row.isInPlannedTime ? <Yes /> : <No />}</Td>
+                    <Td className="max-w-[200px] truncate" title={row.observation ?? ""}>
+                      {orDash(row.observation)}
+                    </Td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -217,6 +253,19 @@ export function PcFactoryRecordsTable({ initial, filters, onSelectResource }: Pc
         </div>
       </div>
     </article>
+  );
+}
+
+/** Manutenção KPI com horas em sábado/domingo — o destaque vermelho da tabela. */
+function isWeekendMaintenance(row: PcFactoryRecordRow): boolean {
+  return row.isMaintenanceKpi && row.weekendMaintenanceHours > 0;
+}
+
+function WeekendBadge() {
+  return (
+    <span className="mt-0.5 block w-fit whitespace-nowrap rounded-full border border-danger/30 bg-danger/10 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-danger-strong">
+      Fim de semana
+    </span>
   );
 }
 

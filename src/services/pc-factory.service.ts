@@ -59,6 +59,7 @@ import {
 } from "@/utils/pc-factory-physical-availability";
 import { PC_FACTORY_DEFAULT_MODE } from "@/types/pc-factory";
 import { listAvailabilityNotesForPeriod } from "@/services/pc-factory-availability-notes.service";
+import { calculateWeekendPercentage, pcFactoryMaintenanceWeekendHours } from "@/utils/pc-factory-weekend";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -726,6 +727,7 @@ function buildResourceRanking(records: AnalyticsRecord[], periodHours: number): 
     const sample = list.find((item) => item.resourceCode) ?? list[0];
     const line = list.find((item) => item.productionLine)?.productionLine ?? null;
     const group = list.find((item) => item.groupPortal)?.groupPortal ?? null;
+    const weekend = weekendMaintenance(list, agg);
     rows.push({
       resourceName,
       resourceCode: sample.resourceCode ?? null,
@@ -751,10 +753,35 @@ function buildResourceRanking(records: AnalyticsRecord[], periodHours: number): 
       downtimeHours: physical.downtimeHours,
       availableHours: physical.availableHours,
       availabilityPercent: physical.availabilityPercent,
-      g0134AvailabilityPercent: g0134Availability(agg)
+      g0134AvailabilityPercent: g0134Availability(agg),
+      weekendMaintenanceHours: weekend.hours,
+      weekendMaintenancePercent: weekend.percent
     });
   }
   return rows;
+}
+
+/**
+ * Manutenção em FIM DE SEMANA de uma máquina, sobre os MESMOS registros do ranking
+ * (já filtrados e recortados à janela por `loadRecords`) — cálculo em lote, sem
+ * consulta extra.
+ *
+ * Entra só o que `aggregateHours` soma nos seis subtipos: categoria MANUTENÇÃO,
+ * `maintenanceKind` reconhecido e `isMaintenanceKpi` (via
+ * `pcFactoryMaintenanceWeekendHours`). Denominador do % = a soma desses seis
+ * subtipos, o mesmo total exibido na barra do ranking.
+ */
+function weekendMaintenance(records: AnalyticsRecord[], agg: HoursAggregate): { hours: number; percent: number } {
+  let weekendHours = 0;
+  for (const record of records) {
+    if (record.statusCategory !== PcFactoryStatusCategory.MANUTENCAO) continue;
+    if (maintenanceKind(record.statusRaw) === null) continue;
+    weekendHours += pcFactoryMaintenanceWeekendHours(record);
+  }
+  const totalMaintenance =
+    agg.mechanicalHours + agg.electricalHours + agg.automationHours + agg.planejadaHours + agg.terceirosHours + agg.waitingHours;
+  const hours = round(Math.min(weekendHours, totalMaintenance));
+  return { hours, percent: round(calculateWeekendPercentage(hours, totalMaintenance)) };
 }
 
 function topByMaintenance(rows: PcFactoryResourceRow[]): PcFactoryTopResource {
@@ -1632,16 +1659,54 @@ export async function getPcFactoryRecords(params: PcFactoryQueryParams): Promise
   const pageSize = clampPageSize(params.pageSize);
   const where = buildWhere(params);
 
+  if (params.onlyWeekendMaintenance) return getWeekendMaintenanceRecords(where, page, pageSize);
+
   const [total, rows] = await Promise.all([
     prisma.pcFactoryRecord.count({ where }),
     prisma.pcFactoryRecord.findMany({
       where,
-      orderBy: [{ startDateTime: "desc" }, { createdAt: "desc" }],
+      orderBy: RECORDS_ORDER_BY,
       skip: (page - 1) * pageSize,
       take: pageSize,
       select: recordSelect
     })
   ]);
+
+  return {
+    data: rows.map(toRecordRow),
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize))
+  };
+}
+
+const RECORDS_ORDER_BY = [{ startDateTime: "desc" }, { createdAt: "desc" }] satisfies Prisma.PcFactoryRecordOrderByWithRelationInput[];
+
+/**
+ * Filtro "Somente manutenção em fim de semana" da tabela. Sábado/domingo não é
+ * expressável no `where` do Prisma para intervalos que atravessam dias, então:
+ *   1. UMA consulta leve (id + datas) dos registros KPI de manutenção do recorte;
+ *   2. a sobreposição com o FDS é calculada em memória, em lote;
+ *   3. UMA consulta busca as linhas completas da página.
+ * Duas consultas fixas, independentemente do tamanho da página — sem N+1.
+ */
+async function getWeekendMaintenanceRecords(
+  where: Prisma.PcFactoryRecordWhereInput,
+  page: number,
+  pageSize: number
+): Promise<PcFactoryRecordsResult> {
+  const candidates = await prisma.pcFactoryRecord.findMany({
+    where: { AND: [where, { isMaintenanceKpi: true }] },
+    orderBy: RECORDS_ORDER_BY,
+    select: { id: true, statusRaw: true, startDateTime: true, endDateTime: true, durationHours: true }
+  });
+  const matching = candidates.filter((record) => pcFactoryMaintenanceWeekendHours(record) > 0).map((record) => record.id);
+  const total = matching.length;
+  const pageIds = matching.slice((page - 1) * pageSize, page * pageSize);
+  const rows = pageIds.length
+    ? await prisma.pcFactoryRecord.findMany({ where: { id: { in: pageIds } }, orderBy: RECORDS_ORDER_BY, select: recordSelect })
+    : [];
 
   return {
     data: rows.map(toRecordRow),
@@ -1693,6 +1758,8 @@ function toRecordRow(record: RecordPayload): PcFactoryRecordRow {
     startDateTime: record.startDateTime ? record.startDateTime.toISOString() : null,
     endDateTime: record.endDateTime ? record.endDateTime.toISOString() : null,
     durationHours: round(record.durationHours),
+    // "ENTRA KPI MANUTENÇÃO? = Sim" é a coluna gravada — a mesma que a tabela exibe.
+    weekendMaintenanceHours: record.isMaintenanceKpi ? round(pcFactoryMaintenanceWeekendHours(record)) : 0,
     shift: record.shift,
     orderNumber: record.orderNumber,
     productDescription: record.productDescription,

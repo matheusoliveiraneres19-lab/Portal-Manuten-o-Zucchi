@@ -67,6 +67,11 @@ export type PcFactoryQueryParams = {
   onlyWaiting?: boolean;
   /** Exclui Fora de Turno / Recurso Não Programado dos resultados. */
   excludeOutOfPlanned?: boolean;
+  /**
+   * Só na tabela de registros: mantém apenas manutenção KPI com horas em
+   * sábado/domingo. Ignorado pelas agregações (KPIs, gráficos, ranking).
+   */
+  onlyWeekendMaintenance?: boolean;
   search?: string;
   page?: number;
   pageSize?: number;
@@ -204,6 +209,14 @@ export type PcFactoryResourceRow = {
   availabilityPercent: number | null;
   /** Fórmula G0134 anterior, só auditoria. */
   g0134AvailabilityPercent: number | null;
+  /**
+   * Horas de manutenção (os seis subtipos) que caíram em sábado/domingo
+   * (America/Sao_Paulo), fatiadas por intervalo real. Informativo — não entra em
+   * nenhum outro cálculo. Sempre 0 ≤ valor ≤ soma dos seis subtipos.
+   */
+  weekendMaintenanceHours: number;
+  /** weekendMaintenanceHours ÷ soma dos seis subtipos × 100. Sem manutenção → 0. */
+  weekendMaintenancePercent: number;
 };
 
 /**
@@ -393,6 +406,8 @@ export type PcFactoryRecordRow = {
   startDateTime: string | null;
   endDateTime: string | null;
   durationHours: number;
+  /** Horas do registro em sábado/domingo; 0 quando não é manutenção KPI ou não toca o FDS. */
+  weekendMaintenanceHours: number;
   shift: string | null;
   orderNumber: string | null;
   productDescription: string | null;

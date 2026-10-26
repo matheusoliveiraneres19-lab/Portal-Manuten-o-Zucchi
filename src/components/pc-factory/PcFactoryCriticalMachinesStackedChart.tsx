@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Bar, BarChart, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { EmptyState } from "@/components/EmptyState";
 import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
@@ -27,6 +28,9 @@ type StackedRow = {
   planejadaPct: number;
   terceirosPct: number;
   waitingPct: number;
+  /** Horas de manutenção em sábado/domingo (do service) — informação lateral, não é segmento. */
+  weekendHours: number;
+  weekendPct: number;
 };
 
 // Os SEIS tipos de manutenção do grupo "Manutenção" do PC-Factory (Management View).
@@ -77,7 +81,9 @@ export function PcFactoryCriticalMachinesStackedChart({ rows, className = "", on
         automationPct: pct(automationHours),
         planejadaPct: pct(planejadaHours),
         terceirosPct: pct(terceirosHours),
-        waitingPct: pct(waitingHours)
+        waitingPct: pct(waitingHours),
+        weekendHours: Math.min(total, Math.max(0, row.weekendMaintenanceHours ?? 0)),
+        weekendPct: Math.min(100, Math.max(0, row.weekendMaintenancePercent ?? 0))
       };
     })
     .filter((row) => row.total > 0)
@@ -85,12 +91,15 @@ export function PcFactoryCriticalMachinesStackedChart({ rows, className = "", on
     .slice(0, 10);
 
   const height = Math.max(240, data.length * 46 + 36);
+  const compact = useCompactLayout();
 
   return (
     <article className={`panel rounded-lg p-4 ${className}`}>
       <h3 className="text-[11px] font-extrabold uppercase tracking-wide text-gold-deep">Ranking de máquinas críticas</h3>
       <p className="mb-3 text-[11px] text-zinc-500">
         Top 10 por horas de manutenção (grupo Manutenção do PC-Factory): Mecânica, Elétrica, Automação, Planejada, Terceiros e Aguardando.
+        {" "}
+        <span className="font-semibold text-danger-strong">FDS</span> = parte dessas horas ocorrida em sábado/domingo.
       </p>
 
       {data.length === 0 ? (
@@ -109,9 +118,21 @@ export function PcFactoryCriticalMachinesStackedChart({ rows, className = "", on
 
           <div style={{ height }} className="w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data} layout="vertical" margin={{ left: 8, right: 64, top: 4, bottom: 4 }} barCategoryGap="22%">
+              <BarChart
+                data={data}
+                layout="vertical"
+                margin={{ left: compact ? 0 : 8, right: compact ? 104 : 136, top: 4, bottom: 4 }}
+                barCategoryGap="22%"
+              >
                 <XAxis type="number" hide domain={[0, "dataMax"]} />
-                <YAxis type="category" dataKey="name" width={168} tick={{ fontSize: 11 }} tickFormatter={truncate} interval={0} />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={compact ? 104 : 168}
+                  tick={{ fontSize: compact ? 10 : 11 }}
+                  tickFormatter={compact ? truncateCompact : truncate}
+                  interval={0}
+                />
                 <Tooltip cursor={{ fill: "rgba(196,154,69,0.08)" }} content={<CriticalMachineTooltip />} />
 
                 {SEGMENTS.map((segment, index) => (
@@ -129,14 +150,7 @@ export function PcFactoryCriticalMachinesStackedChart({ rows, className = "", on
                   >
                     <LabelList dataKey={segment.pctKey} content={<PercentLabel dark={segment.dark} />} />
                     {index === SEGMENTS.length - 1 ? (
-                      <LabelList
-                        dataKey="total"
-                        position="right"
-                        offset={8}
-                        className="fill-zinc-700"
-                        style={{ fontSize: 11, fontWeight: 600 }}
-                        formatter={(value: number) => formatHours(value)}
-                      />
+                      <LabelList dataKey="total" content={<TotalLabel rows={data} compact={compact} />} />
                     ) : null}
                   </Bar>
                 ))}
@@ -169,6 +183,57 @@ function PercentLabel(props: { dark?: boolean; x?: number; y?: number; width?: n
   );
 }
 
+/**
+ * Fim da barra: total de manutenção e, logo abaixo, a parte em fim de semana em
+ * vermelho. Texto lateral DE PROPÓSITO — um segmento vermelho a mais na barra se
+ * confundiria com Mecânica.
+ */
+function TotalLabel(props: {
+  rows: StackedRow[];
+  compact: boolean;
+  x?: number | string;
+  y?: number | string;
+  width?: number | string;
+  height?: number | string;
+  index?: number;
+}) {
+  const { rows, compact, index } = props;
+  const x = Number(props.x);
+  const y = Number(props.y);
+  const width = Number(props.width);
+  const height = Number(props.height);
+  const row = index === undefined ? undefined : rows[index];
+  if (!row || ![x, y, width, height].every(Number.isFinite)) return null;
+
+  const left = x + width + 8;
+  const middle = y + height / 2;
+  return (
+    <text x={left} y={middle} fontSize={compact ? 10 : 11}>
+      <tspan x={left} dy={-1} fontWeight={600} fill="#3f3f46">
+        {formatHours(row.total)}
+      </tspan>
+      <tspan x={left} dy={compact ? 11 : 12} fontSize={compact ? 9 : 10} fontWeight={700} fill="#8E1728">
+        {compact
+          ? `FDS ${formatHours(row.weekendHours)}`
+          : `FDS: ${formatHours(row.weekendHours)} · ${formatPercentFixed(row.weekendPct)}`}
+      </tspan>
+    </text>
+  );
+}
+
+/** Layout compacto (≤ 640 px): eixo de nomes mais estreito e rótulo FDS resumido. */
+function useCompactLayout(): boolean {
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 640px)");
+    const update = () => setCompact(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return compact;
+}
+
 type TooltipProps = {
   active?: boolean;
   payload?: Array<{ payload: StackedRow }>;
@@ -183,9 +248,17 @@ function CriticalMachineTooltip({ active, payload }: TooltipProps) {
   return (
     <div className="rounded-lg border border-gold/30 bg-ink/95 px-3 py-2.5 shadow-premium backdrop-blur-sm">
       <p className="mb-1.5 max-w-[220px] truncate text-[12px] font-bold text-champagne">{row.name}</p>
-      <p className="mb-2 text-[11px] text-zinc-400">
-        Total: <span className="font-semibold text-champagne">{formatHours(row.total)}</span>
-      </p>
+      <div className="mb-2 space-y-0.5 text-[11px] text-zinc-400">
+        <p>
+          Total manutenção: <span className="font-semibold text-champagne">{formatHours(row.total)}</span>
+        </p>
+        <p>
+          Fim de semana: <span className="font-semibold text-danger-soft">{formatHours(row.weekendHours)}</span>
+        </p>
+        <p>
+          Participação FDS: <span className="font-semibold text-danger-soft">{formatPercentFixed(row.weekendPct)}</span>
+        </p>
+      </div>
       <div className="space-y-1">
         {SEGMENTS.map((segment) => {
           const hours = row[segment.key] as number;
@@ -213,6 +286,16 @@ function truncate(value: string): string {
   return value.length > 22 ? `${value.slice(0, 21)}…` : value;
 }
 
+function truncateCompact(value: string): string {
+  return value.length > 14 ? `${value.slice(0, 13)}…` : value;
+}
+
 function round(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/** Percentual com 1 casa fixa ("14,0%") — usado na informação de fim de semana. */
+function formatPercentFixed(value: number): string {
+  const safe = Number.isFinite(value) ? value : 0;
+  return `${safe.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
