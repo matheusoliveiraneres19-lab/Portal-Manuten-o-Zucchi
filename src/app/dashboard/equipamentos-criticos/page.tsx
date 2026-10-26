@@ -8,7 +8,7 @@ import {
   type PlanningGroupKey
 } from "@/utils/service-order-planning";
 import type { ServiceOrderStatusLabel } from "@/types/service-orders";
-import { parseCriticalEquipmentSelection } from "@/utils/critical-equipment-selection";
+import { parseCriticalEquipmentSelection, parseMachineAnalysisState } from "@/utils/critical-equipment-selection";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,13 @@ type CriticalEquipmentsRouteProps = {
 export default async function EquipamentosCriticosPage({ searchParams = {} }: CriticalEquipmentsRouteProps) {
   const params = parseParams(searchParams);
   // Seleção da análise (família → mês → máquina → repartimento): link compartilhado abre já recortado.
-  const selection = parseCriticalEquipmentSelection({ get: (key) => firstParam(searchParams[key]) ?? null });
+  const reader = { get: (key: string) => firstParam(searchParams[key]) ?? null };
+  const machineAnalysis = parseMachineAnalysisState(reader);
+  // Modo Máquina: a seleção por família não vale (os dois caminhos não se misturam).
+  const selection =
+    machineAnalysis.mode === "MACHINE"
+      ? parseCriticalEquipmentSelection({ get: () => null })
+      : parseCriticalEquipmentSelection(reader);
   const data = await getCriticalEquipmentsPageData({
     startDate: params.startDate || undefined,
     endDate: params.endDate || undefined,
@@ -49,7 +55,7 @@ export default async function EquipamentosCriticosPage({ searchParams = {} }: Cr
     endDate: data.period.endDate
   };
 
-  return <CriticalEquipmentsPage data={data} appliedFilters={appliedFilters} />;
+  return <CriticalEquipmentsPage data={data} appliedFilters={appliedFilters} machineAnalysis={machineAnalysis} />;
 }
 
 function parseParams(searchParams: SearchParams): AppliedCriticalEquipmentFilters {

@@ -12,7 +12,9 @@ import {
   calculateMonthHours,
   calculateMonthHoursWithinWindow,
   calculatePeriodHours,
-  calculatePhysicalAvailability
+  calculatePhysicalAvailability,
+  classifyPhysicalAvailability,
+  getAvailabilityStatus
 } from "../src/utils/pc-factory-physical-availability";
 
 let failures = 0;
@@ -144,6 +146,20 @@ check(
   "Mês fora da janela = 0 h",
   calculateMonthHoursWithinWindow("2026-01", janelaParcial.from, janelaParcial.to) === 0
 );
+
+console.log("\nFaixas de cor (vermelho < 90 % ≤ verde, sem âmbar)");
+for (const value of [0, 20, 75, 89, 89.9, 89.99]) {
+  check(`${value} % → CRITICAL`, getAvailabilityStatus(value) === "CRITICAL");
+}
+for (const value of [90, 90.1, 95, 100]) {
+  check(`${value} % → GOOD`, getAvailabilityStatus(value) === "GOOD");
+}
+for (const value of [null, undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+  check(`${String(value)} → sem status`, getAvailabilityStatus(value) === null);
+  check(`${String(value)} → "indefinida"`, classifyPhysicalAvailability(value) === "indefinida");
+}
+check('89,99 % → "critica"', classifyPhysicalAvailability(89.99) === "critica");
+check('90 % → "boa"', classifyPhysicalAvailability(90) === "boa");
 
 console.log(failures === 0 ? "\n✅ Todas as verificações passaram.\n" : `\n❌ ${failures} verificação(ões) falharam.\n`);
 process.exit(failures === 0 ? 0 : 1);

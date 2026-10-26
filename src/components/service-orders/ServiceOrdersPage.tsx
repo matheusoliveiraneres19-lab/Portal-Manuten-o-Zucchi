@@ -289,7 +289,11 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
       {data.dashboard.total > 0 ? (
         <>
           <ServiceOrderKpis dashboard={data.dashboard} />
-          <ServiceOrderCharts dashboard={data.dashboard} />
+          <ServiceOrderCharts
+            dashboard={data.dashboard}
+            filterQuery={filtersToSearchParams(appliedFilters, 1).toString()}
+            periodLabel={describePeriod(appliedFilters)}
+          />
         </>
       ) : null}
 
@@ -309,6 +313,11 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
             detail: "Status da ordem igual a FECHADA. Campo: status."
           },
           {
+            term: "Aderência de execução por área",
+            detail:
+              "Área = grupo de planejamento normalizado (resolvePlanningGroup): Mecânica, Elétrica, Serviço Terceiro, Lubrificação, Usinagem; grupo vazio ou não reconhecido entra em Outros, para nenhuma ordem do recorte ficar de fora. Conta ORDENS de manutenção (número da OS), não as operações listadas na tabela. Fechada = todas as operações tecnicamente encerradas (isClosedServiceOrder); aberta = qualquer operação pendente, inclusive Liberada. Mesma unidade e regra do relatório PDF de aderência. Aderência = fechadas ÷ total da área × 100; área sem OS não aparece."
+          },
+          {
             term: "Horas apontadas",
             detail:
               "Soma de trabalho real (workedHours) das ordens do recorte. Não há apontamento manual de horas no portal: este é o único lugar de onde as horas saem."
@@ -316,7 +325,7 @@ export function ServiceOrdersPage({ data, appliedFilters }: ServiceOrdersPagePro
           {
             term: "Corretivas x planejadas",
             detail:
-              "PLANEJADA = ordem de plano programado, identificada pelo prefixo PL- ou PV- no título (isProgrammedPreventiveOrder). CORRETIVA = todas as demais ordens válidas do recorte. É a mesma regra da tela inicial, de Preventivas e de Equipamentos Críticos — não existe classificação própria desta aba."
+              "PLANEJADA = ordem de plano programado, identificada pelo prefixo PL- ou PV- no título (isProgrammedPreventiveOrder). CORRETIVA = todas as demais ordens válidas do recorte. É a mesma regra da tela inicial, de Preventivas e de Equipamentos Críticos — não existe classificação própria desta aba. Aparece por área no painel de Aderência, sobre as mesmas ordens do status: corretivas + planejadas = abertas + fechadas = total da área."
           },
           {
             term: "Tempo médio de execução",
@@ -463,16 +472,19 @@ function buildChips(
   return chips;
 }
 
+/** Período dos filtros para o cabeçalho do detalhe da máquina — sem filtro, diz que é o histórico. */
+function describePeriod(filters: AppliedServiceOrderFilters): string {
+  const br = (iso: string) => formatPeriodRange(iso, iso).split(" - ")[0];
+  if (filters.startDate && filters.endDate) return `${br(filters.startDate)} → ${br(filters.endDate)}`;
+  if (filters.startDate) return `a partir de ${br(filters.startDate)}`;
+  if (filters.endDate) return `até ${br(filters.endDate)}`;
+  return "Todo o histórico disponível";
+}
+
 function buildTotalsLabel(data: ServiceOrdersPageData): string {
-  const general = data.summary.total.toLocaleString("pt-BR");
-  const filtered = data.total.toLocaleString("pt-BR");
-  const displayed = data.orders.length.toLocaleString("pt-BR");
-
-  if (data.total === data.summary.total) {
-    return `Exibindo ${displayed} de ${general} ordens`;
-  }
-
-  return `Exibindo ${displayed} de ${filtered} filtradas (${general} no total)`;
+  // O "total geral" vinha de um resumo com o MESMO where da tabela — era sempre
+  // igual a `data.total`, então a segunda forma da frase nunca aparecia.
+  return `Exibindo ${data.orders.length.toLocaleString("pt-BR")} de ${data.total.toLocaleString("pt-BR")} ordens`;
 }
 
 /* ------------------------------------------------------------------ */

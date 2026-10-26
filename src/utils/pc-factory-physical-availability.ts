@@ -253,30 +253,35 @@ export function calculateMonthHoursWithinWindow(monthKey: string, windowFrom: Da
 /* ------------------------------------------------------------------ */
 
 /**
- * As faixas que o portal JÁ usava para ler a disponibilidade, agora nomeadas em
- * um lugar só. Não são limites novos: são exatamente os números que estavam
- * espalhados no código —
+ * Regra oficial de leitura da Disponibilidade Física: DUAS faixas, sem âmbar.
  *
- *   ≥ 90 %  verde   (cor da célula na tabela de confiabilidade e na tendência)
- *   ≥ 70 %  âmbar   (idem)
- *   < 70 %  vermelho / "crítico" — o mesmo corte de
- *           `buildRecommendations` ("Máquina com baixa disponibilidade estimada")
+ *   < 90 %  vermelho / "crítico"
+ *   ≥ 90 %  verde    / "bom"
  *
- * São faixas de APRESENTAÇÃO: nenhuma delas entra na fórmula.
+ * Toda tela que pinta ou rotula disponibilidade (tabela de confiabilidade, tendência,
+ * disponibilidade por linha, recomendações do detalhe, alerta da Home) passa por
+ * aqui, para que o corte não volte a se espalhar pelo código.
+ *
+ * É uma faixa de APRESENTAÇÃO: não entra na fórmula.
  */
 export const PHYSICAL_AVAILABILITY_BANDS = {
-  /** A partir daqui a disponibilidade é considerada boa. */
-  good: 90,
-  /** A partir daqui é atenção; abaixo disso é crítico. */
-  attention: 70
+  /** A partir daqui a disponibilidade é boa; abaixo disso é crítica. */
+  good: 90
 } as const;
 
-export type PhysicalAvailabilityBand = "indefinida" | "boa" | "atencao" | "critica";
+export type AvailabilityStatus = "CRITICAL" | "GOOD";
 
-/** Em que faixa um percentual cai. `null` (indicador não aplicável) → "indefinida". */
-export function classifyPhysicalAvailability(value: number | null): PhysicalAvailabilityBand {
-  if (value === null || !Number.isFinite(value)) return "indefinida";
-  if (value >= PHYSICAL_AVAILABILITY_BANDS.good) return "boa";
-  if (value >= PHYSICAL_AVAILABILITY_BANDS.attention) return "atencao";
-  return "critica";
+/** `null`, `NaN` ou `±Infinity` → `null` (sem cor; a tela mostra "—"). */
+export function getAvailabilityStatus(value: number | null | undefined): AvailabilityStatus | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  return value < PHYSICAL_AVAILABILITY_BANDS.good ? "CRITICAL" : "GOOD";
+}
+
+export type PhysicalAvailabilityBand = "indefinida" | "boa" | "critica";
+
+/** A mesma regra de `getAvailabilityStatus`, com os rótulos em português das telas. */
+export function classifyPhysicalAvailability(value: number | null | undefined): PhysicalAvailabilityBand {
+  const status = getAvailabilityStatus(value);
+  if (status === null) return "indefinida";
+  return status === "GOOD" ? "boa" : "critica";
 }

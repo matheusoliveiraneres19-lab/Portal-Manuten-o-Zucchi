@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { PC_FACTORY_COLORS } from "@/constants/pc-factory-colors";
 import type { PcFactoryProductionLineRow } from "@/types/pc-factory";
 import { CHART_CHROME } from "@/constants/theme";
+import { getAvailabilityStatus } from "@/utils/pc-factory-physical-availability";
 
 type PcFactoryLineSummaryChartProps = {
   rows: PcFactoryProductionLineRow[];
@@ -58,9 +59,7 @@ export function PcFactoryLineSummaryChart({ rows, className = "" }: PcFactoryLin
 }
 
 function colorFor(value: number): string {
-  if (value >= 85) return PC_FACTORY_COLORS.PRODUCAO;
-  if (value >= 70) return PC_FACTORY_COLORS.AGUARDANDO_MANUTENCAO;
-  return PC_FACTORY_COLORS.PARADA_PERDA;
+  return getAvailabilityStatus(value) === "GOOD" ? PC_FACTORY_COLORS.PRODUCAO : PC_FACTORY_COLORS.PARADA_PERDA;
 }
 
 function truncate(value: string): string {

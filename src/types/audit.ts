@@ -14,8 +14,13 @@ export const AUDIT_ACTIONS = {
   EXCLUIR_PROCEDIMENTO: "excluir_procedimento",
   ALTERAR_CONFIGURACAO: "alterar_configuracao",
   REGISTRAR_JUSTIFICATIVA_DISPONIBILIDADE: "registrar_justificativa_disponibilidade",
+  VINCULAR_OS_JUSTIFICATIVA: "vincular_os_justificativa",
+  DESVINCULAR_OS_JUSTIFICATIVA: "desvincular_os_justificativa",
   IMPORTAR_PLANILHA: "importar_planilha",
-  ERRO_IMPORTACAO: "erro_importacao"
+  ERRO_IMPORTACAO: "erro_importacao",
+  /** Análise MRP: resultado do "Atualizar tudo" (importação + aplicação da análise). */
+  MRP_UPDATE_SUCCESS: "mrp_update_success",
+  MRP_UPDATE_FAILED: "mrp_update_failed"
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
@@ -40,9 +45,13 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   editar_procedimento: "Edição de procedimento",
   excluir_procedimento: "Exclusão/arquivamento de procedimento",
   registrar_justificativa_disponibilidade: "Justificativa de baixa disponibilidade (PC-Factory)",
+  vincular_os_justificativa: "OS vinculada à justificativa de disponibilidade",
+  desvincular_os_justificativa: "OS desvinculada da justificativa de disponibilidade",
   alterar_configuracao: "Alteração de configuração",
   importar_planilha: "Importação de planilha",
-  erro_importacao: "Erro de importação"
+  erro_importacao: "Erro de importação",
+  mrp_update_success: "Análise MRP atualizada",
+  mrp_update_failed: "Análise MRP não aplicada"
 };
 
 export const AUDIT_MODULE_LABELS: Record<string, string> = {
@@ -94,7 +103,10 @@ export const IMPORT_TYPE_LABELS: Record<string, string> = {
   EQUIPAMENTOS: "Equipamentos",
   PROCEDIMENTOS: "Procedimentos",
   PC_FACTORY: "PC-Factory",
-  LOCAL_INSTALACAO: "Locais de Instalação"
+  LOCAL_INSTALACAO: "Locais de Instalação",
+  MRP_BASE: "Análise MRP — Base MRP",
+  MRP_STOCK: "Análise MRP — Estoque",
+  MRP_PURCHASES: "Análise MRP — Compras"
 };
 
 /**

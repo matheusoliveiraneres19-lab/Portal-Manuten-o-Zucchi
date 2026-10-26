@@ -4,6 +4,7 @@
  *   GET  ?start=&end=              justificativas daquela janela exata
  *   GET  ?machine=&history=1       histórico da máquina (todas as janelas)
  *   POST                           cria/atualiza a justificativa de (máquina + período)
+ *                                  e sincroniza as OS vinculadas (`serviceOrderNumbers`)
  *
  * Leitura: qualquer usuário autenticado. Escrita: só os papéis de
  * AVAILABILITY_NOTE_WRITE_ROLES (ADMIN/GESTOR) — os mesmos que a Central de
@@ -19,7 +20,7 @@ import { AUDIT_ACTIONS, AUDIT_MODULES } from "@/types/audit";
 import {
   listAvailabilityNoteHistory,
   listAvailabilityNotesForPeriod,
-  upsertAvailabilityNote
+  saveAvailabilityNote
 } from "@/services/pc-factory-availability-notes.service";
 import {
   AVAILABILITY_NOTE_WRITE_ROLES,
@@ -60,22 +61,30 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => null)) ?? {};
     const session = await getSession();
 
-    const note = await upsertAvailabilityNote(body, {
+    const { note, linkChanges } = await saveAvailabilityNote(body, {
       id: session?.sub ?? null,
       name: session?.name ?? null
     });
 
     // Justificativa gerencial é rastreável: além do createdBy/updatedBy da própria
     // linha, a ação entra na auditoria administrativa do portal.
-    await createAuditLog({
-      action: AUDIT_ACTIONS.REGISTRAR_JUSTIFICATIVA_DISPONIBILIDADE,
+    const base = {
       module: AUDIT_MODULES.PC_FACTORY,
       userId: session?.sub ?? null,
       userName: session?.name ?? null,
       entityId: note.id,
       entityName: `${note.resourceName} — ${note.periodLabel}`,
       ipAddress: getClientIp(request)
-    });
+    };
+    await createAuditLog({ ...base, action: AUDIT_ACTIONS.REGISTRAR_JUSTIFICATIVA_DISPONIBILIDADE });
+    // Vínculo de OS: quem vinculou/removeu e quando. A remoção apaga a linha do
+    // vínculo, então é aqui que ela continua rastreável.
+    for (const osNumber of linkChanges.added) {
+      await createAuditLog({ ...base, action: AUDIT_ACTIONS.VINCULAR_OS_JUSTIFICATIVA, details: { osNumber } });
+    }
+    for (const osNumber of linkChanges.removed) {
+      await createAuditLog({ ...base, action: AUDIT_ACTIONS.DESVINCULAR_OS_JUSTIFICATIVA, details: { osNumber } });
+    }
 
     return NextResponse.json({ ok: true, note });
   } catch (error) {

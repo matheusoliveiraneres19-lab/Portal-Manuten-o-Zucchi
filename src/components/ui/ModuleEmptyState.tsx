@@ -27,7 +27,7 @@ type ModuleEmptyStateProps = {
   /** Título do estado indisponível (ex.: "Dados de compras indisponíveis"). */
   unavailableTitle?: string;
   /**
-   * "dark"  — hero escuro com veio de mármore (PC-Factory, Lubrificantes, Eq. Críticos);
+   * "dark"  — hero escuro com veio de mármore (PC-Factory, Eq. Críticos);
    * "panel" — card claro `.panel` (Compras).
    * Mantém a superfície que cada módulo já usava.
    */

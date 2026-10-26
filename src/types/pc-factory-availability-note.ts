@@ -21,10 +21,64 @@ export const AVAILABILITY_NOTE_WRITE_ROLES: string[] = ["ADMIN", "GESTOR"];
 
 /** Limites de tamanho — validados no servidor, espelhados na UI. */
 export const AVAILABILITY_NOTE_LIMITS = {
+  cause: 200,
   reason: 2000,
   actionPlan: 2000,
-  responsible: 120
+  responsible: 120,
+  /** OS vinculadas a uma mesma justificativa. */
+  serviceOrders: 20
 } as const;
+
+/**
+ * Uma ORDEM DE SERVIÇO vinculada à justificativa, já com os dados atuais da OS.
+ * Os dados (título, grupo, status) são lidos da ServiceOrder a cada consulta —
+ * nada é copiado para o vínculo.
+ */
+export type LinkedServiceOrderDTO = {
+  linkId: string;
+  osNumber: string;
+  /** Operação de referência na tabela ServiceOrder; `null` se o registro saiu da base. */
+  serviceOrderId: string | null;
+  /** `false` quando a OS não está mais na base atual (vínculo mantido, aviso na tela). */
+  found: boolean;
+  title: string | null;
+  /** Grupo de planejamento normalizado ("Mecânica", "Elétrica"…). */
+  planningGroupLabel: string | null;
+  /** "Fechada" só com todas as operações encerradas; senão o status pendente. */
+  statusLabel: string | null;
+  closed: boolean;
+  equipmentLabel: string | null;
+  /** ISO (data-base de início). */
+  openedAt: string | null;
+  linkedByName: string | null;
+  /** ISO. */
+  linkedAt: string;
+};
+
+/** Uma OS sugerida pela busca do autocomplete. */
+export type ServiceOrderSearchItem = {
+  osNumber: string;
+  serviceOrderId: string;
+  title: string;
+  planningGroupLabel: string;
+  statusLabel: string;
+  closed: boolean;
+  equipmentLabel: string;
+  /** ISO (data-base de início). */
+  openedAt: string | null;
+  /** Equipamento da OS corresponde à máquina do PC-Factory. */
+  sameMachine: boolean;
+  /** Data-base dentro do período da justificativa. */
+  inPeriod: boolean;
+};
+
+export type ServiceOrderSearchResult = {
+  items: ServiceOrderSearchItem[];
+  /** "machine" = só OS da máquina; "all" = todas as OS (priorizando máquina e período). */
+  scope: "machine" | "all";
+  /** TAGs SAP reconhecidas para a máquina; vazio = sem correspondência automática. */
+  machineTags: string[];
+};
 
 /** Uma justificativa, já serializada (datas em string) para cruzar server→client. */
 export type PcFactoryAvailabilityNoteDTO = {
@@ -37,9 +91,14 @@ export type PcFactoryAvailabilityNoteDTO = {
   periodEnd: string;
   /** Rótulo pronto do período ("01/08/2026 a 31/08/2026"). */
   periodLabel: string;
+  /** MOTIVO: causa/resumo do problema. Opcional (justificativas antigas não têm). */
+  cause: string | null;
+  /** JUSTIFICATIVA: explicação gerencial do ocorrido. */
   reason: string;
   actionPlan: string | null;
   responsible: string | null;
+  /** OS que registram a intervenção NESTE período (nunca de outra janela). */
+  serviceOrders: LinkedServiceOrderDTO[];
   /** Foto dos números quando a justificativa foi escrita. Informativo, nunca fonte. */
   availabilitySnapshot: number | null;
   downtimeHoursSnapshot: number | null;
@@ -59,9 +118,16 @@ export type PcFactoryAvailabilityNoteInput = {
   resourceCode?: string | null;
   periodStart: string;
   periodEnd: string;
+  cause?: string | null;
   reason: string;
   actionPlan?: string | null;
   responsible?: string | null;
+  /**
+   * Lista COMPLETA de OS desejada para a justificativa (números da OS). Ausente =
+   * não mexe nos vínculos; presente = o servidor sincroniza (inclui as novas,
+   * remove as que saíram). Toda OS precisa existir na base.
+   */
+  serviceOrderNumbers?: string[];
   availabilitySnapshot?: number | null;
   downtimeHoursSnapshot?: number | null;
 };

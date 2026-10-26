@@ -503,3 +503,103 @@ export type CriticalEquipmentScopedData = {
   correctivePlanned: CriticalEquipmentCorrectivePlannedData;
   drilldown: FamilyDrilldownResponse | null;
 };
+
+/* ------------------------------------------------------------------ */
+/* Análise por MÁQUINA (modo independente da família)                  */
+/* ------------------------------------------------------------------ */
+
+/** Modo do bloco de evolução: os dois caminhos analíticos não se misturam. */
+export type CriticalEvolutionMode = "FAMILY" | "MACHINE";
+
+/**
+ * Uma máquina do seletor do modo Máquina. Vem da BASE INTEIRA (todas as máquinas
+ * válidas), nunca do Top N nem da família filtrada.
+ */
+export type CriticalMachineOption = {
+  /** TAG da máquina raiz — a mesma chave do ranking (`CriticalEquipmentItem.id`). */
+  id: string;
+  name: string;
+  familyLabel: string;
+  /** OS (linhas) da máquina em toda a base — só para orientar a escolha. */
+  totalOrders: number;
+  /** ISO da OS mais recente. */
+  lastOrderAt: string | null;
+  /** Nome, TAG, códigos e objetos técnicos que casam com a busca (minúsculo, sem acento). */
+  searchText: string;
+};
+
+/** Situação de um mês do ano analisado — "sem dados" nunca vira zero. */
+export type CriticalMachineMonthState =
+  /** Mês encerrado, dentro da cobertura da base: 0 OS é zero de verdade. */
+  | "closed"
+  /** Mês corrente: valores parciais. */
+  | "current"
+  /** Mês ainda não ocorreu. */
+  | "future"
+  /** Mês anterior ao início da base importada: não há período disponível. */
+  | "noBase";
+
+/** Contagens de um recorte (mês ou ano) — mesmas regras do restante da aba. */
+export type CriticalMachineSplit = {
+  totalOrders: number;
+  totalWorkedHours: number;
+  openOrders: number;
+  closedOrders: number;
+  /** Nem aberta nem fechada (ex.: cancelada). */
+  otherStatusOrders: number;
+  correctiveOrders: number;
+  plannedOrders: number;
+  unclassifiedOrders: number;
+  /** Por grupo de planejamento normalizado, na ordem oficial; só os que têm OS. */
+  planningGroups: Array<{ key: string; label: string; orders: number; hours: number }>;
+};
+
+export type CriticalMachineMonth = CriticalMachineSplit & {
+  /** "2026-08". */
+  period: string;
+  /** "Ago". */
+  label: string;
+  state: CriticalMachineMonthState;
+};
+
+export type CriticalMachineYearAnalysis = {
+  machine: { id: string; name: string; familyLabel: string };
+  year: number;
+  /** Anos com OS desta máquina (com os filtros atuais). */
+  availableYears: number[];
+  /** Sempre 12 meses, Jan → Dez. */
+  months: CriticalMachineMonth[];
+  summary: CriticalMachineSplit & {
+    peakOrdersMonth: { period: string; label: string; value: number } | null;
+    peakHoursMonth: { period: string; label: string; value: number } | null;
+  };
+  /** Filtros da página ignorados neste modo (filtros de frota), para a tela avisar. */
+  ignoredFilters: string[];
+};
+
+/** Repartimento (filho de 1º nível) da máquina no mês. */
+export type CriticalMachineComponent = {
+  key: string;
+  label: string;
+  code: string;
+  description: string | null;
+  orders: number;
+  hours: number;
+};
+
+export type CriticalMachineMonthOrder = CriticalEquipmentServiceOrder & {
+  /** Repartimento da OS (ou a chave de "sem repartimento") — filtra a lista na tela. */
+  componentKey: string;
+};
+
+export type CriticalMachineMonthDetail = {
+  machine: { id: string; name: string; familyLabel: string };
+  period: string;
+  /** "Agosto/2026". */
+  periodLabel: string;
+  state: CriticalMachineMonthState;
+  split: CriticalMachineSplit;
+  components: CriticalMachineComponent[];
+  /** Mais recentes primeiro; `total` é exato mesmo se a lista for truncada. */
+  orders: { total: number; truncated: boolean; items: CriticalMachineMonthOrder[] };
+};

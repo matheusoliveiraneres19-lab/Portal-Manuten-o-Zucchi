@@ -10,6 +10,8 @@ type ModalShellProps = {
   subtitle?: string;
   onClose: () => void;
   children: React.ReactNode;
+  /** Largura do painel. Padrão "md" (max-w-lg), como antes. */
+  size?: "md" | "xl";
 };
 
 /**
@@ -27,7 +29,7 @@ type ModalShellProps = {
  *  - o conteúdo rola dentro do modal (`max-h`), evitando que um formulário longo
  *    estoure a altura da janela.
  */
-export function ModalShell({ open, title, subtitle, onClose, children }: ModalShellProps) {
+export function ModalShell({ open, title, subtitle, onClose, children, size = "md" }: ModalShellProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
 
@@ -84,7 +86,7 @@ export function ModalShell({ open, title, subtitle, onClose, children }: ModalSh
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.22, ease: [0.22, 0.61, 0.36, 1] }}
-            className="relative z-10 flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-gold/25 bg-ink text-champagne shadow-[0_24px_70px_rgba(0,0,0,0.6)] outline-none"
+            className={`relative z-10 flex max-h-[calc(100vh-2rem)] w-full ${size === "xl" ? "max-w-5xl" : "max-w-lg"} flex-col overflow-hidden rounded-xl border border-gold/25 bg-ink text-champagne shadow-[0_24px_70px_rgba(0,0,0,0.6)] outline-none`}
           >
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gold/20 bg-ink px-5 py-4">
               <div className="min-w-0">

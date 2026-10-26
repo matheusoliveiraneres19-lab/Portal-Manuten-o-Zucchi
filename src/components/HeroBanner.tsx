@@ -20,7 +20,7 @@ export function HeroBanner() {
           <span className="text-gold">Zucchi</span>
         </h2>
         <p className="mt-5 max-w-2xl text-base leading-relaxed text-zinc-100/90">
-          Centralize indicadores, ordens de serviço, compras, materiais, lubrificantes e alertas de
+          Centralize indicadores, ordens de serviço, compras, materiais, análise MRP e alertas de
           equipamentos em um só lugar. Mais controle, eficiência e performance para a manutenção da
           Zucchi Luxury Stones.
         </p>

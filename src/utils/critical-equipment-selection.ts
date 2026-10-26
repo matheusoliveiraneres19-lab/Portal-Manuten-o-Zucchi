@@ -73,3 +73,48 @@ export function parseCriticalEquipmentFilterParams(params: URLSearchParams): Par
     limit: Number(params.get("top")) || undefined
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Modo de análise (Família x Máquina)                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Estado do modo Máquina na URL — SEPARADO da seleção por família:
+ *
+ *   ?analysisMode=machine&machineId=ZC-SR-G07-MF-0004&year=2026
+ *   ?analysisMode=family&family=Multifio            (o padrão; `analysisMode` é opcional)
+ *
+ * `machineId` (e não `machine`) porque `machine` já é o nível máquina do drill-down
+ * por família: reaproveitar o nome misturaria os dois caminhos analíticos.
+ */
+export const MACHINE_ANALYSIS_PARAM_KEYS = ["analysisMode", "machineId", "year"] as const;
+
+export type MachineAnalysisState = {
+  mode: "FAMILY" | "MACHINE";
+  machineId: string | null;
+  year: number | null;
+};
+
+export const DEFAULT_MACHINE_ANALYSIS: MachineAnalysisState = { mode: "FAMILY", machineId: null, year: null };
+
+export function parseMachineAnalysisState(params: ParamReader): MachineAnalysisState {
+  const mode = clean(params.get("analysisMode"))?.toLowerCase() === "machine" ? "MACHINE" : "FAMILY";
+  if (mode === "FAMILY") return DEFAULT_MACHINE_ANALYSIS;
+  const year = Number(params.get("year"));
+  return {
+    mode,
+    machineId: clean(params.get("machineId")),
+    year: Number.isInteger(year) && year > 2000 && year < 3000 ? year : null
+  };
+}
+
+/** Grava o modo em `params` (removendo o anterior). Modo Família não deixa rastro de máquina. */
+export function writeMachineAnalysisParams(params: URLSearchParams, state: MachineAnalysisState): URLSearchParams {
+  for (const key of MACHINE_ANALYSIS_PARAM_KEYS) params.delete(key);
+  if (state.mode === "MACHINE") {
+    params.set("analysisMode", "machine");
+    if (state.machineId) params.set("machineId", state.machineId);
+    if (state.year) params.set("year", String(state.year));
+  }
+  return params;
+}

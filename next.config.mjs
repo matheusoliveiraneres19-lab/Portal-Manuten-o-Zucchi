@@ -95,7 +95,11 @@ const nextConfig = {
       // A ficha do colaborador (/dashboard/equipe/<id>) saiu junto com o módulo.
       // Quem tiver a URL salva cai no início em vez de num 404 sem explicação.
       { source: "/dashboard/equipe", destination: "/dashboard", permanent: true },
-      { source: "/dashboard/equipe/:path*", destination: "/dashboard", permanent: true }
+      { source: "/dashboard/equipe/:path*", destination: "/dashboard", permanent: true },
+      // A antiga tela de Lubrificantes virou a Análise MRP. Temporário (307) por
+      // enquanto: a rota nova ainda está em validação na branch feat/analise-mrp.
+      // Os dados de lubrificação continuam no banco.
+      { source: "/dashboard/lubrificantes", destination: "/dashboard/analise-mrp", permanent: false }
     ];
   }
 };
